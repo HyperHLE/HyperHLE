@@ -14,6 +14,7 @@
 
 #include "CGAffineTransform.c"
 #import "SyncTester.h"
+#include "AutoReleasePoolTest.m"
 
 // === Declarations ===
 
