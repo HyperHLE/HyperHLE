@@ -20,7 +20,8 @@ unsafe impl SafeRead for pthread_condattr_t {}
 
 #[repr(C, packed)]
 pub struct OpaqueCond {
-    _unused: i32,
+    /// Magic number (must be [MAGIC_COND])
+    magic: u32,
 }
 unsafe impl SafeRead for OpaqueCond {}
 
@@ -51,7 +52,7 @@ pub fn pthread_cond_init(
     attr: ConstPtr<pthread_condattr_t>,
 ) -> i32 {
     assert!(attr.is_null());
-    let opaque = env.mem.alloc_and_write(OpaqueCond { _unused: 0 });
+    let opaque = env.mem.alloc_and_write(OpaqueCond { magic: 0 });
     env.mem.write(cond, opaque);
 
     assert!(!State::get(env).condition_variables.contains_key(&opaque));

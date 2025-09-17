@@ -28,10 +28,10 @@ const MACH_HOST_SELF: host_name_port_t = 0x100c442e;
 // This roughly corresponds to 1.1GB of free vm memory out of 2GB.
 // Used in host_statistics function (returned in vm_statistics)
 // Also used to calcuate PHYSICAL_MEMORY (used by NSProcessInfo)
-const FREE_COUNT: natural_t = 287306;
-const ACTIVE_COUNT: natural_t = 159853;
-const INACTIVE_COUNT: natural_t = 23544;
-const WIRE_COUNT: natural_t = 47539;
+const FREE_COUNT: natural_t = 10000;
+const ACTIVE_COUNT: natural_t = 2500;
+const INACTIVE_COUNT: natural_t = 5000;
+const WIRE_COUNT: natural_t = 1;
 
 pub const PHYSICAL_MEMORY: natural_t =
     (FREE_COUNT + ACTIVE_COUNT + INACTIVE_COUNT + WIRE_COUNT) * PAGE_SIZE;

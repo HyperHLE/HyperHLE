@@ -119,6 +119,46 @@ pub fn pthread_attr_setstacksize(
     env.mem.write(attr, attr_copy);
     0 // success
 }
+
+fn pthread_attr_setinheritsched(
+    _env: &mut Environment,
+    attr: MutPtr<pthread_attr_t>,
+    inheritsched: i32,
+) -> i32 {
+    log_dbg!(
+        "TODO: pthread_setinheritsched({:?}, {})",
+        attr,
+        inheritsched
+    );
+    0
+}
+
+fn pthread_attr_setschedparam(
+    _env: &mut Environment,
+    attr: MutPtr<pthread_attr_t>,
+    param: ConstVoidPtr,
+) -> i32 {
+    log_dbg!(
+        "TODO: pthread_setschedparam({:?}, {:?})",
+        attr,
+        param
+    );
+    0
+}
+
+fn pthread_attr_setschedpolicy(
+    _env: &mut Environment,
+    attr: MutPtr<pthread_attr_t>,
+    policy: i32,
+) -> i32 {
+    log_dbg!(
+        "TODO: pthread_setschedpolicy({:?}, {})",
+        attr,
+        policy
+    );
+    0
+}
+
 fn pthread_attr_destroy(env: &mut Environment, attr: MutPtr<pthread_attr_t>) -> i32 {
     check_magic!(env, attr, MAGIC_ATTR);
     env.mem.write(
@@ -344,4 +384,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pthread_mach_thread_np(_)),
     export_c_func!(pthread_getschedparam(_, _, _)),
     export_c_func!(pthread_setschedparam(_, _, _)),
+    export_c_func!(pthread_attr_setinheritsched(_, _)),
+    export_c_func!(pthread_attr_setschedparam(_, _)),
+    export_c_func!(pthread_attr_setschedpolicy(_, _)),
 ];

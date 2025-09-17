@@ -172,6 +172,7 @@ pub const CGRectZero: CGRect = CGRect {
 };
 
 fn CGRectContainsPoint(_env: &mut Environment, rect: CGRect, point: CGPoint) -> bool {
+    log!("{rect:?} {point:?}");
     rect.origin.x <= point.x
         && rect.origin.x + rect.size.width > point.x
         && rect.origin.y <= point.y

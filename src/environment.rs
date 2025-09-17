@@ -88,6 +88,10 @@ impl std::fmt::Debug for Thread {
     }
 }
 
+// Currently we consider a thread taking 1/3 of a frame (~5.5ms) as 
+// an amount that should cause a warning.
+const COROUTINE_UNACCEPTABLE_TIME: Duration = Duration::from_nanos(5555555);
+
 /// The struct containing the entire emulator state. Methods are provided for
 /// execution and management of threads.
 pub struct Environment {
@@ -123,9 +127,20 @@ pub struct Environment {
     pub dump_file: Option<std::fs::File>,
     pub is_app_picker: bool,
     yielder: *const Yielder<Environment, Environment>,
-    // The amount of ticks to run for Some(value), or single-stepping for None.
-    // Sadly, setting ticks to 1 does not step properly, so Option is required.
+    /// The amount of ticks to run for Some(value), or single-stepping for None.
+    /// Sadly, setting ticks to 1 does not step properly, so Option is required.
     remaining_ticks: Option<u64>,
+    // The length of time that we consider unacceptable for a coroutine to use
+    // without returning to the scheduler. This is set to predefined value
+    // initially, then increases to the maximum amount of time spent in any
+    // single coroutine run.
+    //
+    // This is needed because our threading system is only preemptive for guest
+    // code, and is cooperative for host code. If our host code doesn't
+    // relinquish it's control of the single host thread (either by explicitly
+    // calling env.yield_thread() or implicitly by calling guest code) it
+    // prevents other threads from running, which is not good.
+    coroutine_unacceptable_time: Duration,
     panic_cell: Rc<Cell<Option<Environment>>>,
 }
 
@@ -497,6 +512,7 @@ impl Environment {
             dump_file: None,
             is_app_picker: false,
             yielder: std::ptr::null(),
+            coroutine_unacceptable_time: COROUTINE_UNACCEPTABLE_TIME,
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
         };
@@ -655,6 +671,7 @@ impl Environment {
             dump_file: None,
             is_app_picker: true,
             yielder: std::ptr::null(),
+            coroutine_unacceptable_time: COROUTINE_UNACCEPTABLE_TIME,
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
         };
@@ -714,6 +731,7 @@ impl Environment {
             dump_file: None,
             is_app_picker: true,
             yielder: std::ptr::null(),
+            coroutine_unacceptable_time: Duration::from_secs_f32(0.0),
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
         }
@@ -809,7 +827,7 @@ impl Environment {
         }
     }
 
-    fn stack_trace_current(&self) {
+    pub fn stack_trace_current(&self) {
         if self.current_thread == 0 {
             echo_no_panic!("Attempting to produce stack trace for main thread:");
         } else {
@@ -903,6 +921,7 @@ impl Environment {
         user_data: mem::MutVoidPtr,
         stack_size: GuestUSize,
     ) -> ThreadId {
+        self.stack_trace_all();
         let stack_alloc = self.mem.alloc(stack_size);
         let stack_high_addr = stack_alloc.to_bits() + stack_size;
         assert!(stack_high_addr % 4 == 0);
@@ -1142,9 +1161,13 @@ impl Environment {
             if let Some(w) = self.window.as_mut() {
                 w.on_main_stack = false;
             }
+
+            let start = Instant::now();
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 curr_host_context.resume(self)
             }));
+            let elapsed = start.elapsed();
+
             self = match res {
                 Ok(ret) => match ret {
                     corosensei::CoroutineResult::Yield(env) => env,
@@ -1186,6 +1209,12 @@ impl Environment {
                     std::panic::resume_unwind(e);
                 }
             };
+
+            if elapsed > self.coroutine_unacceptable_time {
+                log!("Coroutine blocked main thread by {:?}", elapsed);
+                self.stack_trace_current();
+                self.coroutine_unacceptable_time = elapsed;
+            }
 
             let mut old_context = if kill_current_thread {
                 log_dbg!("Killing thread {}", self.current_thread);

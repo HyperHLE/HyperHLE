@@ -17,8 +17,8 @@ use crate::libc::mach::thread_info::{kern_return_t, KERN_SUCCESS};
 use crate::libc::semaphore::{sem_destroy, sem_init, sem_post, sem_t, sem_wait};
 use crate::mem::MutPtr;
 
-type task = std::ffi::c_void;
-type task_t = MutPtr<task>;
+pub(super) type task = std::ffi::c_void;
+pub(super) type task_t = MutPtr<task>;
 
 // Opaque type, can be anything we want. Reusing sem_t for convenience
 type semaphore = sem_t;

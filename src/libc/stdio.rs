@@ -51,6 +51,14 @@ impl State {
         mem: &mut Mem,
         file_ptr: MutPtr<FILE>,
     ) -> &mut FILEHostObject {
+        self.try_get_file_host_obj_mut(mem, file_ptr).unwrap()
+    }
+
+    fn try_get_file_host_obj_mut(
+        &mut self,
+        mem: &mut Mem,
+        file_ptr: MutPtr<FILE>,
+    ) -> Option<&mut FILEHostObject> {
         let FILE { fd } = mem.read(file_ptr);
         if matches!(fd, STDIN_FILENO | STDOUT_FILENO | STDERR_FILENO)
             && !self.file_streams.contains_key(&file_ptr)
@@ -63,7 +71,7 @@ impl State {
                 },
             );
         }
-        self.file_streams.get_mut(&file_ptr).unwrap()
+        self.file_streams.get_mut(&file_ptr)
     }
 }
 
@@ -394,7 +402,7 @@ fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
     _ = env
         .libc_state
         .stdio
-        .get_file_host_obj_mut(&mut env.mem, file_ptr);
+        .try_get_file_host_obj_mut(&mut env.mem, file_ptr);
 
     let FILE { fd } = env.mem.read(file_ptr);
     if matches!(fd, STDIN_FILENO | STDOUT_FILENO | STDERR_FILENO) {
@@ -404,7 +412,11 @@ fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
             fd
         );
     }
-    assert!(State::get_mut(env).file_streams.remove(&file_ptr).is_some());
+    // assert!(State::get_mut(env).file_streams.remove(&file_ptr).is_some());
+    if State::get_mut(env).file_streams.remove(&file_ptr).is_none() {
+        // IMM real words for this lol
+        log_dbg!("bad close {file_ptr:?}");
+    }
 
     env.mem.free(file_ptr.cast());
 

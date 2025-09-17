@@ -151,7 +151,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (CGFloat)leading {
     let host_object = env.objc.borrow::<UIFontHostObject>(this);
     let font = env.framework_state.uikit.ui_font.get_font_by_kind(host_object.kind);
-    font.line_gap(host_object.size)
+    // IMM document this hack, and that linegap is not leading
+    let leading = font.ascent(host_object.size) - font.descent(host_object.size) + font.line_gap(host_object.size);
+    log!("{leading}");
+    leading
 }
 
 @end

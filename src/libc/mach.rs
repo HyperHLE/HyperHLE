@@ -12,4 +12,5 @@ pub mod host;
 pub mod init;
 pub mod semaphore;
 pub mod thread_info;
+pub mod task_info;
 pub mod time;
