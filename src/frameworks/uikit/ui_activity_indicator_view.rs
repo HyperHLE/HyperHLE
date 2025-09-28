@@ -22,7 +22,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
-- (bool)isAnimating {
+- (id)isAnimating {
     nil
 }
 
