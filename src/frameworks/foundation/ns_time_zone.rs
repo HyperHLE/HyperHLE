@@ -53,6 +53,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)name {
+    nil
+}
+
 - (NSInteger)secondsFromGMT {
     // TODO: respect timezone
     0
