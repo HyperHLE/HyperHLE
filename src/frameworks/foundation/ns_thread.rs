@@ -41,6 +41,7 @@ struct NSThreadHostObject {
     thread_dictionary: id,
     owned: bool,
     finished: bool,
+    cancelled: bool,
 }
 impl HostObject for NSThreadHostObject {}
 
@@ -58,6 +59,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         thread_dictionary: nil,
         owned: false,
         finished: false,
+        cancelled: false,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -195,6 +197,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<NSThreadHostObject>(this).finished
 }
 
+- (bool)isCancelled {
+    env.objc.borrow::<NSThreadHostObject>(this).cancelled
+}
+
 - (())dealloc {
     log_dbg!("[(NSThread*){:?} dealloc]", this);
     let host_object = env.objc.borrow::<NSThreadHostObject>(this);
@@ -222,7 +228,11 @@ pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: 
     env.objc
         .borrow_mut::<NSThreadHostObject>(ns_thread_obj)
         .finished = true;
-
+    
+    env.objc
+        .borrow_mut::<NSThreadHostObject>(ns_thread_obj)
+        .cancelled = true;
+    
     let &NSThreadHostObject {
         target,
         object,
