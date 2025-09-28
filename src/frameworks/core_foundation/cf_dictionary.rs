@@ -44,13 +44,14 @@ fn CFDictionaryCreateMutable(
 fn CFDictionaryCreate(
     env: &mut Environment,
     allocator: CFAllocatorRef,
+    numValues: CFIndex,
     key_callbacks: ConstPtr<CFDictionaryKeyCallBacks>,
     value_callbacks: ConstPtr<CFDictionaryValueCallBacks>,
-) -> CFMutableDictionaryRef {
+) -> CFDictionaryRef {
     assert_eq!(allocator, kCFAllocatorDefault); // unimplemented
     assert_eq!(capacity, 0); // TODO: fixed capacity support
 
-    let new = msg_class![env; _touchHLE_NSMutableDictionary_non_retaining alloc];
+    let new = msg_class![env; _touchHLE_NSDictionary alloc];
     msg![env; new initWithKeyCallbacks:key_callbacks andValueCallbacks:value_callbacks]
 }
 
@@ -271,7 +272,7 @@ pub const CONSTANTS: ConstantExports = &[
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFDictionaryCreateMutable(_, _, _, _)),
-    export_c_func!(CFDictionaryCreate(_, _, _, _)),
+    export_c_func!(CFDictionaryCreate(_, _, _, _, _, _)),
     export_c_func!(CFDictionaryAddValue(_, _, _)),
     export_c_func!(CFDictionarySetValue(_, _, _)),
     export_c_func!(CFDictionaryRemoveValue(_, _)),
