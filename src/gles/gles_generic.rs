@@ -83,7 +83,6 @@ pub trait GLES {
     unsafe fn EnableClientState(&mut self, array: GLenum);
     unsafe fn DisableClientState(&mut self, array: GLenum);
     unsafe fn GetBooleanv(&mut self, pname: GLenum, params: *mut GLboolean);
-    unsafe fn glGetFixedv(&mut self, pname: GLenum, params: *mut GLboolean);
     unsafe fn GetFloatv(&mut self, pname: GLenum, params: *mut GLfloat);
     unsafe fn GetIntegerv(&mut self, pname: GLenum, params: *mut GLint);
     unsafe fn GetTexEnviv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint);
