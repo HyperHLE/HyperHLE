@@ -7,7 +7,7 @@
 //!
 //! See also [crate::frameworks::uikit::ui_geometry].
 
-use super::{CGFloat, CGRect};
+use super::CGFloat;
 use crate::abi::{impl_GuestRet_for_large_struct, GuestArg};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::mem::SafeRead;
@@ -246,6 +246,7 @@ fn CGRectOffset(
 ) -> CGRect {
     CGRect {
         origin: CGPoint { x, y },
+        size: CGSize { width, height },
     }
 }
 
@@ -259,6 +260,30 @@ pub const CGRectNull: CGRect = CGRect {
 
 fn CGRectIsNull(_env: &mut Environment, rect: CGRect) -> bool {
     rect == CGRectNull
+}
+
+pub const CGRectEmpty: CGRect = CGRect {
+    origin: CGPoint {
+        x: f32::INFINITY,
+        y: f32::INFINITY,
+    },
+    size: CGSizeZero,
+};
+
+fn CGRectIsEmpty(_env: &mut Environment, rect: CGRect) -> bool {
+    rect == CGRectEmpty
+}
+
+pub const CGRectInfinite: CGRect = CGRect {
+    origin: CGPoint {
+        x: f32::INFINITY,
+        y: f32::INFINITY,
+    },
+    size: CGSizeZero,
+};
+
+fn CGRectIsInfinite(_env: &mut Environment, rect: CGRect) -> bool {
+    rect == CGRectInfinite
 }
 
 pub const FUNCTIONS: FunctionExports = &[
@@ -279,6 +304,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGRectMake(_, _, _, _)),
     export_c_func!(CGRectOffset(_, _, _)),
     export_c_func!(CGRectIsNull(_)),
+    export_c_func!(CGRectIsEmpty(_)),
+    export_c_func!(CGRectIsInfinite(_)),
 ];
 
 pub const CONSTANTS: ConstantExports = &[
