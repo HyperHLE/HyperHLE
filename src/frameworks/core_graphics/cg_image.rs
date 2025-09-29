@@ -173,8 +173,8 @@ fn CGImageCreateWithJPEGDataProvider(
     env: &mut Environment,
     source: CGDataProviderRef,
     decode: ConstPtr<CGFloat>,
-    _should_interpolate: bool, // TODO
-    _intent: i32,              // TODO (should be CGColorRenderingIntent)
+    _should_interpolate: bool,       // TODO
+    _intent: CGColorRenderingIntent, // TODO (should be CGColorRenderingIntent)
 ) -> CGImageRef {
     assert!(decode.is_null());
 
