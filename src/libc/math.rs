@@ -474,6 +474,9 @@ fn fminf(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn CFDictionaryCreate(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn glGetFixedv(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -557,4 +560,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fmin(_, _)),
     export_c_func!(fminf(_, _)),
     export_c_func!(CFDictionaryCreate(_, _)),
+    export_c_func!(glGetFixedv(_, _)),
 ];
