@@ -283,7 +283,7 @@ fn CGContextClipToRect(env: &mut Environment, context: CGContextRef, rect: CGRec
         assert!(env
             .objc
             .borrow_mut::<CGContextHostObject>(context)
-            .transform
+            .state.transform
             .is_identity());
         // All good, clipping is not needed!
         return;
