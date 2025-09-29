@@ -7,7 +7,7 @@
 
 use super::cg_affine_transform::CGAffineTransform;
 use super::cg_image::CGImageRef;
-use super::{cg_bitmap_context, CGFloat, CGRect};
+use super::{cg_bitmap_context, CGFloat, CGPoint, CGRect, CGSize};
 use crate::abi::GuestArg;
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
@@ -17,8 +17,13 @@ use crate::frameworks::core_graphics::cg_bitmap_context::{
 use crate::frameworks::core_graphics::cg_geometry::CGPointZero;
 use crate::objc::{objc_classes, ClassExports, HostObject};
 use crate::Environment;
+use crate::frameworks::core_graphics::cg_color::CGColorRef;
+use crate::frameworks::core_graphics::cg_font::{glyphs_at_point, CGFontRef, CGGlyph};
+use crate::mem::{ConstPtr, GuestUSize};
 
 type CGInterpolationQuality = i32;
+pub type CGTextDrawingMode = i32;
+// TODO: find constant values for this enum
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -43,13 +48,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
-pub(super) struct CGContextHostObject {
-    pub(super) subclass: CGContextSubclass,
+#[derive(Copy, Clone)]
+pub(super) struct CGContextState {
     pub(super) rgb_fill_color: (CGFloat, CGFloat, CGFloat, CGFloat),
+    pub(super) rgb_stroke_color: (CGFloat, CGFloat, CGFloat, CGFloat),
+    pub(super) line_width: CGFloat,
     /// Current transform.
     pub(super) transform: CGAffineTransform,
+    pub(super) font_size: CGFloat,
+    pub(super) text_font: CGFontRef,
+    pub(super) text_drawing_mode: CGTextDrawingMode,
+    pub(super) shadow_offset: CGSize,
+    pub(super) shadow_blur: CGFloat,
+    pub(super) shadow_color: CGColorRef,
+}
+
+pub(super) struct CGContextHostObject {
+    pub(super) subclass: CGContextSubclass,
+    pub(super) state: CGContextState,
     // TODO: keep more states saved once they are implemented
-    pub(super) state_stack: Vec<((CGFloat, CGFloat, CGFloat, CGFloat), CGAffineTransform)>,
+    pub(super) state_stack: Vec<CGContextState>,
+    // TODO: according to documentation these aren't part of state and aren't affected by pop/push, check if true?
+    pub(super) text_matrix: CGAffineTransform,
     pub(super) alpha: CGFloat,
     pub(super) blend_mode: CGBlendMode,
 }
@@ -137,6 +157,7 @@ pub fn CGContextSetRGBFillColor(
     let color = (red, green, blue, alpha);
     env.objc
         .borrow_mut::<CGContextHostObject>(context)
+        .state
         .rgb_fill_color = color;
 }
 
@@ -149,6 +170,7 @@ fn CGContextSetGrayFillColor(
     let color = (gray, gray, gray, alpha);
     env.objc
         .borrow_mut::<CGContextHostObject>(context)
+        .state
         .rgb_fill_color = color;
 }
 
@@ -167,22 +189,22 @@ pub fn CGContextConcatCTM(
 ) {
     log_dbg!("CGContextConcatCTM({:?})", transform);
     let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
-    host_obj.transform = transform.concat(host_obj.transform);
+    host_obj.state.transform = transform.concat(host_obj.state.transform);
 }
 pub fn CGContextGetCTM(env: &mut Environment, context: CGContextRef) -> CGAffineTransform {
-    let res = env.objc.borrow::<CGContextHostObject>(context).transform;
+    let res = env.objc.borrow::<CGContextHostObject>(context).state.transform;
     log_dbg!("CGContextGetCTM() => {:?}", res);
     res
 }
 pub fn CGContextRotateCTM(env: &mut Environment, context: CGContextRef, angle: CGFloat) {
     log_dbg!("CGContextRotateCTM({:?})", angle);
     let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
-    host_obj.transform = host_obj.transform.rotate(angle);
+    host_obj.state.transform = host_obj.state.transform.rotate(angle);
 }
 pub fn CGContextScaleCTM(env: &mut Environment, context: CGContextRef, x: CGFloat, y: CGFloat) {
     log_dbg!("CGContextScaleCTM({:?})", (x, y));
     let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
-    host_obj.transform = host_obj.transform.scale(x, y);
+    host_obj.state.transform = host_obj.state.transform.scale(x, y);
 }
 pub fn CGContextTranslateCTM(
     env: &mut Environment,
@@ -192,7 +214,7 @@ pub fn CGContextTranslateCTM(
 ) {
     log_dbg!("CGContextTranslateCTM({:?})", (tx, ty));
     let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
-    host_obj.transform = host_obj.transform.translate(tx, ty);
+    host_obj.state.transform = host_obj.state.transform.translate(tx, ty);
 }
 
 pub fn CGContextDrawImage(
@@ -208,14 +230,13 @@ fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
     let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
     host_obj
         .state_stack
-        .push((host_obj.rgb_fill_color, host_obj.transform));
+        .push(host_obj.state);
 }
 
 fn CGContextRestoreGState(env: &mut Environment, context: CGContextRef) {
     let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
     let state = host_obj.state_stack.pop().unwrap();
-    host_obj.rgb_fill_color = state.0;
-    host_obj.transform = state.1;
+    host_obj.state = state;
 }
 
 fn CGContextSetInterpolationQuality(
@@ -278,6 +299,71 @@ pub fn CGContextSelectFont(
     cg_bitmap_context::draw_image(env, context, rect, image);
 }
 
+pub fn CGContextGetClipBoundingBox(
+    _env: &mut Environment,
+    _context: CGContextRef,
+) -> CGRect {
+    CGRect::default()
+}
+
+pub fn CGContextSetTextMatrix(env: &mut Environment, context: CGContextRef, matrix: CGAffineTransform) {
+    env.objc.borrow_mut::<CGContextHostObject>(context).text_matrix = matrix;
+}
+
+pub fn CGContextSetFont(env: &mut Environment, context: CGContextRef, font: CGFontRef) {
+    env.objc.borrow_mut::<CGContextHostObject>(context).state.text_font = font;
+}
+
+pub fn CGContextSetFontSize(env: &mut Environment, context: CGContextRef, font_size: CGFloat) {
+    env.objc.borrow_mut::<CGContextHostObject>(context).state.font_size = font_size;
+}
+
+pub fn CGContextSetTextDrawingMode(env: &mut Environment, context: CGContextRef, mode: CGTextDrawingMode) {
+    env.objc.borrow_mut::<CGContextHostObject>(context).state.text_drawing_mode = mode;
+}
+
+pub fn CGContextSetShadowWithColor(env: &mut Environment, context: CGContextRef, offset: CGSize, blur: CGFloat, color: CGColorRef) {
+    env.objc.borrow_mut::<CGContextHostObject>(context).state.shadow_offset = offset;
+    env.objc.borrow_mut::<CGContextHostObject>(context).state.shadow_blur = blur;
+    env.objc.borrow_mut::<CGContextHostObject>(context).state.shadow_color = color;
+}
+
+pub fn CGContextShowGlyphsAtPoint(env: &mut Environment, context: CGContextRef, x: CGFloat, y: CGFloat, glyphs: ConstPtr<CGGlyph>, count: GuestUSize) {
+    let context = env.objc.borrow::<CGContextHostObject>(context);
+    let glyphs = (0..count).map(|i| (glyphs+i, env.mem.read(glyphs+i))).collect::<Vec<(ConstPtr<CGGlyph>, CGGlyph)>>();
+    let glyphs = glyphs.iter().map(|(_, glyph)| *(glyph) as u8 as char).collect::<Vec<char>>();
+    let text: String = glyphs.into_iter().collect();
+    glyphs_at_point(env, context.state.text_font, &text, CGPoint {
+        x, y
+    })
+}
+
+pub fn CGContextSetLineWidth(
+    env: &mut Environment,
+    context: CGContextRef,
+    line_width: CGFloat,
+) {
+    env.objc
+        .borrow_mut::<CGContextHostObject>(context)
+        .state
+        .line_width = line_width;
+}
+
+pub fn CGContextSetRGBStrokeColor(
+    env: &mut Environment,
+    context: CGContextRef,
+    red: CGFloat,
+    green: CGFloat,
+    blue: CGFloat,
+    alpha: CGFloat,
+) {
+    let color = (red, green, blue, alpha);
+    env.objc
+        .borrow_mut::<CGContextHostObject>(context)
+        .state
+        .rgb_stroke_color = color;
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextRetain(_)),
     export_c_func!(CGContextRelease(_)),
@@ -299,4 +385,13 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextGetUserSpaceToDeviceSpaceTransform(_)),
     export_c_func!(CGContextClipToRect(_, _)),
     export_c_func!(CGContextSelectFont(_, _, _)),
+    export_c_func!(CGContextGetClipBoundingBox(_)),
+    export_c_func!(CGContextSetTextMatrix(_, _)),
+    export_c_func!(CGContextSetFont(_, _)),
+    export_c_func!(CGContextSetFontSize(_, _)),
+    export_c_func!(CGContextSetTextDrawingMode(_, _)),
+    export_c_func!(CGContextSetShadowWithColor(_, _, _, _)),
+    export_c_func!(CGContextShowGlyphsAtPoint(_, _, _, _, _)),
+    export_c_func!(CGContextSetLineWidth(_, _)),
+    export_c_func!(CGContextSetRGBStrokeColor(_, _, _, _, _)),
 ];
