@@ -16,7 +16,6 @@ use crate::{export_c_func, impl_HostObject_with_superclass, msg_super};
 use crate::environment::Environment;
 use crate::frameworks::core_foundation::cf_string::CFStringRef;
 use crate::frameworks::core_graphics::CGFloat;
-use crate::libc::mach_time::mach_absolute_time;
 use crate::mem::MutPtr;
 
 type CATransitionType = id; // NSString*
@@ -312,7 +311,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 };
 
 fn CACurrentMediaTime(env: &mut Environment) -> CFTimeInterval {
-    mach_absolute_time(env) as f64 / 1e9f64
+    0
 }
 
 pub const FUNCTIONS: FunctionExports = &[
