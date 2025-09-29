@@ -9,7 +9,7 @@ use super::cg_affine_transform::{CGAffineTransform, CGAffineTransformIdentity};
 use super::cg_color_space::{
     kCGColorSpaceGenericGray, kCGColorSpaceGenericRGB, CGColorSpaceHostObject, CGColorSpaceRef,
 };
-use super::cg_context::{CGContextHostObject, CGContextRef, CGContextSubclass};
+use super::cg_context::{CGBlendMode, CGContextHostObject, CGContextRef, CGContextSubclass};
 use super::cg_image::{
     self, kCGBitmapAlphaInfoMask, kCGBitmapByteOrderMask, kCGImageAlphaFirst, kCGImageAlphaLast,
     kCGImageAlphaNone, kCGImageAlphaNoneSkipFirst, kCGImageAlphaNoneSkipLast, kCGImageAlphaOnly,
@@ -86,6 +86,8 @@ pub fn CGBitmapContextCreate(
             rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
             rgb_stroke_color: (0.0, 0.0, 0.0, 0.0),
             transform: CGAffineTransformIdentity,
+            alpha: 1.0,
+            blend_mode: CGBlendMode::Normal,
             line_width: 1.0,
             text_font: nil,
             font_size: 1.0,
