@@ -57,6 +57,11 @@ fn get_preferred_languages(env: &mut Environment) -> Vec<String> {
 }
 
 fn get_preferred_countries(env: &mut Environment) -> Vec<String> {
+    if env
+        .bundle
+        .bundle_identifier()
+        .starts_with("com.ea.causeofdeath")
+    {
     // Unfortunately Rust-SDL2 doesn't provide a wrapper for this yet.
     let mut countries = Vec::new();
 
@@ -69,9 +74,11 @@ fn get_preferred_countries(env: &mut Environment) -> Vec<String> {
     }
 
     if countries.is_empty() {
+        // TODO Cause of Death crashes with non-US countries? Check on real device.
         let country = "US".to_string();
-        log!("The app requested your current locale. No country information could be retrieved, so {:?} will be reported.", country);
-        vec![country]
+        log!("The app requested your current locale. {:?} will be reported.", country);
+        return vec![country];
+    }
     } else {
         log!("The app requested your current locale. {:?} will be reported based on your system region settings.", countries);
         countries
@@ -190,7 +197,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)objectForKey:(id)key {
-    let key_str: &str = &ns_string::to_rust_string(env, key);
+    let key_str: &str = if key.is_null() {
+        NSLocaleCountryCode
+    } else {
+        &ns_string::to_rust_string(env, key)
+    };
     match key_str {
         // Note: this is not the cleanest separation between NS and CF parts
         // But it does work on the iOS Simulator
