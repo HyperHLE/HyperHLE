@@ -243,6 +243,8 @@ fn CGRectOffset(
     rect: CGRect,
     x: CGFloat,
     y: CGFloat,
+    width: CGFloat,
+    height: CGFloat,
 ) -> CGRect {
     CGRect {
         origin: CGPoint { x, y },
@@ -302,7 +304,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGRectGetHeight(_)),
     export_c_func!(CGRectGetWidth(_)),
     export_c_func!(CGRectMake(_, _, _, _)),
-    export_c_func!(CGRectOffset(_, _, _)),
+    export_c_func!(CGRectOffset(_, _, _, _, _)),
     export_c_func!(CGRectIsNull(_)),
     export_c_func!(CGRectIsEmpty(_)),
     export_c_func!(CGRectIsInfinite(_)),
