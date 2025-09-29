@@ -7,7 +7,7 @@
 
 use super::cg_affine_transform::CGAffineTransform;
 use super::cg_image::CGImageRef;
-use super::{cg_bitmap_context, CGFloat, CGRect};
+use super::{cg_bitmap_context, CGFloat, CGRect, CGSize, CGTextEncoding};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
 use crate::frameworks::core_graphics::cg_bitmap_context::{
@@ -165,6 +165,15 @@ pub fn CGContextDrawImage(
     cg_bitmap_context::draw_image(env, context, rect, image);
 }
 
+pub fn CGContextSelectFont(
+    env: &mut Environment,
+    context: CGContextRef,
+    size: CGSize,
+    textEncoding: CGTextEncoding,
+) {
+    cg_bitmap_context::select_font(env, context, size, textEncoding);
+}
+
 fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
     let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
     host_obj
@@ -205,6 +214,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextScaleCTM(_, _, _)),
     export_c_func!(CGContextTranslateCTM(_, _, _)),
     export_c_func!(CGContextDrawImage(_, _, _)),
+    export_c_func!(CGContextSelectFont(_, _, _)),
     export_c_func!(CGContextSaveGState(_)),
     export_c_func!(CGContextRestoreGState(_)),
     export_c_func!(CGContextSetInterpolationQuality(_, _)),
