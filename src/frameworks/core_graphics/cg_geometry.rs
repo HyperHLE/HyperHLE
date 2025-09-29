@@ -325,4 +325,12 @@ pub const CONSTANTS: ConstantExports = &[
         "_CGRectNull",
         HostConstant::Custom(|env| env.mem.alloc_and_write(CGRectNull).cast().cast_const()),
     ),
+    (
+        "_CGRectEmpty",
+        HostConstant::Custom(|env| env.mem.alloc_and_write(CGRectEmpty).cast().cast_const()),
+    ),
+    (
+        "_CGRectInfinite",
+        HostConstant::Custom(|env| env.mem.alloc_and_write(CGRectInfinite).cast().cast_const()),
+    ),
 ];
