@@ -166,6 +166,12 @@ fn glDisable(env: &mut Environment, cap: GLenum) {
         unsafe { gles.Disable(cap) };
     });
 }
+fn glGetFixedv(env: &mut Environment, pname: GLenum, params: MutPtr<GLboolean>) {
+    with_ctx_and_mem(env, |gles, mem| {
+        let params = mem.ptr_at_mut(params, 16 /* upper bound */);
+        unsafe { gles.GetFixedv(pname, params) };
+    });
+}
 fn glClientActiveTexture(env: &mut Environment, texture: GLenum) {
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.ClientActiveTexture(texture)
@@ -1442,6 +1448,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glEnableClientState(_)),
     export_c_func!(glDisableClientState(_)),
     export_c_func!(glGetBooleanv(_, _)),
+    export_c_func!(glGetFixedv(_, _)),
     export_c_func!(glGetFloatv(_, _)),
     export_c_func!(glGetIntegerv(_, _)),
     export_c_func!(glGetPointerv(_, _)),
