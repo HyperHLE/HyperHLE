@@ -223,7 +223,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGDataProviderRetain(_)),
     export_c_func!(CGDataProviderRelease(_)),
     export_c_func!(CGDataProviderCreateWithData(_, _, _, _)),
-        export_c_func!(CGDataProviderCreateWithFilename(_)),
+    export_c_func!(CGDataProviderCreateWithFilename(_)),
     export_c_func!(CGDataProviderCopyData(_)),
     export_c_func!(CGDataProviderCreateWithURL(_)),
     export_c_func!(CGDataProviderCreateWithCFData(_)),
