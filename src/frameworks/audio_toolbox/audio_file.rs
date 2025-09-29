@@ -56,6 +56,9 @@ pub const kAudioFileReadPermission: AudioFilePermissions = 1;
 /// Usually a FourCC.
 type AudioFileTypeID = u32;
 const kAudioFileCAFType: AudioFileTypeID = fourcc(b"caff");
+const kAudioFileAIFFType: AudioFileTypeID = fourcc(b"aiff");
+const kAudioFileAIFCType: AudioFileTypeID = fourcc(b"aifc");
+const kAudioFileWAVEType: AudioFileTypeID = fourcc(b"wave");
 
 /// Usually a FourCC.
 type AudioFilePropertyID = u32;
@@ -85,6 +88,15 @@ pub fn AudioFileOpenURL(
         0 => {}
         kAudioFileCAFType => {
             log!("Ignoring 'caff' file type hint for AudioFileOpenURL()");
+        }
+        kAudioFileAIFFType => {
+            log!("Ignoring 'aiff' file type hint for AudioFileOpenURL()");
+        }
+        kAudioFileAIFCType => {
+            log!("Ignoring 'aifc' file type hint for AudioFileOpenURL()");
+        }
+        kAudioFileWAVEType => {
+            log!("Ignoring 'wave' file type hint for AudioFileOpenURL()");
         }
         _ => unimplemented!(),
     }
