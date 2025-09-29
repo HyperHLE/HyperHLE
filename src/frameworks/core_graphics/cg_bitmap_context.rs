@@ -9,7 +9,7 @@ use super::cg_affine_transform::{CGAffineTransform, CGAffineTransformIdentity};
 use super::cg_color_space::{
     kCGColorSpaceGenericGray, kCGColorSpaceGenericRGB, CGColorSpaceHostObject, CGColorSpaceRef,
 };
-use super::cg_context::{CGBlendMode, CGContextHostObject, CGContextRef, CGContextState, CGContextSubclass};
+use super::cg_context::{CGContextHostObject, CGContextRef, CGContextState, CGContextSubclass};
 use super::cg_image::{
     self, kCGBitmapAlphaInfoMask, kCGBitmapByteOrderMask, kCGImageAlphaFirst, kCGImageAlphaLast,
     kCGImageAlphaNone, kCGImageAlphaNoneSkipFirst, kCGImageAlphaNoneSkipLast, kCGImageAlphaOnly,
@@ -80,8 +80,6 @@ pub fn CGBitmapContextCreate(
             bytes_per_row,
             color_space,
             alpha_info: bitmap_info & kCGBitmapAlphaInfoMask,
-            alpha: 1.0,
-            blend_mode: CGBlendMode::Normal,
         }),
         // TODO: is this the correct default?
         state: CGContextState {
