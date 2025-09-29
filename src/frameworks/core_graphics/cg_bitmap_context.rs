@@ -80,14 +80,14 @@ pub fn CGBitmapContextCreate(
             bytes_per_row,
             color_space,
             alpha_info: bitmap_info & kCGBitmapAlphaInfoMask,
+            alpha: 1.0,
+            blend_mode: CGBlendMode::Normal,
         }),
         // TODO: is this the correct default?
         state: CGContextState {
             rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
             rgb_stroke_color: (0.0, 0.0, 0.0, 0.0),
             transform: CGAffineTransformIdentity,
-            alpha: 1.0,
-            blend_mode: CGBlendMode::Normal,
             line_width: 1.0,
             text_font: nil,
             font_size: 1.0,
