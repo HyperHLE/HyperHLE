@@ -730,7 +730,11 @@ impl GLES for GLES1OnGL2<'_> {
         assert!(type_ == ParamType::Boolean);
         gl21::GetBooleanv(pname, params);
     }
-    // TODO: GetFixedv
+    unsafe fn GetFixedv(&mut self, pname: GLenum, params: *mut GLboolean) {
+        let (type_, _count) = GET_PARAMS.get_type_info(pname);
+        // TODO: type conversion
+        gl21::GetFixedv(pname, params);
+    }
     unsafe fn GetFloatv(&mut self, pname: GLenum, params: *mut GLfloat) {
         let (type_, _count) = GET_PARAMS.get_type_info(pname);
         // TODO: type conversion
