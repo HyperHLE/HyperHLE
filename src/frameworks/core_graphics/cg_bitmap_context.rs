@@ -20,8 +20,9 @@ use super::{CGFloat, CGPoint, CGRect};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::image::{gamma_decode, gamma_encode, Image};
 use crate::mem::{GuestUSize, Mem, MutVoidPtr};
-use crate::objc::ObjC;
+use crate::objc::{nil, ObjC};
 use crate::Environment;
+use crate::frameworks::core_graphics::cg_geometry::CGSizeZero;
 
 #[derive(Copy, Clone)]
 pub(super) struct CGBitmapContextData {
@@ -81,9 +82,20 @@ pub fn CGBitmapContextCreate(
             alpha_info: bitmap_info & kCGBitmapAlphaInfoMask,
         }),
         // TODO: is this the correct default?
-        rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
-        transform: CGAffineTransformIdentity,
+        state: CGContextState {
+            rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
+            rgb_stroke_color: (0.0, 0.0, 0.0, 0.0),
+            transform: CGAffineTransformIdentity,
+            line_width: 1.0,
+            text_font: nil,
+            font_size: 1.0,
+            text_drawing_mode: 0,
+            shadow_blur: 0.0,
+            shadow_color: nil,
+            shadow_offset: CGSizeZero,
+        },
         state_stack: Vec::new(),
+        text_matrix: CGAffineTransformIdentity,
     };
     let isa = env
         .objc
@@ -139,7 +151,7 @@ pub fn CGBitmapContextCreateImage(env: &mut Environment, context: CGContextRef) 
         .to_vec();
     cg_image::from_image(
         env,
-        Image::from_pixel_vec(pixels, (bitmap_data.width, bitmap_data.height)),
+        Image::from_pixel_vec(pixels, (bitmap_data.width, bitmap_data.height), 4),
     )
 }
 
@@ -362,6 +374,7 @@ pub struct CGBitmapContextDrawer<'a> {
     bitmap_info: CGBitmapContextData,
     rgb_fill_color: (CGFloat, CGFloat, CGFloat, CGFloat),
     transform: CGAffineTransform,
+    line_width: CGFloat,
     pixels: &'a mut [u8],
 }
 impl CGBitmapContextDrawer<'_> {
@@ -372,9 +385,19 @@ impl CGBitmapContextDrawer<'_> {
     ) -> CGBitmapContextDrawer<'a> {
         let &CGContextHostObject {
             subclass: CGContextSubclass::CGBitmapContext(bitmap_info),
-            rgb_fill_color,
-            transform,
-            ..
+            state: CGContextState {
+                rgb_fill_color,
+                rgb_stroke_color: _,
+                transform,
+                line_width,
+                font_size: _,
+                text_font: _,
+                text_drawing_mode: _,
+                shadow_offset: _,
+                shadow_color: _,
+                shadow_blur: _,
+            },
+        ..
         } = objc.borrow(context);
 
         let pixels = get_pixels(&bitmap_info, mem);
@@ -383,6 +406,7 @@ impl CGBitmapContextDrawer<'_> {
             bitmap_info,
             rgb_fill_color,
             transform,
+            line_width,
             pixels,
         }
     }
@@ -490,6 +514,7 @@ fn test_iter_transformed_pixels() {
             },
             rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
             transform,
+            line_width: 1.0,
             pixels: &mut [],
         }
     }
