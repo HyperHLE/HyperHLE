@@ -136,6 +136,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     true
 }
 
+- (NSInteger)applicationIconBadgeNumber {
+    log!("TODO: ignoring applicationIconBadgeNumber");
+    0
+}
+
+- (())setApplicationSupportsShakeToEdit:(bool)enable {
+    log!("TODO: ignoring setApplicationSupportsShakeToEdit:{}",enable);
+}
+
 // TODO: ignore touches
 -(())beginIgnoringInteractionEvents {
     log!("TODO: ignoring beginIgnoringInteractionEvents");
