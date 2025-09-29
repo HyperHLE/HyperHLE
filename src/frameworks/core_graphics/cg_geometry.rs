@@ -240,7 +240,7 @@ fn CGRectMake(
 
 fn CGRectOffset(
     _env: &mut Environment,
-    rect: CGRect,
+    _rect: CGRect,
     x: CGFloat,
     y: CGFloat,
     width: CGFloat,
