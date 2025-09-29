@@ -7,7 +7,7 @@
 //! very long and frequently-updated list.
 
 use crate::frameworks::{
-    audio_toolbox, core_foundation, core_graphics, dnssd, foundation, openal, opengles,
+    audio_toolbox, core_animation, core_foundation, core_graphics, dnssd, foundation, openal, opengles,
     system_configuration, uikit,
 };
 use crate::libc;
@@ -89,6 +89,9 @@ pub const FUNCTION_LISTS: &[super::FunctionExports] = &[
     core_graphics::cg_data_provider::FUNCTIONS,
     core_graphics::cg_geometry::FUNCTIONS,
     core_graphics::cg_image::FUNCTIONS,
+    core_graphics::cg_font::FUNCTIONS,
+    core_animation::ca_transform::FUNCTIONS,
+    core_animation::ca_animation::FUNCTIONS,
     dnssd::FUNCTIONS,
     foundation::FUNCTIONS,
     foundation::ns_exception::FUNCTIONS,
