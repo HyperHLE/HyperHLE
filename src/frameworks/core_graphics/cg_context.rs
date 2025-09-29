@@ -7,7 +7,7 @@
 
 use super::cg_affine_transform::CGAffineTransform;
 use super::cg_image::CGImageRef;
-use super::{cg_bitmap_context, CGFloat, CGRect, CGSize};
+use super::{cg_bitmap_context, CGFloat, CGRect};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
 use crate::frameworks::core_graphics::cg_bitmap_context::{
@@ -168,10 +168,10 @@ pub fn CGContextDrawImage(
 pub fn CGContextSelectFont(
     env: &mut Environment,
     context: CGContextRef,
-    size: CGSize,
     rect: CGRect,
+    image: CGImageRef,
 ) {
-    cg_bitmap_context::draw_image(env, context, size, rect);
+    cg_bitmap_context::draw_image(env, context, rect, image);
 }
 
 fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
