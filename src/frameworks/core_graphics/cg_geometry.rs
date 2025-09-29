@@ -7,7 +7,7 @@
 //!
 //! See also [crate::frameworks::uikit::ui_geometry].
 
-use super::CGFloat;
+use super::{CGFloat, CGRect};
 use crate::abi::{impl_GuestRet_for_large_struct, GuestArg};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::mem::SafeRead;
@@ -186,7 +186,7 @@ fn CGRectIntersectsRect(_env: &mut Environment, rect1: CGRect, rect2: CGRect) ->
             <= (rect1.origin.y + rect1.size.height).min(rect2.origin.y + rect2.size.height)
 }
 
-fn CGRectIntersection(_env: &mut Environment, rect1: CGRect, rect2: CGRect) -> CGRect {
+fn CGRectIntersection(_env: &mut Environment, rect1: CGRect, rect2: CGRect) -> bool {
     rect1.origin.x.max(rect2.origin.x)
         <= (rect1.origin.x + rect1.size.width).min(rect2.origin.x + rect2.size.width)
         && rect1.origin.y.max(rect2.origin.y)
@@ -238,6 +238,17 @@ fn CGRectMake(
     }
 }
 
+fn CGRectOffset(
+    _env: &mut Environment,
+    rect: CGRect,
+    x: CGFloat,
+    y: CGFloat,
+) -> CGRect {
+    CGRect {
+        origin: CGPoint { x, y },
+    }
+}
+
 pub const CGRectNull: CGRect = CGRect {
     origin: CGPoint {
         x: f32::INFINITY,
@@ -266,6 +277,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGRectGetHeight(_)),
     export_c_func!(CGRectGetWidth(_)),
     export_c_func!(CGRectMake(_, _, _, _)),
+    export_c_func!(CGRectOffset(_, _, _)),
     export_c_func!(CGRectIsNull(_)),
 ];
 
