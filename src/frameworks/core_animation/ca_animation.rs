@@ -24,14 +24,7 @@ const kCATransitionMoveIn: &str = "kCATransitionMoveIn";
 const kCATransitionPush: &str = "kCATransitionPush";
 const kCATransitionReveal: &str = "kCATransitionReveal";
 
-type CAAnimationCalculationModeType = id;
-const kCAAnimationLinear: &str = "kCAAnimationLinear";
-
-type CAMediaTimingFillModeType = id;
-const kCAFillModeBoth: &str = "kCAFillModeBoth";
-const kCAFillModeForwards: &str = "kCAFillModeForwards";
-
-/// Constant values.
+/// `CATransitionType` values.
 pub const CONSTANTS: ConstantExports = &[
     (
         "_kCATransitionFade",
@@ -49,18 +42,6 @@ pub const CONSTANTS: ConstantExports = &[
         "_kCATransitionReveal",
         HostConstant::NSString(kCATransitionReveal),
     ),
-    (
-        "_kCAAnimationLinear",
-        HostConstant::NSString(kCAAnimationLinear),
-    ),
-    (
-        "_kCAFillModeBoth",
-        HostConstant::NSString(kCAFillModeBoth),
-    ),
-    (
-        "_kCAFillModeForwards",
-        HostConstant::NSString(kCAFillModeForwards),
-    ),
 ];
 
 #[derive(Default)]
@@ -71,8 +52,8 @@ struct CAAnimationHostObject {
     repeat_count: f32,
     duration: CFTimeInterval,
     is_removed_on_completion: bool,
-    fill_mode: CAMediaTimingFillModeType,
-    calculation_mode: CAAnimationCalculationModeType,
+    fill_mode: CFStringRef,
+    calculation_mode: CFStringRef,
 }
 impl HostObject for CAAnimationHostObject {}
 
@@ -155,17 +136,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<CAAnimationHostObject>(this).is_removed_on_completion
 }
 
-- (())setFillMode:(CAMediaTimingFillModeType)mode {
+- (())setFillMode:(CFStringRef)mode {
     env.objc.borrow_mut::<CAAnimationHostObject>(this).fill_mode = mode
 }
-- (CAMediaTimingFillModeType)fillMode {
+- (CFStringRef)fillMode {
     env.objc.borrow::<CAAnimationHostObject>(this).fill_mode
 }
 
-- (())setCalculationMode:(CAAnimationCalculationModeType)mode {
+- (())setCalculationMode:(CFStringRef)mode {
     env.objc.borrow_mut::<CAAnimationHostObject>(this).calculation_mode = mode
 }
-- (CAAnimationCalculationModeType)calculationMode {
+- (CFStringRef)calculationMode {
     env.objc.borrow::<CAAnimationHostObject>(this).calculation_mode
 }
 
@@ -311,7 +292,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 };
 
 fn CACurrentMediaTime(env: &mut Environment) -> CFTimeInterval {
-    0
+    0.0
 }
 
 pub const FUNCTIONS: FunctionExports = &[
