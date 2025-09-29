@@ -9,7 +9,7 @@ use super::ns_string::from_rust_ordering;
 use super::{NSComparisonResult, NSTimeInterval};
 use crate::frameworks::core_foundation::time::{apple_epoch, SECS_FROM_UNIX_TO_APPLE_EPOCHS};
 use crate::objc::{
-    autorelease, id, msg, msg_class, objc_classes, release, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
 };
 
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_date;
@@ -100,8 +100,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
-    let host_object = Box::<NSDateHostObject>::default();
-    env.objc.alloc_object(this, host_object, &mut env.mem)
+    retain(env, this)
 }
 
 - (id)init {
