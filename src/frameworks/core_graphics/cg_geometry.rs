@@ -186,6 +186,13 @@ fn CGRectIntersectsRect(_env: &mut Environment, rect1: CGRect, rect2: CGRect) ->
             <= (rect1.origin.y + rect1.size.height).min(rect2.origin.y + rect2.size.height)
 }
 
+fn CGRectIntersection(_env: &mut Environment, rect1: CGRect, rect2: CGRect) -> CGRect {
+    rect1.origin.x.max(rect2.origin.x)
+        <= (rect1.origin.x + rect1.size.width).min(rect2.origin.x + rect2.size.width)
+        && rect1.origin.y.max(rect2.origin.y)
+            <= (rect1.origin.y + rect1.size.height).min(rect2.origin.y + rect2.size.height)
+}
+
 fn CGRectGetMidX(_env: &mut Environment, rect: CGRect) -> CGFloat {
     rect.origin.x
 }
@@ -249,6 +256,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGRectEqualToRect(_, _)),
     export_c_func!(CGRectContainsPoint(_, _)),
     export_c_func!(CGRectIntersectsRect(_, _)),
+    export_c_func!(CGRectIntersection(_, _)),
     export_c_func!(CGRectGetMidX(_)),
     export_c_func!(CGRectGetMinX(_)),
     export_c_func!(CGRectGetMaxX(_)),
