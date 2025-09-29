@@ -293,6 +293,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setShowsTouchWhenHighlighted:(bool)shows {
     log!("TODO: [(UIButton*){:?} setShowsTouchWhenHighlighted:{}]", this, shows);
 }
+
+- (())setImageEdgeInsets:(CGRect)rect {
+    log!("setImageEdgeInsets: {:?}", rect);
+}
+
 - (())setFont:(id)font { // UIFont*
     let label = env.objc.borrow_mut::<UIButtonHostObject>(this).title_label;
     () = msg![env; label setFont:font];
