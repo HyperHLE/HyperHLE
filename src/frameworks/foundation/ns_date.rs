@@ -98,6 +98,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+// NSCopying implementation
+- (id)copyWithZone:(NSZonePtr)_zone {
+    let host_object = Box::<NSDateHostObject>::default();
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
 - (id)init {
     // "Date objects are immutable, representing an invariant time interval
     // relative to an absolute reference date (00:00:00 UTC on 1 January 2001)."
