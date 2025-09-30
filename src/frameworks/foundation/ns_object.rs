@@ -115,6 +115,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)methodForSelector:(SEL)sel {
+    let sig = *env.objc.class_get_method_signature(this, sel).unwrap();
+    log_dbg!("methodForSelector: '{}' -> {:?}", sel.as_str(&env.mem), env.mem.cstr_at_utf8(sig));
+    msg_class![env; NSMethodSignature signatureWithObjCTypes:sig]
+}
+
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
     env.objc.dealloc_object(this, &mut env.mem)
