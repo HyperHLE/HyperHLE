@@ -548,7 +548,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(roundf(_)),
     export_c_func!(lround(_)),
     export_c_func!(lroundf(_)),
-    export_c_func!(hypot(_, _,)),
+    export_c_func!(hypot(_, _)),
     export_c_func!(hypotf(_, _)),
     export_c_func!(trunc(_)),
     export_c_func!(truncf(_)),
