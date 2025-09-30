@@ -427,12 +427,22 @@ fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
     }
 }
 
-fn ferror(env: &mut Environment, _file_ptr: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
-    set_errno(env, 0);
-
-    log!("TODO: ferror() support.");
-    0
+fn ferror(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
+    let file = unsafe { file_ptr.as_ref() };
+    match file {
+        Some(f) => {
+            if f.error {
+                1 // Error has occurred
+            } else {
+                0 // No error
+            }
+        }
+        None => {
+            // Invalid pointer? Shouldn't happen in C usage, but might in yours
+            set_errno(env, libc::EINVAL); // or some other errno
+            0
+        }
+    }
 }
 
 fn fsetpos(env: &mut Environment, file_ptr: MutPtr<FILE>, pos: ConstPtr<fpos_t>) -> i32 {
@@ -551,8 +561,13 @@ fn setbuf(env: &mut Environment, stream: MutPtr<FILE>, buf: ConstPtr<u8>) {
 // POSIX-specific functions
 
 fn fileno(env: &mut Environment, file_ptr: MutPtr<FILE>) -> posix_io::FileDescriptor {
-    let FILE { fd } = env.mem.read(file_ptr);
-    fd
+    match env.mem.read_opt(file_ptr) {
+        Some(FILE { fd }) => fd,
+        None => {
+            set_errno(env, libc::EBADF); // Bad file descriptor
+            -1 // or return a sentinel FileDescriptor if it's wrapped
+        }
+    }
 }
 
 pub const CONSTANTS: ConstantExports = &[
