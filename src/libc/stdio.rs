@@ -16,6 +16,7 @@ use crate::libc::string::strlen;
 use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize, Mem, MutPtr, MutVoidPtr, Ptr, SafeRead};
 use crate::Environment;
 
+use sdl2::libc;
 use std::collections::HashMap;
 use std::io::Write;
 
