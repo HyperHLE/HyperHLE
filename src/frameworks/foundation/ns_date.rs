@@ -6,10 +6,10 @@
 //! `NSDate`.
 
 use super::ns_string::from_rust_ordering;
-use super::{NSComparisonResult, NSTimeInterval};
+use super::{NSComparisonResult, NSInteger, NSUInteger, NSTimeInterval};
 use crate::frameworks::core_foundation::time::{apple_epoch, SECS_FROM_UNIX_TO_APPLE_EPOCHS};
 use crate::objc::{
-    autorelease, id, msg, msg_class, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
 };
 
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_date;
@@ -196,6 +196,48 @@ pub const CLASSES: ClassExports = objc_classes! {
     from_rust_ordering(host_object.time_interval.total_cmp(&another_date_host_object.time_interval))
 }
 
+- (id)isEqualToDate:(NSUInteger)date {
+    msg![env; this init]
+}
+
+- (id)isEqualToDate {
+    nil
+}
+
+- (id)description {
+    nil
+}
+
+- (())descriptionWithCalendarFormat:(NSInteger)format timeZone:(bool)_zone locale:(bool)_locale {
+    // TODO
+}
+
+@end
+
+@implementation NSDateComponents: NSDate
+- (())setYear:(bool)year {
+    log!("TODO: setYear:{}", year);
+}
+
+- (())setMonth:(bool)month {
+    log!("TODO: setMonth:{}", month);
+}
+
+- (())setDay:(bool)day {
+    log!("TODO: setDay:{}", day);
+}
+
+- (())setHour:(bool)hour {
+    log!("TODO: setHour:{}", hour);
+}
+
+- (())setMinute:(bool)minute {
+    log!("TODO: setMinute:{}", minute);
+}
+
+- (())setSecond:(bool)second {
+    log!("TODO: setSecond:{}", second);
+}
 @end
 
 };
