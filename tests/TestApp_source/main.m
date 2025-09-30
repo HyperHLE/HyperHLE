@@ -2228,6 +2228,66 @@ int test_CFMutableDictionary_CustomCallbacks_CFTypes() {
   return 0;
 }
 
+int test_hypot() {
+    // Test 1: Pythagorean triple
+    double result = hypot(3.0, 4.0);
+    assert(fabs(result - 5.0) < EPSILON);
+
+    // Test 2: Zero case
+    result = hypot(0.0, 0.0);
+    assert(fabs(result - 0.0) < EPSILON);
+
+    // Test 3: One zero input
+    result = hypot(0.0, 5.0);
+    assert(fabs(result - 5.0) < EPSILON);
+
+    // Test 4: Negative values
+    result = hypot(-6.0, -8.0);
+    assert(fabs(result - 10.0) < EPSILON);
+
+    // Test 5: Large numbers
+    result = hypot(1e100, 1e100);
+    assert(fabs(result - 1.414213562373095e100) < EPSILON * 1e100);
+
+    // Test 6: Small numbers
+    result = hypot(1e-100, 1e-100);
+    assert(fabs(result - 1.414213562373095e-100) < EPSILON);
+
+    printf("All hypot() tests passed.\n");
+    return 0;
+}
+
+int test_hypotf() {
+    float result;
+
+    // Test 1: Pythagorean triple
+    result = hypotf(3.0f, 4.0f);
+    assert(fabsf(result - 5.0f) < EPSILON_F);
+
+    // Test 2: Zero input
+    result = hypotf(0.0f, 0.0f);
+    assert(fabsf(result - 0.0f) < EPSILON_F);
+
+    // Test 3: One zero input
+    result = hypotf(0.0f, 5.0f);
+    assert(fabsf(result - 5.0f) < EPSILON_F);
+
+    // Test 4: Negative values
+    result = hypotf(-6.0f, -8.0f);
+    assert(fabsf(result - 10.0f) < EPSILON_F);
+
+    // Test 5: Large numbers
+    result = hypotf(1e20f, 1e20f);
+    assert(fabsf(result - 1.4142136e20f) < EPSILON_F * 1e20f);
+
+    // Test 6: Small numbers
+    result = hypotf(1e-20f, 1e-20f);
+    assert(fabsf(result - 1.4142136e-20f) < EPSILON_F);
+
+    printf("All hypotf() tests passed.\n");
+    return 0;
+}
+ 
 int test_lrint() {
   struct {
     double input;
@@ -3143,6 +3203,8 @@ struct {
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_PrimitiveTypes),
     FUNC_DEF(test_CFMutableDictionary_CustomCallbacks_CFTypes),
     FUNC_DEF(test_lrint),
+    FUNC_DEF(test_hypot),
+    FUNC_DEF(test_hypotf),
     FUNC_DEF(test_fesetround),
     FUNC_DEF(test_ldexp),
     FUNC_DEF(test_maskrune),
