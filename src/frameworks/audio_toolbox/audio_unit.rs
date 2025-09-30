@@ -16,7 +16,6 @@ use crate::abi::CallFromHost;
 use crate::dyld::FunctionExports;
 use crate::environment::Environment;
 use crate::export_c_func;
-use crate::frameworks::audio_toolbox::audio_components::AURenderCallback;
 use crate::frameworks::audio_toolbox::audio_components;
 use crate::frameworks::audio_toolbox::audio_queue::{
     is_supported_audio_format, log_if_broken_audio_format,
@@ -52,16 +51,6 @@ pub struct AudioBuffer {
     data: MutVoidPtr,
 }
 
-#[repr(C)]
-struct AudioTimeStamp {
-    // Time fields omitted for brevity
-}
-
-#[repr(C)]
-struct AudioUnitInstance {
-    render_callbacks: Vec<(AURenderCallback, *mut std::ffi::c_void)>,
-}
-
 // TODO: Other scopes
 const kAudioUnitScope_Global: AudioUnitScope = 0;
 const kAudioUnitScope_Input: AudioUnitScope = 1;
@@ -73,9 +62,6 @@ const kAudioUnitProperty_MaximumFramesPerSlice: AudioUnitPropertyID = 14;
 const kAudioUnitProperty_StreamFormat: AudioUnitPropertyID = 8;
 
 const kAudioOutputUnitProperty_EnableIO: AudioUnitPropertyID = 2003;
-
-const NO_ERR: OSStatus = 0;
-const kAudioUnitErr_InvalidElement: OSStatus = -1083;
 
 fn AudioUnitInitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus {
     let run_loop = CFRunLoopGetMain(env);
@@ -89,22 +75,6 @@ fn AudioUnitUninitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus 
         Ok(_) => 0,
         Err(_) => paramErr, // TODO: handle different errors
     }
-}
-
-fn AudioUnitAddRenderNotify(
-    audio_unit_instance: &mut AudioUnitInstance,
-    in_render_callback: *const (),
-    in_ref_con: *mut std::ffi::c_void,
-) -> OSStatus {
-    if in_render_callback.is_null() {
-        return kAudioUnitErr_InvalidElement;
-    }
-
-    // Then cast raw pointer to function pointer when needed (unsafe)
-    let callback: AURenderCallback = unsafe { std::mem::transmute(in_render_callback) };
-
-    audio_unit_instance.render_callbacks.push((callback, in_ref_con));
-    NO_ERR
 }
 
 fn AudioUnitSetProperty(
@@ -500,7 +470,6 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioUnitInitialize(_)),
-    export_c_func!(AudioUnitAddRenderNotify(_, _, _, _)),
     export_c_func!(AudioUnitUninitialize(_)),
     export_c_func!(AudioUnitSetProperty(_, _, _, _, _, _)),
     export_c_func!(AudioUnitGetProperty(_, _, _, _, _, _)),
