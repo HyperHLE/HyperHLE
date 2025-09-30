@@ -111,23 +111,39 @@ int sort_and_check(int nel, int *arr, int *expected_arr) {
 }
 
 int test_qsort() {
-  // empty
-  int res = sort_and_check(0, (int[]){}, (int[]){});
-  if (res != 0)
-    return -1;
+  int res;
+  // empty array
+  res = sort_and_check(0, (int[]){}, (int[]){});
+  if (res != 0) return -1;
   // one element
   res = sort_and_check(1, (int[]){42}, (int[]){42});
-  if (res != 0)
-    return -1;
+  if (res != 0) return -1;
   // even size
   res = sort_and_check(4, (int[]){4, 3, 2, 1}, (int[]){1, 2, 3, 4});
-  if (res != 0)
-    return -1;
+  if (res != 0) return -1;
   // odd size
-  res =
-      sort_and_check(5, (int[]){1, -1, 2, 1024, 4}, (int[]){-1, 1, 2, 4, 1024});
-  if (res != 0)
-    return -1;
+  res = sort_and_check(5, (int[]){1, -1, 2, 1024, 4}, (int[]){-1, 1, 2, 4, 1024});
+  if (res != 0) return -1;
+  // all negative numbers
+  res = sort_and_check(5, (int[]){-5, -2, -9, -1, -3}, (int[]){-9, -5, -3, -2, -1});
+  if (res != 0) return -1;
+  // all equal elements
+  res = sort_and_check(4, (int[]){7, 7, 7, 7}, (int[]){7, 7, 7, 7});
+  if (res != 0) return -1;
+  // already sorted input
+  res = sort_and_check(6, (int[]){1, 2, 3, 4, 5, 6}, (int[]){1, 2, 3, 4, 5, 6});
+  if (res != 0) return -1;
+  // reverse sorted input
+  res = sort_and_check(6, (int[]){6, 5, 4, 3, 2, 1}, (int[]){1, 2, 3, 4, 5, 6});
+  if (res != 0) return -1;
+  // duplicates and mix
+  res = sort_and_check(7, (int[]){3, 1, 2, 3, 2, 1, 4}, (int[]){1, 1, 2, 2, 3, 3, 4});
+  if (res != 0) return -1;
+  // large values
+  res = sort_and_check(5, (int[]){1000000, -1000000, 0, 500, -500},
+                             (int[]){-1000000, -500, 0, 500, 1000000});
+  if (res != 0) return -1;
+
   return 0;
 }
 
@@ -1129,16 +1145,49 @@ int test_strchr() {
 }
 
 int test_swprintf() {
-  wchar_t wcsbuf[20];
-  int res = swprintf(wcsbuf, 20, L"%s", "abc");
-  if (res != 3)
+  wchar_t wcsbuf[100];
+  int res;
+  // Simple wide string with %s (narrow string promoted)
+  res = swprintf(wcsbuf, 20, L"%s", "abc");
+  if (res != 3 || wcscmp(wcsbuf, L"abc") != 0)
     return -1;
-  res = swprintf(wcsbuf, 2, L"%d", 510);
+  // Buffer too small for full output, should return -1
+  res = swprintf(wcsbuf, 2, L"%d", 510); // Needs 3 chars + null
   if (res != -1)
     return -2;
+  // Wide string with %S (narrow string interpreted as wide, non-standard on POSIX)
   res = swprintf(wcsbuf, 20, L"%S", L"abc");
-  if (res != 3)
+  if (res != 3 || wcscmp(wcsbuf, L"abc") != 0)
     return -3;
+  // Formatting integer
+  res = swprintf(wcsbuf, 20, L"%d", 12345);
+  if (res != 5 || wcscmp(wcsbuf, L"12345") != 0)
+    return -4;
+  // Empty string
+  res = swprintf(wcsbuf, 20, L"%s", "");
+  if (res != 0 || wcscmp(wcsbuf, L"") != 0)
+    return -5;
+  // Single wide char using %lc
+  res = swprintf(wcsbuf, 20, L"%lc", L'Æ');
+  if (res != 1 || wcsbuf[0] != L'Æ')
+    return -6;
+  // Wide string using %ls
+  res = swprintf(wcsbuf, 20, L"%ls", L"ΩπΣ");
+  if (res != 3 || wcscmp(wcsbuf, L"ΩπΣ") != 0)
+    return -7;
+  // Formatting a mix: int, string, char
+  res = swprintf(wcsbuf, 100, L"Num: %d, Str: %ls, Char: %lc", 42, L"Test", L'Z');
+  if (res <= 0 || wcscmp(wcsbuf, L"Num: 42, Str: Test, Char: Z") != 0)
+    return -8;
+  // Unicode emoji (requires UTF-32 capable wchar_t system, usually Linux)
+  res = swprintf(wcsbuf, 100, L"%lc", 0x1F600); // 😀
+  if (res != 1 || wcsbuf[0] != 0x1F600)
+    return -9;
+  // Truncation test: buffer too small
+  res = swprintf(wcsbuf, 5, L"%ls", L"abcdef");
+  if (res != -1)
+    return -10;
+
   return 0;
 }
 
