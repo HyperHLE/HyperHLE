@@ -796,12 +796,6 @@ impl Environment {
         )
     }
 
-    pub fn get_audio_unit_mut(&mut self, id: AudioUnit) -> Option<&mut AudioUnitInstance> {
-        // Assuming you have a field holding AudioUnits, e.g.:
-        // self.audio_units: HashMap<AudioUnit, AudioUnitInstance>
-        self.audio_units.get_mut(&id)
-    }
-}
     pub fn stack_for_longjmp(&self, mut lr: u32, fp: u32) -> Vec<u32> {
         let stack_range = self.threads[self.current_thread].stack.clone().unwrap();
         let mut frames = Vec::new();
