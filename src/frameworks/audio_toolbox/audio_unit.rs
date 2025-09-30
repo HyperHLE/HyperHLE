@@ -57,6 +57,11 @@ struct AudioTimeStamp {
     // Time fields omitted for brevity
 }
 
+#[repr(C)]
+struct AudioUnitInstance {
+    render_callbacks: Vec<(AURenderCallback, *mut std::ffi::c_void)>,
+}
+
 // TODO: Other scopes
 const kAudioUnitScope_Global: AudioUnitScope = 0;
 const kAudioUnitScope_Input: AudioUnitScope = 1;
