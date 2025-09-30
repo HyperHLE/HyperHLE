@@ -16,6 +16,7 @@ use crate::abi::CallFromHost;
 use crate::dyld::FunctionExports;
 use crate::environment::Environment;
 use crate::export_c_func;
+use crate::frameworks::audio_toolbox::audio_components::AURenderCallback;
 use crate::frameworks::audio_toolbox::audio_components;
 use crate::frameworks::audio_toolbox::audio_queue::{
     is_supported_audio_format, log_if_broken_audio_format,
@@ -35,7 +36,6 @@ pub type AudioUnit = AudioComponentInstance;
 type AudioUnitPropertyID = u32;
 type AudioUnitScope = u32;
 type AudioUnitElement = u32;
-type OSStatus = i32;
 
 #[repr(C, packed)]
 struct AudioBufferList<const COUNT: usize> {
@@ -505,7 +505,7 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioUnitInitialize(_)),
-    export_c_func!(AudioUnitAddRenderNotify(_, _, _,)),
+    export_c_func!(AudioUnitAddRenderNotify(_, _,)),
     export_c_func!(AudioUnitUninitialize(_)),
     export_c_func!(AudioUnitSetProperty(_, _, _, _, _, _)),
     export_c_func!(AudioUnitGetProperty(_, _, _, _, _, _)),
