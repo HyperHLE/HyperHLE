@@ -22,19 +22,17 @@ fn AudioServicesGetProperty(
     _env: &mut Environment,
     in_property_id: AudioServicesPropertyID,
     _in_specifier_size: u32,
-    _in_specifier: ConstVoidPtr,
+    _in_specifier: crate::mem::ConstVoidPtr,
     _io_property_data_size: MutPtr<u32>,
     _out_property_data: MutVoidPtr,
 ) -> OSStatus {
-    // Crash Bandicoot Nitro Kart 3D tries to use this property ID (0xfff), which
-    // does not seem to be documented anywhere? Assuming this is a bug.
+    // Crash Bandicoot Nitro Kart 3D tries to use this property ID, which does
+    // not seem to be documented anywhere? Assuming this is a bug.
     if in_property_id == 0xfff {
-        // This property is unsupported by design; return the appropriate error.
-        return kAudioServicesUnsupportedPropertyError;
+        kAudioServicesUnsupportedPropertyError
+    } else {
+        unimplemented!("AudioServicesGetProperty is not implemented for property ID: {}", in_property_id);
     }
-    // TODO: Implement handling for other property IDs as needed.
-    // For now, signal that this part is not yet implemented.
-    unimplemented!("AudioServicesGetProperty is not implemented for property ID: {}", in_property_id);
 }
 
 fn AudioServicesPlaySystemSound(_env: &mut Environment, in_system_sound_id: SystemSoundID) {
