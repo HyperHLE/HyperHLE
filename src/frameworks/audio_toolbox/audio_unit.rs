@@ -78,6 +78,7 @@ fn AudioUnitUninitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus 
 }
 
 fn AudioUnitSetProperty(
+fn AudioUnitSetProperty(
     env: &mut Environment,
     in_unit: AudioUnit,
     in_id: AudioUnitPropertyID,
@@ -86,50 +87,119 @@ fn AudioUnitSetProperty(
     in_data: ConstVoidPtr,
     in_data_size: u32,
 ) -> OSStatus {
-    assert!(in_element == 0);
+    // For simplicity, only element 0 is supported
+    if in_element != 0 {
+        return kAudio_ParamError;
+    }
 
-    let host_object = audio_components::State::get(&mut env.framework_state)
+    // Get the AudioUnit host object (if not found, return error)
+    let host_object = match audio_components::State::get(&mut env.framework_state)
         .audio_component_instances
         .get_mut(&in_unit)
-        .unwrap();
+    {
+        Some(h) => h,
+        None => return kAudioUnitErr_InvalidElement,
+    };
 
-    let result;
     match in_id {
+        // ---------------------------
+        // Render callback
+        // ---------------------------
         kAudioUnitProperty_SetRenderCallback => {
-            assert_eq!(in_scope, kAudioUnitScope_Global);
-            assert_eq!(in_data_size, guest_size_of::<AURenderCallbackStruct>());
+            if in_scope != kAudioUnitScope_Global {
+                return kAudioUnitErr_InvalidScope;
+            }
+            if in_data_size != guest_size_of::<AURenderCallbackStruct>() {
+                return kAudio_ParamError;
+            }
+
             let render_callback = env.mem.read(in_data.cast::<AURenderCallbackStruct>());
             host_object.render_callback = Some(render_callback);
-            result = 0;
-            log_dbg!("AudioUnitSetProperty({:?}, kAudioUnitProperty_SetRenderCallback, {:?}, {:?}, {:?}, {:?}) -> {:?}", in_unit, in_scope, in_element, render_callback, in_data_size, result);
+
+            log_dbg!(
+                "AudioUnitSetProperty({:?}, kAudioUnitProperty_SetRenderCallback, {:?}, {:?}, {:?}, {:?}) -> 0",
+                in_unit,
+                in_scope,
+                in_element,
+                render_callback,
+                in_data_size
+            );
+            0
         }
+
+        // ---------------------------
+        // Stream format
+        // ---------------------------
         kAudioUnitProperty_StreamFormat => {
-            assert_eq!(in_data_size, guest_size_of::<AudioStreamBasicDescription>());
+            if in_data_size != guest_size_of::<AudioStreamBasicDescription>() {
+                return kAudio_ParamError;
+            }
+
             let stream_format = env.mem.read(in_data.cast::<AudioStreamBasicDescription>());
             log_if_broken_audio_format(&stream_format);
+
             match in_scope {
                 kAudioUnitScope_Global => host_object.global_stream_format = stream_format,
                 kAudioUnitScope_Output => host_object.output_stream_format = Some(stream_format),
                 kAudioUnitScope_Input => host_object.input_stream_format = Some(stream_format),
-                _ => unimplemented!("in_scope {}", in_scope),
-            };
-            result = 0;
-            log_dbg!("AudioUnitSetProperty({:?}, kAudioUnitProperty_StreamFormat, {:?}, {:?}, {:?}, {:?}) -> {:?}", in_unit, in_scope, in_element, stream_format, in_data_size, result);
-        }
-        kAudioOutputUnitProperty_EnableIO => {
-            assert_eq!(in_scope, kAudioUnitScope_Output);
-            assert_eq!(in_data_size, guest_size_of::<u32>());
-            let enabled = env.mem.read(in_data.cast::<u32>());
-            // Output is enabled by default.
-            assert_eq!(enabled, 1);
-            result = 0;
-            log_dbg!("AudioUnitSetProperty({:?}, kAudioOutputUnitProperty_EnableIO, {:?}, {:?}, {:?}, {:?}) -> {:?}", in_unit, in_scope, in_element, enabled, in_data_size, result);
-        }
-        _ => unimplemented!(),
-    };
+                _ => return kAudioUnitErr_InvalidScope,
+            }
 
-    result
+            log_dbg!(
+                "AudioUnitSetProperty({:?}, kAudioUnitProperty_StreamFormat, {:?}, {:?}, {:?}, {:?}) -> 0",
+                in_unit,
+                in_scope,
+                in_element,
+                stream_format,
+                in_data_size
+            );
+            0
+        }
+
+        // ---------------------------
+        // Enable IO
+        // ---------------------------
+        kAudioOutputUnitProperty_EnableIO => {
+            if in_scope != kAudioUnitScope_Output {
+                return kAudioUnitErr_InvalidScope;
+            }
+            if in_data_size != guest_size_of::<u32>() {
+                return kAudio_ParamError;
+            }
+
+            let enabled = env.mem.read(in_data.cast::<u32>());
+            if enabled != 1 {
+                // Only "1" (enabled) is supported in this implementation
+                return kAudioUnitErr_InvalidPropertyValue;
+            }
+
+            log_dbg!(
+                "AudioUnitSetProperty({:?}, kAudioOutputUnitProperty_EnableIO, {:?}, {:?}, {:?}, {:?}) -> 0",
+                in_unit,
+                in_scope,
+                in_element,
+                enabled,
+                in_data_size
+            );
+            0
+        }
+
+        // ---------------------------
+        // Any other property -> unsupported
+        // ---------------------------
+        _ => {
+            log_dbg!(
+                "AudioUnitSetProperty({:?}, {:?}, {:?}, in_data_size={:?}) -> kAudioUnitErr_InvalidProperty",
+                in_unit,
+                in_id,
+                in_scope,
+                in_data_size
+            );
+            kAudioUnitErr_InvalidProperty
+        }
+    }
 }
+
 
 fn AudioUnitGetProperty(
     env: &mut Environment,
