@@ -87,7 +87,6 @@ fn AudioUnitUninitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus 
 }
 
 fn AudioUnitAddRenderNotify(
-    env: &mut Environment,
     audio_unit_instance: &mut AudioUnitInstance,
     in_render_callback: AURenderCallback,
     in_ref_con: *mut std::ffi::c_void,
@@ -493,7 +492,7 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioUnitInitialize(_)),
-    export_c_func!(AudioUnitAddRenderNotify(_, _,)),
+    export_c_func!(AudioUnitAddRenderNotify(_, _, _,)),
     export_c_func!(AudioUnitUninitialize(_)),
     export_c_func!(AudioUnitSetProperty(_, _, _, _, _, _)),
     export_c_func!(AudioUnitGetProperty(_, _, _, _, _, _)),
