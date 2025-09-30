@@ -86,23 +86,17 @@ fn AudioUnitUninitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus 
     }
 }
 
-
 fn AudioUnitAddRenderNotify(
     env: &mut Environment,
-    in_audio_unit: AudioUnit,
+    audio_unit_instance: &mut AudioUnitInstance,
     in_render_callback: AURenderCallback,
     in_ref_con: *mut std::ffi::c_void,
 ) -> OSStatus {
-    log!("AudioUnitAddRenderNotify called");
-
-    // 🔄 Use a method or known interface to get the audio unit instance
-    let Some(audio_unit_instance) = env.get_audio_unit_mut(in_audio_unit) else {
+    if in_render_callback as usize == 0 {
         return kAudioUnitErr_InvalidElement;
-    };
+    }
 
-    // 📥 Store the callback for future use
     audio_unit_instance.render_callbacks.push((in_render_callback, in_ref_con));
-
     NO_ERR
 }
 
