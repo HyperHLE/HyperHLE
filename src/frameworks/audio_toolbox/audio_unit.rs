@@ -93,14 +93,17 @@ fn AudioUnitUninitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus 
 
 fn AudioUnitAddRenderNotify(
     audio_unit_instance: &mut AudioUnitInstance,
-    in_render_callback: AURenderCallback,
+    in_render_callback: *const (),
     in_ref_con: *mut std::ffi::c_void,
 ) -> OSStatus {
-    if in_render_callback as usize == 0 {
+    if in_render_callback.is_null() {
         return kAudioUnitErr_InvalidElement;
     }
 
-    audio_unit_instance.render_callbacks.push((in_render_callback, in_ref_con));
+    // Then cast raw pointer to function pointer when needed (unsafe)
+    let callback: AURenderCallback = unsafe { std::mem::transmute(in_render_callback) };
+
+    audio_unit_instance.render_callbacks.push((callback, in_ref_con));
     NO_ERR
 }
 
