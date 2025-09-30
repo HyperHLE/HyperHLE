@@ -5,7 +5,7 @@
  */
 //! `UIActivityIndicatorView`.
 
-use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::objc::{id, msg, nil, ClassExports};
 use crate::objc_classes;
 
@@ -26,6 +26,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
+- (())setActivityIndicatorViewStyle :(bool)activity {
+    log!("TODO: setActivityIndicatorViewStyle:{}", activity);
+}
+
+- (())sizeThatFits:(bool)fits {
+    log!("TODO: sizeThatFits:{}", fits);
+}
+- (id)sizeToFit {
+    nil
+}
+
 - (())startAnimating {
     log!("TODO: [(UIActivityIndicatorView *){:?} startAnimating]", this);
 }
@@ -34,6 +45,41 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setHidesWhenStopped:(bool)_hides {
+    // TODO
+}
+
+@end
+
+@implementation UIActionSheet: NSObject
+- (id)addButtonWithTitle:(NSUInteger)_title {
+    msg![env; this init]
+}
+
+- (id)showInView:(NSUInteger)_view {
+    msg![env; this init]
+}
+
+- (())setActionSheetStyle:(bool)action {
+    log!("TODO: setActionSheetStyle:{}", action);
+}
+
+- (())setCancelButtonIndex:(bool)index {
+    log!("TODO: setCancelButtonIndex:{}", index);
+}
+
+- (())setTitle:(bool)title {
+    log!("TODO: setTitle:{}", title);
+}
+
+- (())setTag:(bool)tag {
+    log!("TODO: setTag:{}", tag);
+}
+
+- (())setDelegate:(bool)delegate {
+    log!("TODO: setDelegate:{}", delegate);
+}
+
+- (())initWithTitle:(NSInteger)title delegate:(bool)_delegate cancelButtonTitle:(bool)_button destructiveButtonTitle:(bool)_destructive otherButtonTitles:(bool)_titles {
     // TODO
 }
 
