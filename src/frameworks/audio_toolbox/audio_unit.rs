@@ -93,22 +93,16 @@ fn AudioUnitAddRenderNotify(
     in_render_callback: AURenderCallback,
     in_ref_con: *mut std::ffi::c_void,
 ) -> OSStatus {
-    // For debugging or logging
     log!("AudioUnitAddRenderNotify called");
 
-    // Example: look up an internal representation of the AudioUnit
-    let audio_unit_instance = match env.audio_units.get_mut(&in_audio_unit) {
-        Some(unit) => unit,
-        None => {
-            log!("Invalid AudioUnit: {}", in_audio_unit);
-            return kAudioUnitErr_InvalidElement;
-        }
+    // 🔄 Use a method or known interface to get the audio unit instance
+    let Some(audio_unit_instance) = env.get_audio_unit_mut(in_audio_unit) else {
+        return kAudioUnitErr_InvalidElement;
     };
 
-    // Save the render callback for later use
+    // 📥 Store the callback for future use
     audio_unit_instance.render_callbacks.push((in_render_callback, in_ref_con));
 
-    log!("Render notify added to AudioUnit {}", in_audio_unit);
     NO_ERR
 }
 
