@@ -63,6 +63,12 @@ const kAudioUnitProperty_StreamFormat: AudioUnitPropertyID = 8;
 
 const kAudioOutputUnitProperty_EnableIO: AudioUnitPropertyID = 2003;
 
+pub const kAudio_ParamError: OSStatus = -50;
+pub const kAudioUnitErr_InvalidProperty: OSStatus = -10879;
+pub const kAudioUnitErr_InvalidPropertyValue: OSStatus = -10851;
+pub const kAudioUnitErr_InvalidScope: OSStatus = -10877;
+pub const kAudioUnitErr_InvalidElement: OSStatus = -10876;
+
 fn AudioUnitInitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus {
     let run_loop = CFRunLoopGetMain(env);
     ns_run_loop::add_audio_unit(env, run_loop, in_unit);
