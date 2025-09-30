@@ -397,19 +397,12 @@ fn lroundf(env: &mut Environment, arg: f32) -> i32 {
 
     arg.max(i32::MIN as f32).min(i32::MAX as f32).round() as i32
 }
-fn hypot(env: &mut Environment, arg: f64) -> f64 {
-    // TODO: handle errno properly
-    set_errno(env, 0);
-
-    arg.hypot()
+fn hypot(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.hypot(arg2)
 }
-fn hypotf(env: &mut Environment, arg: f32) -> f32 {
-    // TODO: handle errno properly
-    set_errno(env, 0);
-
-    arg.hypot()
+fn hypotf(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.hypot(arg2)
 }
-
 fn trunc(_env: &mut Environment, arg: f64) -> f64 {
     arg.trunc()
 }
