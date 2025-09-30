@@ -54,17 +54,31 @@ fn inet_ntop(
 }
 
 fn inet_pton(env: &mut Environment, af: i32, src: ConstPtr<u8>, dst: MutVoidPtr) -> i32 {
-    assert_eq!(af, AF_INET);
-    let str = env.mem.cstr_at_utf8(src.cast()).unwrap();
-    log_dbg!("inet_pton '{}'", str);
-    let address: Ipv4Addr = str.parse().unwrap();
-    let addr = in_addr {
-        s_addr: u32::from_le_bytes(address.octets()),
+    if af != AF_INET {
+        return -1; // unsupported address family
+    }
+
+    let str = match env.mem.cstr_at_utf8(src.cast()) {
+        Ok(s) => s,
+        Err(_) => return 0, // invalid input string
     };
-    let addr_ptr: MutPtr<in_addr> = dst.cast();
-    env.mem.write(addr_ptr, addr);
-    1 // address was valid, success
+
+    log_dbg!("inet_pton '{}'", str);
+
+    match str.parse::<Ipv4Addr>() {
+        Ok(address) => {
+            let addr = in_addr {
+                // use to_be_bytes(), not to_le_bytes: s_addr is in *network byte order*
+                s_addr: u32::from_ne_bytes(address.octets()).to_be(),
+            };
+            let addr_ptr: MutPtr<in_addr> = dst.cast();
+            env.mem.write(addr_ptr, addr);
+            1
+        }
+        Err(_) => 0, // not a valid IPv4 string
+    }
 }
+
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(inet_addr(_)),
