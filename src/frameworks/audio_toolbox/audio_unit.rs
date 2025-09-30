@@ -78,7 +78,6 @@ fn AudioUnitUninitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus 
 }
 
 fn AudioUnitSetProperty(
-fn AudioUnitSetProperty(
     env: &mut Environment,
     in_unit: AudioUnit,
     in_id: AudioUnitPropertyID,
