@@ -434,6 +434,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)initWithArray:(NSUInteger)_objects {
+    msg![env; this init]
+}
+
 // NSCoding implementation
 - (id)initWithCoder:(id)coder {
     let objects = ns_keyed_unarchiver::decode_current_array(env, coder);
