@@ -31,6 +31,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fenv.h>
+#include <limits.h>
 #include <locale.h>
 #include <math.h>
 #include <pthread.h>
@@ -2384,6 +2385,40 @@ int test_lrint() {
   return 0;
 }
 
+int test_div() {
+    int test_cases[][2] = {
+        {10, 2},         // Simple positive division
+        {9, 3},          // Clean division
+        {7, 0},          // Division by zero
+        {-10, 2},        // Negative numerator
+        {10, -2},        // Negative denominator
+        {-10, -2},       // Both negative
+        {0, 5},          // Zero numerator
+        {5, 2},          // Integer division with remainder
+        {INT_MAX, 1},    // Max int
+        {INT_MIN, 1},    // Min int
+        {INT_MAX, INT_MAX}, // Same large numbers
+        {INT_MIN, -1}    // Edge case: overflow in some systems
+    };
+
+    int num_tests = sizeof(test_cases) / sizeof(test_cases[0]);
+
+    for (int i = 0; i < num_tests; ++i) {
+        int a = test_cases[i][0];
+        int b = test_cases[i][1];
+
+        if (b == 0) {
+            printf("Test %2d: %11d / %11d = Error - Division by zero!\n", i + 1, a, b);
+            continue;
+        }
+
+        int result = a / b;
+        printf("Test %2d: %11d / %11d = %11d\n", i + 1, a, b, result);
+    }
+
+    return 0;
+}
+
 int test_fesetround() {
   int default_rounding = fegetround();
   if (default_rounding != FE_TONEAREST) {
@@ -3205,6 +3240,7 @@ struct {
     FUNC_DEF(test_lrint),
     FUNC_DEF(test_hypot),
     FUNC_DEF(test_hypotf),
+    FUNC_DEF(test_div),
     FUNC_DEF(test_fesetround),
     FUNC_DEF(test_ldexp),
     FUNC_DEF(test_maskrune),
