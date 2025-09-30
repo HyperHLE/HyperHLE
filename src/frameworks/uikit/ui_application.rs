@@ -136,6 +136,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     true
 }
 
+- (id)statusBarFrame {
+    nil
+}
+
+- (id)terminate {
+    nil
+}
+
+- (id)canOpenURL:(NSUInteger)url {
+    msg![env; this init]
+}
+
 - (NSInteger)applicationIconBadgeNumber {
     log!("TODO: ignoring applicationIconBadgeNumber");
     0
