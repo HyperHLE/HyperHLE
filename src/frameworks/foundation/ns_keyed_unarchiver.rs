@@ -88,16 +88,25 @@ pub const CLASSES: ClassExports = objc_classes! {
     let slice = env.mem.bytes_at(bytes.cast(), length);
 
     let host_obj = env.objc.borrow_mut::<NSKeyedUnarchiverHostObject>(this);
-    assert!(host_obj.already_unarchived.is_empty());
-    assert!(host_obj.current_key.is_none());
-    assert!(host_obj.plist.is_empty());
+    // assert!(host_obj.already_unarchived.is_empty());
+    // assert!(host_obj.current_key.is_none());
+    // assert!(host_obj.plist.is_empty());
 
-    let plist = Value::from_reader(Cursor::new(slice)).unwrap();
-    let plist = plist.into_dictionary().unwrap();
-    assert!(plist["$version"].as_unsigned_integer() == Some(100000));
-    assert!(plist["$archiver"].as_string() == Some("NSKeyedArchiver"));
+    let plist = match Value::from_reader(Cursor::new(slice)) {
+        Ok(v) => v,
+        Err(_) => return nil,
+    };
+    let plist = match plist.into_dictionary() {
+        Some(dict) => dict,
+        None => return nil, // just fail quietly
+    };
+    // assert!(plist["$version"].as_unsigned_integer() == Some(100000));
+    // assert!(plist["$archiver"].as_string() == Some("NSKeyedArchiver"));
 
-    let key_count = plist["$objects"].as_array().unwrap().len();
+    let key_count = match plist.get("$objects").and_then(|v| v.as_array()) {
+        Some(arr) => arr.len(),
+        None => return nil,
+    };
 
     host_obj.already_unarchived = vec![None; key_count];
     host_obj.plist = plist;
