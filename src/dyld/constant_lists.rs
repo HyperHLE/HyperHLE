@@ -7,7 +7,7 @@
 //! very long and frequently-updated list.
 
 use crate::frameworks::{
-    avf_audio, core_animation, core_foundation, core_graphics, foundation, game_kit, media_player, misc, opengles,
+    av_audio, core_animation, core_foundation, core_graphics, foundation, game_kit, media_player, misc, opengles,
     uikit,
 };
 use crate::libc;
