@@ -32,11 +32,6 @@ use crate::Environment;
 
 const kNumberBuffers: usize = 3;
 
-#[derive(Default)]
-pub struct State {
-    av_audio_session: Option<id>,
-}
-
 struct AudioSessionHost {
     delegate: id, //Unretained
 }
@@ -67,17 +62,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation AVAudioSession: NSObject
 
 + (id)sharedInstance {
-    if let Some(sess) = env.framework_state.av_audio.av_audio_player.av_audio_player {
-        sess
-    } else {
-        let new = env.objc.alloc_static_object(
-            this,
-            Box::new(AudioSessionHost{delegate: nil}),
-            &mut env.mem
-        );
-        env.framework_state.av_audio.av_audio_player.av_audio_player = Some(new);
-        new
-   }
+    nil
 }
 
 - (())setDelegate:(id)new {
