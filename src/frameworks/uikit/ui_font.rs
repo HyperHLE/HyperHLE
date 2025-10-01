@@ -11,7 +11,7 @@ use crate::frameworks::core_graphics::cg_bitmap_context::CGBitmapContextDrawer;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::to_rust_string;
 use crate::frameworks::foundation::NSInteger;
-use crate::objc::{autorelease, id, objc_classes, ClassExports, HostObject};
+use crate::objc::{autorelease, id, nil, objc_classes, ClassExports, HostObject};
 use crate::Environment;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -131,6 +131,38 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     let new = env.objc.alloc_object(this, Box::new(host_object), &mut env.mem);
     autorelease(env, new)
+}
+
++ (id)buttonFontSize {
+    nil
+}
+
++ (id)labelFontSize {
+    nil
+}
+
++ (id)systemFontSize {
+    nil
+}
+
++ (id)smallSystemFontSize {
+    nil
+}
+
++ (id)familyNames {
+    nil
+}
+
+- (id)fontName {
+    nil
+}
+
+- (id)size {
+    nil
+}
+
+- (id)capHeight {
+    nil
 }
 
 - (CGFloat)pointSize {
