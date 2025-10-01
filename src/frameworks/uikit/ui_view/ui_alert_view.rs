@@ -5,8 +5,8 @@
  */
 //! `UIAlertView`.
 
-use crate::frameworks::foundation::ns_string;
-use crate::objc::{id, msg_super, nil, objc_classes, ClassExports};
+use crate::frameworks::foundation::{ns_string, NSUInteger};
+use crate::objc::{id, msg, msg_super, nil, objc_classes, ClassExports};
 use std::borrow::Cow;
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -28,9 +28,35 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     msg_super![env; this init]
 }
+
+- (id)isVisible {
+  nil
+}
+
+- (id)addButtonWithTitle:(NSUInteger)title {
+    msg![env; this init]
+}
+
 - (())show {
     log!("TODO: [(UIAlertView*){:?} show]", this);
 }
+
+- (())setCancelButtonIndex:(bool)button {
+    log!("TODO: setCancelButtonIndex:{}", button);
+}
+
+- (())setDelegate:(bool)message {
+    log!("TODO: setDelegate:{}", message);
+}
+
+- (())setTitle:(bool)title {
+    log!("TODO: setTitle:{}", title);
+}
+
+- (())setMessage:(bool)title {
+    log!("TODO: setMessage:{}", title);
+}
+
 @end
 
 };
