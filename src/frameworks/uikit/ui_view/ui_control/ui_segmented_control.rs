@@ -6,7 +6,8 @@
 //! `UISegmentedControl`.
 
 use crate::frameworks::core_graphics::CGRect;
-use crate::objc::{id, msg_super, objc_classes, ClassExports};
+use crate::frameworks::uikit::ui_view::{NSUInteger, NSInteger};
+use crate::objc::{id, msg, msg_super, nil, objc_classes, ClassExports};
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -25,6 +26,33 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg_super![env; this initWithCoder:coder]
 }
 
+- (id)initWithItems:(NSUInteger)_items {
+    msg![env; this init]
+}
+
+- (id)sizeToFit {
+    nil
+}
+
+- (())setMomentary:(bool)momentary {
+    log!("TODO: setMomentary:{}", momentary);
+}
+
+- (())setSelectedSegmentIndex:(bool)index {
+    log!("TODO: setSelectedSegmentIndex:{}", index);
+}
+
+- (())setSegmentedControlStyle:(bool)style {
+    log!("TODO: setSegmentedControlStyle:{}", style);
+}
+
+- (())setTintColor:(bool)color {
+    log!("TODO: setTintColor:{}", color);
+}
+
+- (())insertSegmentWithImage:(NSInteger)_image atIndex:(bool)_index animated:(bool)_animated {
+    // TODO
+}
 // TODO: all of it
 
 @end
