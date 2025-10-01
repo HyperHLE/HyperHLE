@@ -294,6 +294,41 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: [(UIButton*){:?} setShowsTouchWhenHighlighted:{}]", this, shows);
 }
 
+- (())setAdjustsImageWhenDisabled:(bool)disabled {
+    log!("TODO: setAdjustsImageWhenDisabled:{}", disabled);
+}
+- (())setContentVerticalAlignment:(bool)vertical {
+    log!("TODO: setContentVerticalAlignment:{}", vertical);
+}
+
+- (())setReversesTitleShadowWhenHighlighted:(bool)shadow {
+    log!("TODO: setReversesTitleShadowWhenHighlighted:{}", shadow);
+}
+
+- (())setContentHorizontalAlignment:(bool)horizontal {
+    log!("TODO: setContentHorizontalAlignment:{}", horizontal);
+}
+
+- (())setTitleShadowOffset:(bool)shadow {
+    log!("TODO: setTitleShadowOffset:{}", shadow);
+}
+
+- (())setTitleEdgeInsets:(bool)edge {
+    log!("TODO: setTitleEdgeInsets:{}", edge);
+}
+
+- (())setOrigin:(bool)origin {
+    log!("TODO: setOrigin:{}", origin);
+}
+
+- (())setShowPressFeedback:(bool)press {
+    log!("TODO: setShowPressFeedback:{}", press);
+}
+
+- (id)sizeToFit {
+    nil
+}
+
 - (())setImageEdgeInsets:(CGRect)rect {
     log!("setImageEdgeInsets: {:?}", rect);
 }
