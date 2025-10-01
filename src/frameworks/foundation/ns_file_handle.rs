@@ -143,4 +143,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation NSAssertionHandler: NSObject
++ (id)currentHandler {
+    nil
+}
+
+@end
+
+@implementation NSHost: NSObject
++ (id)currentHost {
+    nil
+}
+
+@end
+
 };
