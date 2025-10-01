@@ -613,8 +613,13 @@ fn ExtAudioFileRead(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn AudioQueueNewInput(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
-
 fn pipe(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn strerror(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn fork(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
 
@@ -747,4 +752,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(ExtAudioFileRead(_, _)),
     export_c_func!(AudioQueueNewInput(_, _)),
     export_c_func!(pipe(_, _)),
+    export_c_func!(strerror(_, _)),
+    export_c_func!(fork(_, _)),
 ];
