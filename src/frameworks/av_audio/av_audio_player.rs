@@ -7,7 +7,7 @@
 //!
 //! Implemented using Audio Queue Services based on [the PlayingAudio example](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/AudioQueueProgrammingGuide/AQPlayback/PlayingAudio.html)
 
-use crate::dyld::{ConstantExports, HostConstant};
+use crate::dyld::{ConstantExports, HostConstant, HostFunction};
 use crate::frameworks::audio_toolbox::audio_file::{
     self, kAudioFilePropertyDataFormat, kAudioFilePropertyPacketSizeUpperBound,
     kAudioFileReadPermission, AudioFileClose, AudioFileGetProperty, AudioFileID, AudioFileOpenURL,
@@ -25,7 +25,7 @@ use crate::frameworks::foundation::ns_error::NSOSStatusErrorDomain;
 use crate::frameworks::foundation::{ns_string, NSInteger, NSTimeInterval};
 use crate::mem::{guest_size_of, GuestUSize, MutPtr, MutVoidPtr, Ptr};
 use crate::objc::{
-    id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports, HostObject, NSZonePtr,
+    id, msg, msg_class, nil, release, retain, Class, ClassExports, HostObject, NSZonePtr,
 };
 use crate::objc_classes;
 use crate::Environment;
