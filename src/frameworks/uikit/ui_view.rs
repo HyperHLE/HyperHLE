@@ -721,4 +721,138 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation UINavigationBar: UIView
+- (())setBarStyle:(bool)style {
+    log!("TODO: setBarStyle:{}", style);
+}
+
+- (())setTintColor:(bool)color {
+    log!("TODO: setTintColor:{}", color);
+}
+
+- (())setDelegate:(bool)delegate {
+    log!("TODO: setDelegate:{}", delegate);
+}
+    
+- (())pushNavigationItem:(NSInteger)_item animated:(bool)_animated {
+    // TODO
+}
+
+- (())showButtonsWithLeftTitle:(NSInteger)title rightTitle:(bool)_right leftBack:(bool)_back {
+    // TODO
+}
+
+- (id)sizeToFit {
+    nil
+}
+
+@end
+
+@implementation UIProgressView: UIView
+
+- (id)initWithProgressViewStyle:(NSUInteger)style {
+    msg![env; this init]
+}
+
+- (id)progress {
+    nil
+}
+
+- (())setProgressViewStyle:(bool)style {
+    log!("TODO: setProgressViewStyle:{}", style);
+}
+
+- (())setProgress:(bool)progress {
+    log!("TODO: setProgress:{}", progress);
+}
+
+@end
+
+@implementation UINavigationItem: NSObject
+- (id)initWithCoder:(id)coder {
+    nil
+}
+- (id)initWithTitle:(id)title {
+    nil
+}
+@end
+
+@implementation UITableViewCell: UIView
+- (id)contentView {
+    nil
+}
+
+- (())setText:(bool)text {
+    log!("TODO: setText:{}", text);
+}
+
+@end
+
+@implementation UITabBar: UIControl
+
+- (())setItems:(NSInteger)items animated:(bool)_animated {
+  // TODO
+}
+
+@end
+
+@implementation UITabBarItem: UIControl
+
+- (())initWithTitle:(NSInteger)title image:(bool)_image tag:(bool)_tag {
+  // TODO
+}
+
+- (())initWithTabBarSystemItem:(NSInteger)item tag:(bool)_tag {
+  // TODO
+}
+
+@end
+
+@implementation UICustomObject: NSObject
+@end
+
+@implementation UIKeyboard: NSObject
+
+- (id)initWithCoder:(id)coder {
+    nil
+}
+- (id)initWithTitle:(id)title {
+    nil
+}
+
+@end
+
+@implementation UIDatePicker: UIControl
+
+- (())setDatePickerMode:(bool)mode {
+    log!("TODO: setDatePickerMode:{}", mode);
+}
+
+- (())addTarget:(NSInteger)target action:(bool)_action forControlEvents:(bool)_events {
+    // TODO
+}
+
+@end
+
+@implementation UITabBarController: UIViewController
+
+- (id)view {
+    nil
+}
+
+- (())setViewControllers:(bool)controllers {
+    log!("TODO: setViewControllers:{}", controllers);
+}
+
+@end
+
+@implementation UIPasteboard: NSObject
+@end
+
+@implementation UILocalNotification: NSObject
+@end
+
+@implementation MKMapView: UIView
+@end
+
 };
