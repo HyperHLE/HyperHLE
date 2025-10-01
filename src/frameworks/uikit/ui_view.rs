@@ -118,6 +118,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (()) setAnimationCurve: (NSInteger) _curve {}
 + (()) setAnimationDuration: (NSTimeInterval) _duration {}
 + (()) setAnimationDelay: (NSTimeInterval) _delay {}
++ (()) setAnimationDelegate: (NSTimeInterval) _delegate {}
 
 + (()) commitAnimations {}
 
