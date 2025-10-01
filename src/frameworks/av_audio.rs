@@ -8,5 +8,5 @@ pub mod av_audio_player;
 
 #[derive(Default)]
 pub struct State {
-    av_audio_session: av_audio_session::State,
+    av_audio_player: av_audio_player::State,
 }
