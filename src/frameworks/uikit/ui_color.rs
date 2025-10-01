@@ -10,7 +10,7 @@ use crate::frameworks::core_graphics::cg_color::{CGColorRef, CGColorRelease, CGC
 use crate::frameworks::core_graphics::cg_context::CGContextSetRGBFillColor;
 use crate::frameworks::core_graphics::{cg_color, CGFloat};
 use crate::frameworks::foundation::ns_string::get_static_str;
-use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::mem::MutPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, ClassExports, HostObject, NSZonePtr, ObjC,
@@ -94,6 +94,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)grayColor {
     get_standard_color(env, _cmd, 1.0/2.0, 1.0/2.0, 1.0/2.0, 1.0)
 }
+
++ (id)groupTableViewBackgroundColor {
+    nil
+}
+
++ (id)colorWithPatternImage:(NSUInteger)_image {
+    msg![env; this init]
+}
+
 + (id)lightGrayColor {
     get_standard_color(env, _cmd, 2.0/3.0, 2.0/3.0, 2.0/3.0, 1.0)
 }
@@ -106,6 +115,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)purpleColor   { get_standard_color(env, _cmd, 0.5, 0.0, 1.5, 1.0) }
 + (id)redColor      { get_standard_color(env, _cmd, 1.0, 0.0, 0.0, 1.0) }
 + (id)yellowColor   { get_standard_color(env, _cmd, 1.0, 1.0, 0.0, 1.0) }
+
++ (id)lightTextColor {
+    nil
+}
+
++ (id)darkTextColor {
+    nil
+}
+
++ (id)viewFlipsideBackgroundColor {
+    nil
+}
+
++ (id)CGColor {
+    nil
+}
+
++ (())colorWithHue:(NSInteger)hue saturation:(bool)_saturation brightness:(bool)_brightness alpha:(bool)_alpha  {
+    // TODO
+}
 
 // TODO: more initializers, set methods, more accessors
 
@@ -227,6 +256,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation UICGColor: UIColor
 @end
 @implementation UIDeviceRGBColor: UIColor
+@end
+@implementation UICachedDeviceWhiteColor: UIColor
 @end
 
 // Special subclass for standard colors with a static lifetime.
