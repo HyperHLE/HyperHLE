@@ -81,6 +81,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     assert!(!should);
 }
 
+- (id)parserError {
+    nil
+}
+
 - (bool)parse {
     let data = env.objc.borrow::<NSXMLParserHostObject>(this).data;
     assert_ne!(data, nil);
