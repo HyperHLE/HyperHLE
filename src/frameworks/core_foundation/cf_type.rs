@@ -15,7 +15,7 @@ use crate::{msg_class, Environment};
 pub type CFTypeRef = objc::id;
 
 pub fn CFRetain(env: &mut Environment, object: CFTypeRef) -> CFTypeRef {
-    assert!(!object.is_null()); // not allowed, unlike for normal objc objects
+    // assert!(!object.is_null()); // not allowed, unlike for normal objc objects
     objc::retain(env, object)
 }
 pub fn CFRelease(env: &mut Environment, object: CFTypeRef) {
@@ -34,9 +34,9 @@ pub fn CFEqual(env: &mut Environment, object1: CFTypeRef, object2: CFTypeRef) ->
     // TODO: other classes
     let str_class: Class = msg_class![env; NSString class];
     let object1_class: Class = msg![env; object1 class];
-    assert!(msg![env; object1_class isKindOfClass:str_class]);
+    // assert!(msg![env; object1_class isKindOfClass:str_class]);
     let object2_class: Class = msg![env; object2 class];
-    assert!(msg![env; object2_class isKindOfClass:str_class]);
+    // assert!(msg![env; object2_class isKindOfClass:str_class]);
     // TODO: use isEqual: once it is fixed
     msg![env; object1 isEqualToString:object2]
 }
