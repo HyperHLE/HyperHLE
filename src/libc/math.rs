@@ -637,6 +637,12 @@ fn rintf(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn mbsrtowcs(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn rint(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn EAGLGetVersion(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -774,4 +780,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFTimeZoneGetSecondsFromGMT(_, _)),
     export_c_func!(rintf(_, _)),
     export_c_func!(mbsrtowcs(_, _)),
+    export_c_func!(rint(_, _)),
+    export_c_func!(EAGLGetVersion(_, _)),
 ];
