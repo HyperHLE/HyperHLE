@@ -643,6 +643,33 @@ fn rint(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn EAGLGetVersion(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn CFHostCreateWithName(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CGGradientRelease(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn wcstol(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn fgetwc(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CFHostStartInfoResolution(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CGPathMoveToPoint(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CGPathAddPath(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CFHostGetAddressing(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CGPathAddLineToPoint(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -782,4 +809,16 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(mbsrtowcs(_, _)),
     export_c_func!(rint(_, _)),
     export_c_func!(EAGLGetVersion(_, _)),
+    export_c_func!(localeconv(_, _)),
+    export_c_func!(CFURLCreateWithBytes(_, _)),
+    export_c_func!(CFHostCreateWithName(_, _)),
+    export_c_func!(CGGradientRelease(_, _)),
+    export_c_func!(wcstol(_, _)),
+    export_c_func!(sranddev(_, _)),
+    export_c_func!(fgetwc(_, _)),
+    export_c_func!(CFHostStartInfoResolution(_, _)),
+    export_c_func!(CGPathMoveToPoint(_, _)),
+    export_c_func!(CGPathAddPath(_, _)),
+    export_c_func!(CFHostGetAddressing(_, _)),
+    export_c_func!(CGPathAddLineToPoint(_, _)),
 ];
