@@ -289,6 +289,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation CADisplayLink : CAAnimation
+
++ (id)duration {
+    nil
+}
+
+- (id)isPaused {
+    nil
+}
+
+- (id)timestamp {
+    nil
+}
+
+- (id)targetTimestamp {
+    nil
+}
+
+@end
+
 };
 
 fn CACurrentMediaTime(env: &mut Environment) -> CFTimeInterval {
