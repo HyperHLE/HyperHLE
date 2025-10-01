@@ -67,7 +67,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation AVAudioSession: NSObject
 
 + (id)sharedInstance {
-    if let Some(sess) = env.framework_state.av_audio.av_audio_player.av_audio_session.av_audio_session {
+    if let Some(sess) = env.framework_state.av_audio.av_audio_player.av_audio_player {
         sess
     } else {
         let new = env.objc.alloc_static_object(
@@ -75,7 +75,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             Box::new(AudioSessionHost{delegate: nil}),
             &mut env.mem
         );
-        env.framework_state.av_audio.av_audio_player.av_audio_session.av_audio_session = Some(new);
+        env.framework_state.av_audio.av_audio_player.av_audio_player = Some(new);
         new
    }
 }
