@@ -185,9 +185,7 @@ fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2
         if class == nil {
             // assert!(class != orig_class);
 
-            let Some(class_host_object) = env.objc.get_host_object(orig_class) else {
-                return None;
-            };
+            let class_host_object = env.objc.get_host_object(orig_class).unwrap();
             let &super::ClassHostObject {
                 ref name,
                 is_metaclass,
