@@ -35,11 +35,7 @@ pub(super) struct ThreadInitializer {
 }
 
 fn maybe_initialize_class(env: &mut Environment, orig_class: id, receiver: id) {
-    let Some(class_host_object) = env.objc.get_host_object(orig_class) else {
-        // Class not registered / fake → nothing to initialize
-        return;
-    };
-
+    let class_host_object = env.objc.get_host_object(orig_class).unwrap();
     let Some(&super::ClassHostObject {
         superclass,
         is_metaclass,
@@ -47,12 +43,10 @@ fn maybe_initialize_class(env: &mut Environment, orig_class: id, receiver: id) {
         ..
     }) = class_host_object.as_any().downcast_ref()
     else {
-        // Not a real class host object → skip
+        // No need to initialize fake/unimplemented classes
         return;
     };
 
-    // … rest of your function …
-}
     if !is_metaclass || is_initialized == InitializationStatus::Initialized {
         return;
     }
@@ -62,46 +56,21 @@ fn maybe_initialize_class(env: &mut Environment, orig_class: id, receiver: id) {
     if !superclass.is_null() {
         maybe_initialize_class(env, superclass, receiver);
     }
-if is_initialized == InitializationStatus::Initializing {
-    if let Some(initializer) = env.objc.initializer_threads.get_mut(&orig_class) {
-        initializer.waiters += 1;
-
-        let ThreadInitializer { mutex, cond, tid, .. } = *initializer;
+    if is_initialized == InitializationStatus::Initializing {
+        env.objc
+            .initializer_threads
+            .get_mut(&orig_class)
+            .unwrap()
+            .waiters += 1;
+        let ThreadInitializer {
+            mutex, cond, tid, ..
+        } = *env.objc.initializer_threads.get(&orig_class).unwrap();
 
         // The current thread is already initializing, so let it call other
         // messages while it does so.
         if tid == env.current_thread {
             return;
         }
-
-        // Now safe to wait
-        if let Some(class_host_object) = env.objc.get_host_object(orig_class) {
-            if let Some(&super::ClassHostObject { is_initialized, .. }) =
-                class_host_object.as_any().downcast_ref()
-            {
-                pthread_mutex_lock(env, mutex);
-                while is_initialized != InitializationStatus::Initialized {
-                    pthread_cond_wait(env, cond, mutex);
-                }
-                pthread_mutex_unlock(env, mutex);
-            }
-        }
-
-        // Clean up waiters safely
-        if let Some(initializer) = env.objc.initializer_threads.get_mut(&orig_class) {
-            initializer.waiters -= 1;
-            if initializer.waiters == 0 {
-                pthread_cond_destroy(env, cond);
-                pthread_mutex_destroy(env, mutex);
-                env.objc.initializer_threads.remove(&orig_class);
-            }
-        }
-    } else {
-        // Defensive: we expected an initializer entry, but it wasn't there.
-        // Just return instead of panicking.
-        return;
-    }
-}
 
         let class_host_object = env.objc.get_host_object(orig_class).unwrap();
         let &super::ClassHostObject { is_initialized, .. } =
