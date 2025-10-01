@@ -17,7 +17,7 @@ pub const CONSTANT_LISTS: &[super::ConstantExports] = &[
     libc::ctype::CONSTANTS,
     libc::stdio::CONSTANTS,
     libc::mach::init::CONSTANTS,
-    avf_audio::av_audio_session::CONSTANTS,
+    av_audio::av_audio_player::CONSTANTS,
     core_animation::ca_animation::CONSTANTS,
     core_animation::ca_layer::CONSTANTS,
     core_animation::ca_media_timing_function::CONSTANTS,
