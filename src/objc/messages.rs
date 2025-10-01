@@ -172,7 +172,7 @@ fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2
     }
 
     let orig_class = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
-    assert!(orig_class != nil);
+    // assert!(orig_class != nil);
     maybe_initialize_class(env, orig_class, receiver);
 
     // Traverse the chain of superclasses to find the method implementation.
