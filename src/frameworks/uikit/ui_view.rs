@@ -119,6 +119,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (()) setAnimationDuration: (NSTimeInterval) _duration {}
 + (()) setAnimationDelay: (NSTimeInterval) _delay {}
 + (()) setAnimationDelegate: (NSTimeInterval) _delegate {}
++ (()) setAnimationBeginsFromCurrentState: (NSTimeInterval) _state {}
++ (()) setAnimationRepeatAutoreverses: (NSTimeInterval) _auto {}
++ (()) setAnimationDidStopSelector: (NSTimeInterval) _sel {}
++ (()) setAnimationRepeatCount: (NSTimeInterval) _count {}
 
 + (()) commitAnimations {}
 
