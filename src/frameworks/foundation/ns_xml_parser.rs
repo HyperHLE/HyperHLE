@@ -240,6 +240,13 @@ pub const CLASSES: ClassExports = objc_classes! {
                 let responds: bool = msg![env; delegate respondsToSelector:sel];
                 assert!(!responds); // TODO
             }
+            Event::PI(_) => {
+                let sel: SEL = env
+                    .objc
+                    .register_host_selector("parser:foundElementDeclarationWithName:model:".to_string(), &mut env.mem);
+                let responds: bool = msg![env; delegate respondsToSelector:sel];
+                // assert!(!responds); // TODO
+            }
             e => unimplemented!("{:?}", e)
         }
     }
@@ -257,6 +264,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     let &NSXMLParserHostObject { data, .. } = env.objc.borrow(this);
     release(env, data);
     env.objc.dealloc_object(this, &mut env.mem);
+}
+
+@end
+
+@implementation NSCalendar: NSObject
+
++ (id)autoupdatingCurrentCalendar {
+    nil
+}
+
++ (id)currentCalendar { // NSCalendar*
+    nil
 }
 
 @end
