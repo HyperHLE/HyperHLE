@@ -8,7 +8,7 @@
 use crate::dyld::{ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::core_foundation::time::CFTimeInterval;
 use crate::frameworks::foundation::ns_string::to_rust_string;
-use crate::frameworks::foundation::NSTimeInterval;
+use crate::frameworks::foundation::{NSInteger, NSTimeInterval};
 use crate::objc::{
     autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
 };
@@ -290,6 +290,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 @implementation CADisplayLink : CAAnimation
+
++ (())displayLinkWithTarget:(NSInteger)_target selector:(bool)_selector {
+    // TODO
+}
 
 + (id)duration {
     nil
