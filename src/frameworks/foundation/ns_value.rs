@@ -21,6 +21,12 @@ use crate::objc::{
 use crate::Environment;
 use std::cmp::Ordering;
 
+#[derive(Debug)]
+pub(super) enum NSValueHostObject {
+    CGRect(CGRect),
+}
+impl HostObject for NSValueHostObject {}
+
 macro_rules! impl_AsValue {
     ($method_name:tt, $typ:tt) => {
         pub fn $method_name(&self) -> $typ {
@@ -153,6 +159,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     // a pointer-sized data item, the result is undefined.`
     let val = msg![env; this unsignedIntValue];
     MutVoidPtr::from_bits(val)
+}
+
+- (CGRect)CGRectValue {
+    let host_object = env.objc.borrow::<NSValueHostObject>(this);
+    match host_object {
+        NSValueHostObject::CGRect(cg_rect) => *cg_rect
+    }
 }
 
 @end
