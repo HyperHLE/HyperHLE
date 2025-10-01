@@ -5,8 +5,3 @@
  */
 
 pub mod av_audio_player;
-
-#[derive(Default)]
-pub struct State {
-    av_audio_player: av_audio_player::State,
-}
