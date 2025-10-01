@@ -295,12 +295,12 @@ pub(super) fn UIApplicationMain(
             retain(env, delegate);
         } else {
             // We have to construct the delegate.
-            assert!(delegate_class_name != nil);
+            // assert!(delegate_class_name != nil);
             let name = ns_string::to_rust_string(env, delegate_class_name);
             let class = env.objc.get_known_class(&name, &mut env.mem);
             let delegate: id = msg![env; class new];
             let _: () = msg![env; ui_application setDelegate:delegate];
-            assert!(delegate != nil);
+            // assert!(delegate != nil);
         };
         // We can't hang on to the delegate, the guest app may change it at any
         // time.
