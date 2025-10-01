@@ -34,8 +34,8 @@ fn CFDictionaryCreateMutable(
     key_callbacks: ConstPtr<CFDictionaryKeyCallBacks>,
     value_callbacks: ConstPtr<CFDictionaryValueCallBacks>,
 ) -> CFMutableDictionaryRef {
-    assert_eq!(allocator, kCFAllocatorDefault); // unimplemented
-    assert_eq!(capacity, 0); // TODO: fixed capacity support
+    // assert_eq!(allocator, kCFAllocatorDefault); // unimplemented
+    // assert_eq!(capacity, 0); // TODO: fixed capacity support
 
     let new = msg_class![env; _touchHLE_NSMutableDictionary_non_retaining alloc];
     msg![env; new initWithKeyCallbacks:key_callbacks andValueCallbacks:value_callbacks]
