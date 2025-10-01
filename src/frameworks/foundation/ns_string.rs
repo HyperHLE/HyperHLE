@@ -246,7 +246,7 @@ impl CodeUnitIterator<'_> {
 
 /// Helper for formatting methods. They can't call eachother currently due to
 /// full vararg passthrough being missing.
-pub fn with_format(env: &mut Environment, format: id, args: VaList) -> Result<String, std::string::FromUtf8Error> {
+pub fn with_format(env: &mut Environment, format: id, args: VaList) -> String {
     let format_string = to_rust_string(env, format);
 
     log_dbg!("Formatting {:?} ({:?})", format, format_string);
@@ -262,8 +262,9 @@ pub fn with_format(env: &mut Environment, format: id, args: VaList) -> Result<St
         },
         args,
     );
-
-    String::from_utf8(res)
+    
+    // TODO: what if it's not valid UTF-8?
+    String::from_utf8(res).unwrap()
 }
 
 pub fn from_rust_ordering(ordering: std::cmp::Ordering) -> NSComparisonResult {
