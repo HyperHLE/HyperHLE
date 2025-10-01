@@ -260,22 +260,29 @@ impl super::ObjC {
 
     /// Get a reference to a host object and downcast it. Panics if there is
     /// no such object, or if downcasting fails.
-pub fn borrow_mut<T: AnyHostObject + 'static>(&mut self, object: id) -> Option<&mut T> {
-    type Aho = dyn AnyHostObject + 'static;
-    let mut host_object = self.objects.get_mut(&object)?.host_object.as_mut();
-
-    loop {
-        if let Some(res) = unsafe { &mut *(host_object as *mut Aho) }
-            .as_any_mut()
-            .downcast_mut::<T>()
-        {
-            return Some(res);
-        } else if let Some(next) = host_object.as_superclass_mut() {
-            host_object = next;
-        } else {
-            return None;
+    pub fn borrow_mut<T: AnyHostObject + 'static>(&mut self, object: id) -> &mut T {
+        // Rust's borrow checker struggles with loops like this which descend
+        // through a data structure with a mutable borrow. The unsafe code is
+        // used to bypass the borrow checker.
+        type Aho = dyn AnyHostObject + 'static;
+        let mut host_object: &mut Aho = &mut *self.objects.get_mut(&object).unwrap().host_object;
+        loop {
+            if let Some(res) = unsafe { &mut *(host_object as *mut Aho) }
+                .as_any_mut()
+                .downcast_mut()
+            {
+                return res;
+            } else if let Some(next) = host_object.as_superclass_mut() {
+                host_object = next;
+            } else {
+                let host_object: &Aho = &*self.objects.get(&object).unwrap().host_object;
+                panic!(
+                    "Could not find host object with type {:?}, found {:?} for {object:?}",
+                    std::any::type_name::<T>(),
+                    host_object.type_name(),
+                );
+            }
         }
-    }
 }
 
 
