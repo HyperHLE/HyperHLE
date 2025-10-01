@@ -295,19 +295,31 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO
 }
 
++ (())setFrameInterval:(bool)frame {
+    log!("TODO: setFrameInterval:{}", frame);
+}
+
++ (())addToRunLoop:(NSInteger)_loop forMode:(bool)_mode {
+    // TODO
+}
+
 + (id)duration {
     nil
 }
 
-- (id)isPaused {
++ (id)isPaused {
     nil
 }
 
-- (id)timestamp {
++ (id)timestamp {
     nil
 }
 
-- (id)targetTimestamp {
++ (id)targetTimestamp {
+    nil
+}
+
++ (id)invalidate {
     nil
 }
 
