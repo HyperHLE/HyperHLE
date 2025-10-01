@@ -7,7 +7,7 @@
 //! very long and frequently-updated list.
 
 use crate::frameworks::{
-    core_animation, core_foundation, core_graphics, foundation, game_kit, media_player, opengles,
+    avf_audio, core_animation, core_foundation, core_graphics, foundation, game_kit, media_player, misc, opengles,
     uikit,
 };
 use crate::libc;
@@ -17,6 +17,7 @@ pub const CONSTANT_LISTS: &[super::ConstantExports] = &[
     libc::ctype::CONSTANTS,
     libc::stdio::CONSTANTS,
     libc::mach::init::CONSTANTS,
+    avf_audio::av_audio_session::CONSTANTS,
     core_animation::ca_animation::CONSTANTS,
     core_animation::ca_layer::CONSTANTS,
     core_animation::ca_media_timing_function::CONSTANTS,
@@ -39,6 +40,7 @@ pub const CONSTANT_LISTS: &[super::ConstantExports] = &[
     foundation::ns_run_loop::CONSTANTS,
     media_player::movie_player::CONSTANTS,
     media_player::music_player::CONSTANTS,
+    misc::CONSTANTS,
     opengles::eagl::CONSTANTS,
     uikit::ui_application::CONSTANTS,
     uikit::ui_device::CONSTANTS,
