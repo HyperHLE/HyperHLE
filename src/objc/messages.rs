@@ -210,8 +210,10 @@ fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2
             );
         }
 
-        let host_object = env.objc.get_host_object(class).unwrap();
-
+        let Some(host_object) = env.objc.get_host_object(class) else {
+            // Class not registered / no host object → nothing to do
+            return;
+        };
         if let Some(&super::ClassHostObject {
             superclass,
             ref methods,
