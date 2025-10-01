@@ -562,6 +562,51 @@ fn SCNetworkReachabilityScheduleWithRunLoop(_env: &mut Environment, arg1: f64, a
 fn SCNetworkReachabilityUnscheduleFromRunLoop(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
+fn ExtAudioFileWrapAudioFileID(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn ExtAudioFileOpenURL(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn ExtAudioFileGetProperty(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn ExtAudioFileSetProperty(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn ExtAudioFileDispose(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn NSDefaultMallocZone(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn NSZoneMalloc(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGLayerCreateWithContext(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGLayerGetContext(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGPathAddLines(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGPathAddRect(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGPathCloseSubpath(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGPathCreateCopy(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGPathCreateMutable(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGPathRelease(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -674,4 +719,19 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(sqlite3_bind_parameter_index(_, _)),
     export_c_func!(SCNetworkReachabilityScheduleWithRunLoop(_, _)),
     export_c_func!(SCNetworkReachabilityUnscheduleFromRunLoop(_, _)),
+    export_c_func!(ExtAudioFileWrapAudioFileID(_, _)),
+    export_c_func!(ExtAudioFileOpenURL(_, _)),
+    export_c_func!(ExtAudioFileGetProperty(_, _)),
+    export_c_func!(ExtAudioFileSetProperty(_, _)),
+    export_c_func!(ExtAudioFileDispose(_, _)),
+    export_c_func!(NSDefaultMallocZone(_, _)),
+    export_c_func!(NSZoneMalloc(_, _)),
+    export_c_func!(CGLayerCreateWithContext(_, _)),
+    export_c_func!(CGLayerGetContext(_, _)),
+    export_c_func!(CGPathAddLines(_, _)),
+    export_c_func!(CGPathAddRect(_, _)),
+    export_c_func!(CGPathCloseSubpath(_, _)),
+    export_c_func!(CGPathCreateCopy(_, _)),
+    export_c_func!(CGPathCreateMutable(_, _)),
+    export_c_func!(CGPathRelease(_, _)),
 ];
