@@ -5,10 +5,10 @@
  */
 //! `NSLocale`.
 
-use super::{ns_array, ns_string};
+use super::{ns_array, ns_string, NSUInteger};
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_foundation::cf_locale::kCFLocaleCountryCode;
-use crate::objc::{id, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr};
+use crate::objc::{id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr};
 use crate::Environment;
 
 const NSLocaleCountryCode: &str = "NSLocaleCountryCode";
@@ -116,6 +116,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
++ (id)canonicalLocaleIdentifierFromString:(NSUInteger)string {
+    msg![env; this init]
+}
+
 + (id)autoupdatingCurrentLocale {
     nil
 }
@@ -187,6 +191,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     retain(env, this)
+}
+
+- (id)localeIdentifier {
+    nil
 }
 
 - (id)objectForKey:(id)key {
