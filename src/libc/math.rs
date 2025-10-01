@@ -607,6 +607,9 @@ fn CGPathCreateMutable(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn CGPathRelease(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn ExtAudioFileRead(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -734,4 +737,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGPathCreateCopy(_, _)),
     export_c_func!(CGPathCreateMutable(_, _)),
     export_c_func!(CGPathRelease(_, _)),
+    export_c_func!(ExtAudioFileRead(_, _)),
 ];
