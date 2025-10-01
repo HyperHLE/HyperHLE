@@ -53,19 +53,16 @@ fn AudioServicesDisposeSystemSoundID(_env: &mut Environment, in_system_sound_id:
 
 fn AudioServicesCreateSystemSoundID(
     env: &mut Environment,
-    in_file_url: CFURLRef,
-    in_system_sound_id: SystemSoundID
+    _in_file_url: CFURLRef,
+    _in_system_sound_id: SystemSoundID
 ) -> OSStatus {
     -1
 }
 
 fn AudioServicesAddSystemSoundCompletion(
     env: &mut Environment,
-    in_system_sound_id: SystemSoundID,
-    in_run_loop: CFRunLoopRef,
-    in_run_loop_mode: CFStringRef,
-    in_completion_routine: AudioServicesSystemSoundCompletionProc,
-    in_client_data: MutPtr<u32>,
+    _in_file_url: CFURLRef,
+    _in_system_sound_id: SystemSoundID
 ) -> OSStatus {
     -1
 }
