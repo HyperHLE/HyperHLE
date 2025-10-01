@@ -266,6 +266,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
++ (id)numberWithUnsignedChar:(i8)value {
+    // TODO: for greater efficiency we could return a static-lifetime value
+
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithChar:value];
+    autorelease(env, new)
+}
+
 // TODO: types other than booleans and long longs
 
 - (id)initWithBool:(bool)value {
@@ -323,6 +331,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)initWithUnsignedChar:(i8)value {
+    *env.objc.borrow_mut(this) = NSNumberHostObject::Char(value);
+    this
+}
+
 - (bool)boolValue {
     env.objc.borrow::<NSNumberHostObject>(this).as_bool()
 }
@@ -368,6 +381,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (i8)charValue {
+    env.objc.borrow::<NSNumberHostObject>(this).as_char()
+}
+
+- (i8)unsignedcharValue {
     env.objc.borrow::<NSNumberHostObject>(this).as_char()
 }
 
