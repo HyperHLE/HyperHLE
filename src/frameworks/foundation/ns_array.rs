@@ -8,7 +8,7 @@
 use super::ns_enumerator::{fast_enumeration_helper, NSFastEnumerationState};
 use super::ns_property_list_serialization::deserialize_plist_from_file;
 use super::{
-    ns_keyed_unarchiver, ns_string, ns_url, NSComparisonResult, NSNotFound, NSRange, NSUInteger,
+    ns_keyed_unarchiver, ns_string, ns_url, NSComparisonResult, NSNotFound, NSRange, NSInteger, NSUInteger,
 };
 use crate::abi::{CallFromHost, GuestFunction};
 use crate::fs::GuestPath;
@@ -593,6 +593,30 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())removeObjectAtIndex:(NSUInteger)index {
     let object = env.objc.borrow_mut::<ArrayHostObject>(this).array.remove(index as usize);
     release(env, object)
+}
+
+- (())exchangeObjectAtIndex:(NSInteger)_index withObjectAtIndex:(bool)_object {
+    // TODO
+}
+
+- (())writeToFile:(NSInteger)file atomically:(bool)_atomically {
+    // TODO
+}
+
+- (())writeToFile:(NSInteger)file atomically:(bool)_atomically encoding:(bool)_encoding error:(bool)_error {
+    // TODO
+}
+
+- (())initWithArray:(NSInteger)array copyItems:(bool)_items {
+    // TODO
+}
+
+- (())insertObject:(NSInteger)object atIndex:(bool)_index {
+    // TODO
+}
+
+- (())pathForResource:(NSInteger)resource ofType:(bool)_type {
+    // TODO
 }
 
 - (())replaceObjectAtIndex:(NSUInteger)index withObject:(id)obj {
