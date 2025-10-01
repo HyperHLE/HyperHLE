@@ -10,10 +10,13 @@ use crate::frameworks::carbon_core::OSStatus;
 use crate::frameworks::core_audio_types::fourcc;
 use crate::mem::{MutPtr, MutVoidPtr};
 use crate::Environment;
+use crate::frameworks::core_foundation::cf_run_loop::CFRunLoopRef;
+use crate::frameworks::core_foundation::cf_string::CFStringRef;
 use crate::frameworks::core_foundation::cf_url::CFURLRef;
 
 /// Usually a FourCC.
 type AudioServicesPropertyID = u32;
+type AudioServicesSystemSoundCompletionProc = u32;
 type SystemSoundID = u32;
 
 const kAudioServicesUnsupportedPropertyError: OSStatus = fourcc(b"pty?") as _;
@@ -55,9 +58,21 @@ fn AudioServicesCreateSystemSoundID(
     -1
 }
 
+fn AudioServicesAddSystemSoundCompletion(
+    env: &mut Environment,
+    in_system_sound_id: SystemSoundID,
+    in_run_loop: CFRunLoopRef,
+    in_run_loop_mode: CFStringRef,
+    in_completion_routine: AudioServicesSystemSoundCompletionProc,
+    in_client_data: MutPtr<u32>,
+) -> OSStatus; {
+    -1
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioServicesGetProperty(_, _, _, _, _)),
     export_c_func!(AudioServicesPlaySystemSound(_)),
     export_c_func!(AudioServicesDisposeSystemSoundID(_)),
     export_c_func!(AudioServicesCreateSystemSoundID(_, _)),
+    export_c_func!(AudioServicesAddSystemSoundCompletion(_, _, _, _, _,)),
 ];
