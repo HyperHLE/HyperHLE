@@ -23,9 +23,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<CALayerHostObject>(this).drawable_properties
 }
 
+- (id)main {
+    nil
+}
+
+- (id)description {
+    nil
+}
+
 - (())setDrawableProperties:(id)props { // NSDictionary<NSString*, id>*
     let props: id = msg![env; props copy];
     env.objc.borrow_mut::<CALayerHostObject>(this).drawable_properties = props;
+}
+
+- (())setContentsScale:(bool)scale {
+    log!("TODO: setContentsScale:{}", scale);
 }
 
 @end
@@ -134,4 +146,4 @@ pub fn present_pixels(env: &mut Environment, layer: id, pixels: Vec<u8>, width: 
     let host_obj = env.objc.borrow_mut::<CALayerHostObject>(layer);
     host_obj.presented_pixels = Some((pixels, width, height));
     host_obj.gles_texture_is_up_to_date = false;
-}
+                                  }
