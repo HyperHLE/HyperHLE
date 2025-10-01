@@ -7,7 +7,7 @@
 //!
 //! Implemented using Audio Queue Services based on [the PlayingAudio example](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/AudioQueueProgrammingGuide/AQPlayback/PlayingAudio.html)
 
-use crate::dyld::HostFunction;
+use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::audio_toolbox::audio_file::{
     self, kAudioFilePropertyDataFormat, kAudioFilePropertyPacketSizeUpperBound,
     kAudioFileReadPermission, AudioFileClose, AudioFileGetProperty, AudioFileID, AudioFileOpenURL,
@@ -25,12 +25,22 @@ use crate::frameworks::foundation::ns_error::NSOSStatusErrorDomain;
 use crate::frameworks::foundation::{ns_string, NSInteger, NSTimeInterval};
 use crate::mem::{guest_size_of, GuestUSize, MutPtr, MutVoidPtr, Ptr};
 use crate::objc::{
-    id, msg, msg_class, nil, release, retain, Class, ClassExports, HostObject, NSZonePtr,
+    id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports, HostObject, NSZonePtr,
 };
 use crate::objc_classes;
 use crate::Environment;
 
 const kNumberBuffers: usize = 3;
+
+#[derive(Default)]
+pub struct State {
+    av_audio_session: Option<id>,
+}
+
+struct AudioSessionHost {
+    delegate: id, //Unretained
+}
+impl HostObject for AudioSessionHost {}
 
 struct AVAudioPlayerHostObject {
     audio_file_url: id,
@@ -53,6 +63,48 @@ impl HostObject for AVAudioPlayerHostObject {}
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
+
+@implementation AVAudioSession: NSObject
+
++ (id)sharedInstance {
+    if let Some(sess) = env.framework_state.avf_audio.av_audio_session.av_audio_session {
+        sess
+    } else {
+        let new = env.objc.alloc_static_object(
+            this,
+            Box::new(AudioSessionHost{delegate: nil}),
+            &mut env.mem
+        );
+        env.framework_state.avf_audio.av_audio_session.av_audio_session = Some(new);
+        new
+   }
+}
+
+- (())setDelegate:(id)new {
+    env.objc.borrow_mut::<AudioSessionHost>(this).delegate = new;
+}
+
+- (bool)setCategory:(id)_category
+              error:(MutPtr<id>)err {
+    if !err.is_null() {
+        env.mem.write(err, nil)
+    }
+    true
+}
+
+- (bool)setActive:(bool)active
+            error:(MutPtr<id>)err {
+    if !err.is_null() {
+        env.mem.write(err, nil)
+    }
+    true
+}
+
+- (id)retain { this }
+- (())release {}
+- (id)autorelease { this }
+
+@end
 
 @implementation AVAudioPlayer: NSObject
 
@@ -304,6 +356,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+pub const CONSTANTS: ConstantExports = &[
+    (
+        "_AVAudioSessionCategorySoloAmbient",
+        HostConstant::NSString("AVAudioSessionCategorySoloAmbient"),
+    ),
+    (
+        "_AVAudioSessionCategoryAmbient",
+        HostConstant::NSString("AVAudioSessionCategoryAmbient"),
+    ),
+];
 
 // Listing 3-7 from `Deriving a playback audio queue buffer size`
 // from the Apple's guide
