@@ -66,7 +66,7 @@ fn AudioServicesAddSystemSoundCompletion(
     in_run_loop_mode: CFStringRef,
     in_completion_routine: AudioServicesSystemSoundCompletionProc,
     in_client_data: MutPtr<u32>,
-) -> OSStatus; {
+) -> OSStatus {
     -1
 }
 
