@@ -643,6 +643,9 @@ fn rint(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn EAGLGetVersion(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn localeconv(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 fn CFHostCreateWithName(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
@@ -810,7 +813,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(rint(_, _)),
     export_c_func!(EAGLGetVersion(_, _)),
     export_c_func!(localeconv(_, _)),
-    export_c_func!(CFURLCreateWithBytes(_, _)),
     export_c_func!(CFHostCreateWithName(_, _)),
     export_c_func!(CGGradientRelease(_, _)),
     export_c_func!(wcstol(_, _)),
