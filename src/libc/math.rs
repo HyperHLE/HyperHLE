@@ -655,6 +655,10 @@ fn CGGradientRelease(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
 fn wcstol(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
+fn sranddev(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+
 fn fgetwc(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
