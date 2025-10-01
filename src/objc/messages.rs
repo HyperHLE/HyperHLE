@@ -24,7 +24,6 @@ use crate::libc::pthread::mutex::{
 };
 use crate::mem::{guest_size_of, ConstPtr, MutPtr, MutVoidPtr, SafeRead};
 use crate::objc::classes::InitializationStatus;
-use crate::objc::methods::Method;
 use crate::Environment;
 use std::any::TypeId;
 
