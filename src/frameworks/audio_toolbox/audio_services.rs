@@ -75,5 +75,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioServicesPlaySystemSound(_)),
     export_c_func!(AudioServicesDisposeSystemSoundID(_)),
     export_c_func!(AudioServicesCreateSystemSoundID(_, _)),
-    export_c_func!(AudioServicesAddSystemSoundCompletion(_, _, _, _, _,)),
+    export_c_func!(AudioServicesAddSystemSoundCompletion(_, _)),
 ];
