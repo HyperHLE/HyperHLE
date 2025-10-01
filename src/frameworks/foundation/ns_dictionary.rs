@@ -10,7 +10,7 @@ use super::ns_property_list_serialization::{
     deserialize_plist_from_file, NSPropertyListBinaryFormat_v1_0,
 };
 use super::ns_string::{from_rust_string, get_static_str, to_rust_string};
-use super::{ns_array, ns_keyed_unarchiver, ns_string, ns_url, NSUInteger};
+use super::{ns_array, ns_keyed_unarchiver, ns_string, ns_url, NSInteger, NSUInteger};
 use crate::abi::{CallFromHost, GuestFunction, VaList};
 use crate::frameworks::core_foundation::{CFHashCode, CFIndex};
 use crate::frameworks::foundation::ns_enumerator::{
@@ -734,6 +734,30 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())removeAllObjects {
     let mut old_host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     old_host_obj.release(env);
+}
+
+- (())countByEnumeratingWithState:(NSInteger)state objects:(bool)_objects count:(bool)_count {
+    // TODO
+}
+
+- (())getObjects:(NSInteger)_objects andKeys:(bool)_keys {
+    // TODO
+}
+
+- (())initWithObjects:(NSInteger)_objects forKeys:(bool)_keys {
+    // TODO
+}
+
+- (())searchForServicesOfType:(NSInteger)_type inDomain:(bool)_domain {
+    // TODO
+}
+
+- (())setName:(bool)name {
+    log!("TODO: setName:{}", name);
+}
+
+- (())setDictionary:(bool)dictionary{
+    log!("TODO: setDictionary:{}", dictionary);
 }
 
 - (())addEntriesFromDictionary:(id)other { // NSDictionary *
