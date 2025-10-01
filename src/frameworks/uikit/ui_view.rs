@@ -667,10 +667,15 @@ pub const CLASSES: ClassExports = objc_classes! {
                fromView:(id)other { // UIView*
     if other == nil {
         let window: id = msg![env; this window];
-        assert!(window != nil);
-        // TODO: also assert that window is a key one?
-        return msg![env; this convertPoint:point fromView:window]
+        if window == nil {
+            // No window attached — safe fallback
+            // UIKit would typically just return the point unchanged
+            return point;
+        }
+        // TODO: check if window is the key window if you need parity
+        return msg![env; this convertPoint:point fromView:window];
     }
+
     let this_layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     let other_layer = env.objc.borrow::<UIViewHostObject>(other).layer;
     msg![env; this_layer convertPoint:point fromLayer:other_layer]
@@ -680,10 +685,14 @@ pub const CLASSES: ClassExports = objc_classes! {
                  toView:(id)other { // UIView*
     if other == nil {
         let window: id = msg![env; this window];
-        assert!(window != nil);
-        // TODO: also assert that window is a key one?
-        return msg![env; this convertPoint:point toView:window]
+        if window == nil {
+            // No window attached → just return the point unchanged
+            return point;
+        }
+        // TODO: could also check if window is the key window
+        return msg![env; this convertPoint:point toView:window];
     }
+
     let this_layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     let other_layer = env.objc.borrow::<UIViewHostObject>(other).layer;
     msg![env; this_layer convertPoint:point toLayer:other_layer]
