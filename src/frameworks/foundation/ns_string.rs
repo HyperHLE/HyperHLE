@@ -1589,7 +1589,13 @@ pub fn register_constant_strings(bin: &MachO, mem: &mut Mem, objc: &mut ObjC) {
         // See https://lists.llvm.org/pipermail/cfe-dev/2008-August/002518.html
         let (host_object, class_name) = if flags == 0x7C8 {
             // ASCII
-            let decoded = std::str::from_utf8(mem.bytes_at(bytes, length)).unwrap();
+            let decoded = match std::str::from_utf8(mem.bytes_at(bytes, length)) {
+                Ok(s) => s,
+                Err(_) => {
+                    // Invalid UTF-8 → bail out
+                   return;
+                }
+            };
 
             (
                 StringHostObject::Utf8(Cow::Owned(String::from(decoded))),
