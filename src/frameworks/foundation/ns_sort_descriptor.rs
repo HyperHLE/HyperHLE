@@ -5,13 +5,13 @@
  */
 
 use super::NSComparisonResult;
-use crate::objc::{id, msg, msg_send, nil, ClassExports, HostObject, NSZonePtr, SEL};
+use crate::objc::{id, msg, msg_send, nil, ClassExports, HostObject, NSZonePtr};
 use crate::objc_classes;
 
 struct SortDescriptorObject {
     key: id,
     ascending: bool,
-    selector: SEL,
+    selector: bool,
 }
 impl HostObject for SortDescriptorObject {}
 
@@ -25,7 +25,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = Box::new(SortDescriptorObject {
         key: nil,
         ascending: false,
-        selector: SEL::is_null(),
+        selector: false,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -38,7 +38,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithKey:(id)key
         ascending:(bool)asc
-         selector:(SEL)sel {
+         selector:(bool)sel {
     let host_obj = env.objc.borrow_mut::<SortDescriptorObject>(this);
     host_obj.key = key;
     host_obj.selector = sel;
