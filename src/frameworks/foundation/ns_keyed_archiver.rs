@@ -5,6 +5,7 @@
  */
 //! `NSKeyedArchiver` - Currently just a fake implementation.
 
+use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::objc::{
     autorelease, id, msg_class, nil, objc_classes, ClassExports, HostObject,
     NSZonePtr,
@@ -35,9 +36,25 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, archiver, &mut env.mem)
 }
 
++ (id)bytes {
+    nil
+}
+
++ (id)length {
+    nil
+}
+
 + (id)archivedDataWithRootObject:(id)_rootObject { // NSData *
     let data: id = msg_class![env; NSMutableData new];
     autorelease(env, data)
+}
+
++ (bool)archiveRootObject:(id)object toFile:(id)path {
+    false
+}
+
++ (())writeToFile:(NSInteger)file atomically:(bool)_atomically {
+    // TODO
 }
 
 // TODO: other init methods.
@@ -73,6 +90,30 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)containsValueForKey:(id)key { // NSString*
     assert!(key != nil);
     return false;
+}
+
+- (id)finishEncoding {
+    nil
+}
+
+- (id)initForWritingWithMutableData:(NSUInteger)_data {
+    msg![env; this init]
+}
+
+- (())encodeBool:(NSInteger)bool forKey:(bool)_key {
+    // TODO
+}
+
+- (())encodeObject:(NSInteger)object forKey:(bool)_key {
+    // TODO
+}
+
+- (())encodeInt:(NSInteger)int forKey:(bool)_key {
+    // TODO
+}
+
+- (())encodeBytes:(NSInteger)bytes length:(bool)_length forKey:(bool)_key {
+    // TODO
 }
 
 // TODO: add more decode methods
