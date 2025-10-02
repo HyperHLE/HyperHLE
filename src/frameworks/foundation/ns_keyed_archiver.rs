@@ -7,7 +7,7 @@
 
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::objc::{
-    autorelease, id, msg_class, nil, objc_classes, ClassExports, HostObject,
+    autorelease, id, msg, msg_class, nil, objc_classes, ClassExports, HostObject,
     NSZonePtr,
 };
 use crate::Environment;
