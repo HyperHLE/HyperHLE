@@ -34,7 +34,7 @@ pub struct State {
     strings_cache: HashMap<ALenum, ConstPtr<u8>>,
     current_ctx: MutPtr<GuestALCcontext>,
 }
-impl<SomeError> State {
+impl State {
     fn get(env: &mut Environment) -> &mut Self {
         &mut env.framework_state.openal
     }
@@ -49,8 +49,8 @@ impl<SomeError> State {
         )
     }
 
-    fn make_current(env: &mut Environment) -> Result<OpenAL<'_>, SomeError> {
-        Self::try_make_current(env)
+    fn make_current(env: &mut Environment) -> OpenAL<'_> {
+        Self::try_make_current(env).unwrap()
     }
 }
 
