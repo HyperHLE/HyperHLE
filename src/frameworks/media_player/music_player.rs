@@ -14,6 +14,10 @@ pub const MPMusicPlayerControllerNowPlayingItemDidChangeNotification: &str =
     "MPMusicPlayerControllerNowPlayingItemDidChangeNotification";
 pub const MPMusicPlayerControllerPlaybackStateDidChangeNotification: &str =
     "MPMusicPlayerControllerPlaybackStateDidChangeNotification";
+pub const MPMusicPlayerControllerVolumeDidChangeNotification: &str =
+    "MPMusicPlayerControllerVolumeDidChangeNotification";
+pub const MPMusicPlayerControllerQueueDidChange: &str =
+    "MPMusicPlayerControllerQueueDidChange";
 
 /// `NSNotificationName` values.
 pub const CONSTANTS: ConstantExports = &[
@@ -24,6 +28,14 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_MPMusicPlayerControllerPlaybackStateDidChangeNotification",
         HostConstant::NSString(MPMusicPlayerControllerPlaybackStateDidChangeNotification),
+    ),
+    (
+        "_MPMusicPlayerControllerVolumeDidChangeNotification",
+        HostConstant::NSString(MPMusicPlayerControllerVolumeDidChangeNotification),
+    ),
+    (
+        "_MPMusicPlayerControllerQueueDidChange",
+        HostConstant::NSString(MPMusicPlayerControllerQueueDidChange),
     ),
 ];
 
@@ -46,6 +58,20 @@ pub const CLASSES: ClassExports = objc_classes! {
         "TODO: [(MPMusicPlayerController*){:?} applicationMusicPlayer]",
         this
     );
+    nil
+}
+
+@end
+
+@implementation MPMediaPlaylist: NSObject
+@end
+
+@implementation MPAVController: NSObject
++ (id)sharedInstance {
+    nil
+}
+
+- (id)sharedInstance {
     nil
 }
 
