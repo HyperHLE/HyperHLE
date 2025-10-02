@@ -25,4 +25,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation MFMailComposeViewController: NSObject
++ (id)canSendMail {
+    nil
+}
+
+- (())setMailComposeDelegate:(bool)delegate {
+    log!("TODO: setMailComposeDelegate:{}", delegate);
+}
+
+- (())setSubject:(bool)subject {
+    log!("TODO: setSubject:{}", subject);
+}
+
+@end
+
 };
