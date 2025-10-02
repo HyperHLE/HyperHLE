@@ -49,8 +49,8 @@ impl State {
         )
     }
 
-    fn make_current(env: &mut Environment) -> OpenAL<'_> {
-        Self::try_make_current(env).unwrap()
+    fn make_current(env: &mut Environment) -> Result<OpenAL<'_>, SomeError> {
+        Self::try_make_current(env)
     }
 }
 
