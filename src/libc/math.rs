@@ -683,6 +683,9 @@ fn strftime(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
 fn CFStreamCreatePairWithSocketToCFHost(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
+fn mach_thread_self(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -835,4 +838,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGPathAddLineToPoint(_, _)),
     export_c_func!(strftime(_, _)),
     export_c_func!(CFStreamCreatePairWithSocketToCFHost(_, _)),
+    export_c_func!(mach_thread_self(_, _)),
 ];
