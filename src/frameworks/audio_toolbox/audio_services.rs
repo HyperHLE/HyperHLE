@@ -51,6 +51,12 @@ fn AudioServicesDisposeSystemSoundID(_env: &mut Environment, in_system_sound_id:
     // TODO: implement other system sounds
 }
 
+fn AudioServicesRemoveSystemSoundCompletion(_env: &mut Environment, in_system_sound_id: SystemSoundID) {
+    // assert_eq!(in_system_sound_id, kSystemSoundID_Vibrate);
+    log_dbg!("TODO: vibration (AudioServicesRemoveSystemSoundCompletion)");
+    // TODO: implement other system sounds
+}
+
 fn AudioServicesCreateSystemSoundID(
     env: &mut Environment,
     _in_file_url: CFURLRef,
@@ -71,6 +77,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioServicesGetProperty(_, _, _, _, _)),
     export_c_func!(AudioServicesPlaySystemSound(_)),
     export_c_func!(AudioServicesDisposeSystemSoundID(_)),
+    export_c_func!(AudioServicesRemoveSystemSoundCompletion(_)),
     export_c_func!(AudioServicesCreateSystemSoundID(_, _)),
     export_c_func!(AudioServicesAddSystemSoundCompletion(_, _)),
 ];
