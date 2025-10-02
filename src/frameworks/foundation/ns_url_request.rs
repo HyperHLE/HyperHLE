@@ -135,10 +135,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
+- (())setTimeoutInterval:(bool)_time {
+    log!("TODO: setTimeoutInterval:{}", _time);
+}
+
 - (())setURL:(bool)_url {
     log!("TODO: setURL:{}", _url);
 }
 
+    
 - (())setHTTPMethod:(id)http_method { // NSString *
     let http_method_copy = msg![env; http_method copy];
 
