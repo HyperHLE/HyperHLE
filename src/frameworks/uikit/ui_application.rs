@@ -136,6 +136,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     true
 }
 
+- (())setStatusBarStyle:(NSInteger)statusBarStyle animated:(bool)_animated {
+    // TODO
+}
+
+- (())setNetworkActivityIndicatorVisible:(bool)visible {
+    log!("TODO: setNetworkActivityIndicatorVisible:{}", visible);
+}
+
+- (())setStatusBarStyle:(bool)status {
+    log!("TODO: setStatusBarStyle:{}", status);
+}
+
+- (())setProximitySensingEnabled:(bool)enabled {
+    log!("TODO: setProximitySensingEnabled:{}", enabled);
+}
+
 - (id)statusBarFrame {
     nil
 }
