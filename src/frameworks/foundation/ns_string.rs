@@ -1446,6 +1446,19 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.mem.write(contents_end_ptr, contents_end);
     }
 }
+
+- (id)rangeOfCharacterFromSet:(NSUInteger)_set {
+    msg![env; this init]
+}
+
+- (id)localizedCaseInsensitiveCompare:(NSUInteger)_compare {
+    msg![env; this init]
+}
+
+- (id)lengthOfBytesUsingEncoding:(NSUInteger)_bytes {
+    msg![env; this init]
+}
+
 @end
 
 // Specialised subclass for static-lifetime strings.
