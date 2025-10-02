@@ -149,11 +149,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (NSTimeInterval)timeIntervalSinceDate:(id)anotherDate {
-    assert!(!anotherDate.is_null());
     let host_object = env.objc.borrow::<NSDateHostObject>(this);
-    let another_date_host_object = env.objc.borrow::<NSDateHostObject>(anotherDate);
-    let result =  host_object.time_interval-another_date_host_object.time_interval;
-    log_dbg!("[(NSDate*){:?} ({:?}s) timeIntervalSinceDate:{:?} ({:?}s)] => {}", this, host_object.time_interval, anotherDate, another_date_host_object.time_interval, result);
+
+    let another_date_host_object = match anotherDate {
+        Some(date) => env.objc.borrow::<NSDateHostObject>(date),
+        None => {
+            log_dbg!(
+                "[(NSDate*){:?} ({:?}s) timeIntervalSinceDate:nil] => 0.0",
+                this,
+                host_object.time_interval
+            );
+            return 0.0;
+        }
+    };
+
+    let result = host_object.time_interval - another_date_host_object.time_interval;
+    log_dbg!(
+        "[(NSDate*){:?} ({:?}s) timeIntervalSinceDate:{:?} ({:?}s)] => {}",
+        this,
+        host_object.time_interval,
+        anotherDate,
+        another_date_host_object.time_interval,
+        result
+    );
     result
 }
 
