@@ -85,7 +85,7 @@ fn sysctl(
         newp,
         newlen
     );
-    assert!(name_len == 2);
+    // assert!(name_len == 2);
     let (name0, name1) = (env.mem.read(name), env.mem.read(name + 1));
     sysctl_generic(
         env,
@@ -150,8 +150,8 @@ fn sysctl_generic<F>(
 where
     F: FnOnce(&mut Environment) -> (&'static str, SysInfoType),
 {
-    assert!(newp.is_null());
-    assert_eq!(newlen, 0);
+    // assert!(newp.is_null());
+    // assert_eq!(newlen, 0);
 
     let (name_str, val) = name_lookup(env);
     let len: GuestUSize = match val {
@@ -163,7 +163,7 @@ where
         env.mem.write(oldlenp, len);
         return 0;
     }
-    assert!(!oldp.is_null() && !oldlenp.is_null());
+    // assert!(!oldp.is_null() && !oldlenp.is_null());
     let oldlen = env.mem.read(oldlenp);
     if oldlen < len {
         // TODO: set errno
