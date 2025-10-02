@@ -5,14 +5,27 @@
  */
 //! `MPMediaPickerController`.
 
-use crate::objc::{objc_classes, ClassExports};
+use crate::frameworks::foundation::NSUInteger;
+use crate::objc::{id, msg, objc_classes, ClassExports};
 
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
 
 @implementation MPMediaPickerController: UIViewController
-// TODO
+
+- (id)initWithMediaTypes:(NSUInteger)_types {
+    msg![env; this init]
+}
+
+- (())setDelegate:(bool)delegate {
+    log!("TODO: setDelegate:{}", delegate);
+}
+
+- (())setAllowsPickingMultipleItems:(bool)items {
+    log!("TODO: setAllowsPickingMultipleItems:{}", items);
+}
+
 @end
 
 };
