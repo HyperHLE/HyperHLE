@@ -34,7 +34,7 @@ pub struct State {
     strings_cache: HashMap<ALenum, ConstPtr<u8>>,
     current_ctx: MutPtr<GuestALCcontext>,
 }
-impl State {
+impl<SomeError> State {
     fn get(env: &mut Environment) -> &mut Self {
         &mut env.framework_state.openal
     }
