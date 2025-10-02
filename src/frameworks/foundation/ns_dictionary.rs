@@ -612,6 +612,102 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation NSCondition: NSObject
+
+- (id)lock {
+    nil
+}
+
+- (id)name {
+    nil
+}
+
+- (id)signal {
+    nil
+}
+
+- (id)broadcast {
+    nil
+}
+
+- (id)unlock {
+    nil
+}
+
+- (id)wait {
+    nil
+}
+
+@end
+
+@implementation CMMotionManager: NSObject
+@end
+
+@implementation NSConditionLock: NSObject
+@end
+
+@implementation NSNetServiceBrowser: NSObject
+@end
+
+@implementation ADBannerView: NSObject
+@end
+
+@implementation CTTelephonyNetworkInfo: NSObject
+
+- (id)subscriberCellularProvider {
+    nil
+}
+
+@end
+
+@implementation NSUbiquitousKeyValueStore: NSObject
+
++ (id)defaultStore {
+    nil
+}
+
+@end
+
+@implementation NSNotificationQueue: NSObject
+
++ (id)defaultQueue {
+    nil
+}
+
+@end
+
+@implementation NSIndexPath: NSObject
+
++ (())indexPathForRow:(NSInteger)_row inSection:(bool)_section {
+    // TODO
+}
+
+@end
+
+@implementation NSInputStream: NSObject
+
++ (id)inputStreamWithFileAtPath:(NSUInteger)_path {
+    msg![env; this init]
+}
+
++ (id)hasBytesAvailable {
+    nil
+}
+
++ (id)open {
+    nil
+}
+
++ (id)close {
+    nil
+}
+
++ (())read:(NSInteger)read maxLength:(bool)_length {
+    // TODO
+}
+
+@end
+
 // Our private subclass that is the single implementation of
 // NSMutableDictionary for the time being.
 @implementation _touchHLE_NSMutableDictionary: NSMutableDictionary
