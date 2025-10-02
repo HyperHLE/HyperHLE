@@ -658,7 +658,6 @@ fn wcstol(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
 fn sranddev(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
-
 fn fgetwc(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
@@ -684,6 +683,69 @@ fn CFStreamCreatePairWithSocketToCFHost(_env: &mut Environment, arg1: f64, arg2:
     arg1.min(arg2)
 }
 fn mach_thread_self(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn sched_get_priority_max(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn pthread_key_delete(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlNewParserCtxt(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlCtxtReadMemory(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlDocGetRootElement(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlClearParserCtxt(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlFreeParserCtxt(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn gethostent(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn __memcpy_chk(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlCleanupParser(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn glLogicOp(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn wcsftime(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn pthread_exit(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CFUUIDCreate(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn freopen(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CFUUIDCreateString(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn sqlite3_column_int64(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlReadFile(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlFreeDoc(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn xmlGetProp(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn pthread_cancel(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
 
@@ -839,4 +901,25 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(strftime(_, _)),
     export_c_func!(CFStreamCreatePairWithSocketToCFHost(_, _)),
     export_c_func!(mach_thread_self(_, _)),
+    export_c_func!(sched_get_priority_max(_, _)),
+    export_c_func!(pthread_key_delete(_, _)),
+    export_c_func!(xmlNewParserCtxt(_, _)),
+    export_c_func!(xmlCtxtReadMemory(_, _)),
+    export_c_func!(xmlDocGetRootElement(_, _)),
+    export_c_func!(xmlClearParserCtxt(_, _)),
+    export_c_func!(xmlFreeParserCtxt(_, _)),
+    export_c_func!(gethostent(_, _)),
+    export_c_func!(CFUUIDCreate(_, _)),
+    export_c_func!(freopen(_, _)),
+    export_c_func!(CFUUIDCreateString(_, _)),
+    export_c_func!(sqlite3_column_int64(_, _)),
+    export_c_func!(xmlReadFile(_, _)),
+    export_c_func!(xmlFreeDoc(_, _)),
+    export_c_func!(xmlGetProp(_, _)),
+    export_c_func!(__memcpy_chk(_, _)),
+    export_c_func!(xmlCleanupParser(_, _)),
+    export_c_func!(glLogicOp(_, _)),
+    export_c_func!(wcsftime(_, _)),
+    export_c_func!(pthread_exit(_, _)),
+    export_c_func!(pthread_cancel(_, _)),
 ];
