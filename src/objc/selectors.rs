@@ -36,7 +36,7 @@ macro_rules! selector {
 pub use crate::selector; // #[macro_export] is weird...
 
 /// Opaque type used for selectors.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default)]
 #[repr(transparent)]
 #[allow(clippy::upper_case_acronyms)] // silly clippit, this isn't an acronym!
 pub struct SEL(ConstPtr<u8>);
@@ -56,6 +56,9 @@ impl GuestRet for SEL {
     }
     fn to_regs(self, regs: &mut [u32]) {
         <ConstPtr<u8> as GuestRet>::to_regs(self.0, regs)
+    }
+    pub fn null() -> SEL {
+        SEL(ConstPtr::null())
     }
 }
 
