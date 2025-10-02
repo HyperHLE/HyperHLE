@@ -640,6 +640,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation NSSortDescriptor: NSObject
+@end
+
 @implementation CMMotionManager: NSObject
 @end
 
