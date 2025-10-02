@@ -754,6 +754,12 @@ fn statvfs(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
 fn mprotect(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     arg1.min(arg2)
 }
+fn ctime(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn strcasestr(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -930,4 +936,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pthread_cancel(_, _)),
     export_c_func!(statvfs(_, _)),
     export_c_func!(mprotect(_, _)),
+    export_c_func!(ctime(_, _)),
+    export_c_func!(strcasestr(_, _)),
 ];
