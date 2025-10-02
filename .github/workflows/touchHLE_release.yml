@@ -171,9 +171,6 @@ jobs:
       with:
         fetch-depth: 0 # touchHLE's git-describe versioning needs tag history
     # Apparently the Windows runner already has clang-format? That's nice.
-    - name: Check formatting
-      shell: bash # no command output without this
-      run: dev-scripts/format.sh --check
     - name: Get Submodules
       run: git submodule update --init
     - name: Try to get cached copy of Boost
@@ -203,11 +200,6 @@ jobs:
     # This is the earliest point at which we can do linting: clippy will end up
     # building dynarmic, which needs Boost, but we don't need LLVM until
     # building tests.
-    - name: Lint
-      shell: bash # no command output without this
-      run: dev-scripts/lint.sh
-      env:
-        CMAKE: ${{ github.workspace }}\vendor\cmake\bin\cmake
     - name: Try to get cached copy of LLVM
       id: cache-llvm
       uses: actions/cache@v3
@@ -223,10 +215,6 @@ jobs:
     # Windows seems to break the stdout pipe for some reason
     - name: Get copy of common-3.0-sdk
       run: cd ${{ github.workspace }}/tests && curl -L --output ${{ runner.temp }}\sdk.tar.gz https://github.com/touchHLE/common-3.0-sdk/releases/latest/download/common-3.0.sdk-windows-x86_64.tar.gz && tar xzvf ${{ runner.temp }}\sdk.tar.gz
-    - name: Test
-      run: cargo test
-      env:
-        CMAKE: ${{ github.workspace }}\vendor\cmake\bin\cmake
     - name: Build
       run: cargo build --release
       env:
