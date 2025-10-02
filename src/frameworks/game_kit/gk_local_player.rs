@@ -5,8 +5,9 @@
  */
 //! `GKLocalPlayer`.
 
+use crate::frameworks::foundation::NSInteger;
 use crate::dyld::{ConstantExports, HostConstant};
-use crate::objc::{objc_classes, ClassExports};
+use crate::objc::{id, nil, objc_classes, ClassExports};
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -14,7 +15,38 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // TODO: proper inheritance chain
 @implementation GKLocalPlayer: NSObject
-// TODO
++ (id)localPlayer {
+    nil
+}
+
+@end
+
+@implementation GKSession: NSObject
+
+- (id)peerID {
+    nil
+}
+
+- (id)disconnectFromAllPeers {
+    nil
+}
+
+- (())initWithSessionID:(NSInteger)session displayName:(bool)_name sessionMode:(bool)mode {
+    // TODO
+}
+
+- (())setAvailable:(bool)available {
+    log!("TODO: setAvailable:{}", available);
+}
+
+- (())setDelegate:(bool)delegate {
+    log!("TODO: setDelegate:{}", delegate);
+}
+
+- (())setDataReceiveHandler:(NSInteger)handler withContext:(bool)_context {
+    // TODO
+}
+
 @end
 
 };
