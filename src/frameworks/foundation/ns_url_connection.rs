@@ -5,6 +5,7 @@
  */
 //! `NSURLConnection`.
 
+use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::objc::{autorelease, id, msg, nil, objc_classes, release, ClassExports};
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -18,6 +19,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithRequest:request delegate:delegate];
     autorelease(env, new)
+}
+
++ (id)length {
+  nil
+}
+
++ (id)bytes {
+  nil
+}
+
++ (id)canHandleRequest:(NSUInteger)_handle {
+    msg![env; this init]
+}
+
++ (id)canHandleRequest {
+  nil
+}
+
++ (())sendSynchronousRequest:(NSInteger)request returningResponse:(bool)_response error:(bool)_error {
+    // TODO
 }
 
 - (id)initWithRequest:(id)request // NSURLRequest *
