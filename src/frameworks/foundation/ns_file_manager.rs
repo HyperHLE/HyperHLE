@@ -186,18 +186,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         Ok(()) => true,
         Err(()) => {
             if !error.is_null() {
-                // Build a minimal NSError: domain = NSCocoaErrorDomain, code = 4 ("No such file")
-                let domain = ns_string::from_rust_string(env, "NSCocoaErrorDomain".into());
-                let user_info: id = nil; // you can build NSDictionary later if needed
-
-                // Cocoa uses code 4 (NSFileNoSuchFileError) when a file is missing
-                let code: NSInteger = 4;
-
-                let nserror: id = msg![env;
-                    class("NSError") errorWithDomain:domain code:code userInfo:user_info
-                ];
-
-                env.mem.write(error, nserror);
+                todo!(); // TODO: create an NSError if requested
             }
             false
         }
