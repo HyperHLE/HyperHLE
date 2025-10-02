@@ -57,9 +57,6 @@ impl GuestRet for SEL {
     fn to_regs(self, regs: &mut [u32]) {
         <ConstPtr<u8> as GuestRet>::to_regs(self.0, regs)
     }
-    pub fn null() -> SEL {
-        SEL(ConstPtr::null())
-    }
 }
 
 impl SEL {
