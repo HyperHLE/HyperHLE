@@ -304,18 +304,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 pub fn handle_text(env: &mut Environment, text_field: id, text: String) {
     log_dbg!("Calling handle_text for {:?} with '{}'", text_field, text);
-
     let txt = ns_string::from_rust_string(env, text);
     let txt_len: NSUInteger = msg![env; txt length];
+    // assert_eq!(txt_len, 1);
 
-    if txt_len != 1 {
-        // Ignore or log instead of panicking
-        log_dbg!("handle_text: expected 1 character, got {}", txt_len);
-        return;
-    }
-
-    // … normal handling …
-}
     let text_label = env
         .objc
         .borrow_mut::<UITextFieldHostObject>(text_field)
