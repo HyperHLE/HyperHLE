@@ -6,7 +6,7 @@
 //! `NSURL`.
 
 use super::ns_string::{from_rust_string, get_static_str, to_rust_string, NSUTF8StringEncoding};
-use super::NSUInteger;
+use super::{NSInteger, NSUInteger};
 use crate::fs::{GuestPath, GuestPathBuf};
 use crate::mem::MutPtr;
 use crate::objc::{
@@ -201,6 +201,43 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO
     nil
 }
+
++ (())setSharedURLCache:(bool)cache {
+    log!("TODO: setSharedURLCache:{}", cache);
+}
+
+- (())initWithMemoryCapacity:(NSInteger)_capacity diskCapacity:(bool)_disk diskPath:(bool)_path {
+    // TODO
+}
+
+@end
+
+@implementation NSHTTPCookie: NSObject
+
++ (id)cookieWithProperties:(NSUInteger)_properties {
+    msg![env; this init]
+}
+
+@end
+
+@implementation NSHTTPCookieStorage: NSHTTPCookie
++ (id)sharedHTTPCookieStorage {
+    // TODO
+    nil
+}
+
++ (())setSharedHTTPCookieStorage:(bool)storage {
+    log!("TODO: setSharedHTTPCookieStorage:{}", storage);
+}
+
+@end
+
+@implementation NSURLProtocol: NSObject
+
++ (id)registerClass {
+    nil
+}
+
 @end
 
 };
