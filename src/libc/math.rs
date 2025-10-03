@@ -832,6 +832,9 @@ fn CGContextSetStrokeColorWithColor(_env: &mut Environment, arg1: f32, arg2: f32
 fn CGContextSetShouldSmoothFonts(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn CGContextSetAllowsAntialiasing(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -1034,4 +1037,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextClip(_, _)),
     export_c_func!(CGContextSetStrokeColorWithColor(_, _)),
     export_c_func!(CGContextSetShouldSmoothFonts(_, _)),
+    export_c_func!(CGContextSetAllowsAntialiasing(_, _)),
 ];
