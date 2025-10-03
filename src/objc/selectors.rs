@@ -128,13 +128,18 @@ impl ObjC {
     /// static-lifetime constant string.
 pub(super) fn register_bin_selector(&mut self, sel_cstr: ConstPtr<u8>, mem: &Mem) -> SEL {
     let sel_str = match mem.cstr_at_utf8(sel_cstr) {
-        Some(s) => s,
-        None => {
-            log_dbg!("register_bin_selector: invalid selector cstring at {:?}", sel_cstr);
-            // fallback: use raw pointer string "<invalid>"
-            "<invalid>"
-        }
-    };
+        Ok(s) => s,
+        Err(bytes) => {
+        log_dbg!(
+            "register_bin_selector: invalid UTF-8 selector at {:?}, raw bytes: {:?}",
+            sel_cstr,
+            bytes
+        );
+        // fallback: interpret raw bytes as lossy UTF-8
+        std::str::from_utf8_lossy(bytes).as_ref()
+    }
+};
+
 
     if let Some(existing_sel) = self.lookup_selector(sel_str) {
         existing_sel
