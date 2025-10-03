@@ -799,6 +799,39 @@ fn OSAtomicCompareAndSwapInt(_env: &mut Environment, arg1: f32, arg2: f32) -> f3
 fn lstat(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn task_get_exception_ports(_env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
+    arg1.min(arg2)
+}
+fn CGColorEqualToColor(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGColorGetConstantColor(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextAddArcToPoint(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextAddLineToPoint(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextAddPath(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextAddRect(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextBeginPath(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextClip(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextSetStrokeColorWithColor(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CGContextSetShouldSmoothFonts(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -990,4 +1023,15 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(__assert_rtn(_, _)),
     export_c_func!(OSAtomicCompareAndSwapInt(_, _)),
     export_c_func!(lstat(_, _)),
+    export_c_func!(task_get_exception_ports(_, _)),
+    export_c_func!(CGColorEqualToColor(_, _)),
+    export_c_func!(CGColorGetConstantColor(_, _)),
+    export_c_func!(CGContextAddArcToPoint(_, _)),
+    export_c_func!(CGContextAddLineToPoint(_, _)),
+    export_c_func!(CGContextAddPath(_, _)),
+    export_c_func!(CGContextAddRect(_, _)),
+    export_c_func!(CGContextBeginPath(_, _)),
+    export_c_func!(CGContextClip(_, _)),
+    export_c_func!(CGContextSetStrokeColorWithColor(_, _)),
+    export_c_func!(CGContextSetShouldSmoothFonts(_, _)),
 ];
