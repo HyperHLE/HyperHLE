@@ -126,30 +126,17 @@ impl ObjC {
 
     /// Register a selector from the application binary. Must be a
     /// static-lifetime constant string.
-pub(super) fn register_bin_selector(&mut self, sel_cstr: ConstPtr<u8>, mem: &Mem) -> SEL {
-    let sel_str = match mem.cstr_at_utf8(sel_cstr) {
-        Ok(s) => s,
-        Err(bytes) => {
-        log_dbg!(
-            "register_bin_selector: invalid UTF-8 selector at {:?}, raw bytes: {:?}",
-            sel_cstr,
-            bytes
-        );
-        // fallback: interpret raw bytes as lossy UTF-8
-        std::str::from_utf8_lossy(bytes).as_ref()
+    pub(super) fn register_bin_selector(&mut self, sel_cstr: ConstPtr<u8>, mem: &Mem) -> SEL {
+        let sel_str = mem.cstr_at_utf8(sel_cstr).unwrap();
+
+        if let Some(existing_sel) = self.lookup_selector(sel_str) {
+            existing_sel
+        } else {
+            let sel = SEL(sel_cstr);
+            self.selectors.insert(sel_str.to_string(), sel);
+            sel
+        }
     }
-};
-
-
-    if let Some(existing_sel) = self.lookup_selector(sel_str) {
-        existing_sel
-    } else {
-        let sel = SEL(sel_cstr);
-        self.selectors.insert(sel_str.to_string(), sel);
-        sel
-    }
-}
-
 
     /// For use by [crate::dyld]: register and deduplicate all the selectors
     /// referenced in the application binary.
