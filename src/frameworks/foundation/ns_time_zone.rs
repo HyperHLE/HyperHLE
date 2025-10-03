@@ -44,6 +44,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
++ (id)timeZoneForSecondsFromGMT {
+    nil
+}
+
++ (id)timeZoneForSecondsFromGMT:(NSUInteger)_gmt {
+    msg![env; this init]
+}
+
 - (())dealloc {
     let tz_name = env.objc.borrow_mut::<NSTimeZoneHostObject>(this).time_zone;
     release(env, tz_name);
@@ -68,10 +76,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSInteger)secondsFromGMT {
     // TODO: respect timezone
     0
-}
-
-- (id)timeZoneForSecondsFromGMT:(NSUInteger)_gmt {
-    msg![env; this init]
 }
 
 @end
