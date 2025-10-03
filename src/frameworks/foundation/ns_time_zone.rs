@@ -5,7 +5,7 @@
  */
 //! `NSTimeZone`.
 
-use crate::frameworks::foundation::{ns_string, NSInteger};
+use crate::frameworks::foundation::{ns_string, NSInteger, NSUInteger};
 use crate::objc::{autorelease, id, nil, release, retain, ClassExports, HostObject, NSZonePtr};
 use crate::{msg, objc_classes};
 
@@ -68,6 +68,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSInteger)secondsFromGMT {
     // TODO: respect timezone
     0
+}
+
+- (id)timeZoneForSecondsFromGMT:(NSUInteger)_gmt {
+    msg![env; this init]
 }
 
 @end
