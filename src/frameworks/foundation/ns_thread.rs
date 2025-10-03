@@ -95,6 +95,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     *State::get(env).ns_threads.get(&pthread).unwrap()
 }
 
++ (bool)isMainThread {
+    env.current_thread == 0
+}
+    
 + (id)callStackReturnAddresses {
     log!("WARNING: [NSThread callStackReturnAddresses] is called, returning an empty array!");
     msg_class![env; NSArray new]
