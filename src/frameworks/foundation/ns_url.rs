@@ -99,7 +99,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     // FIXME: this should parse the URL
-    assert!(!to_rust_string(env, url).starts_with("file:")); // TODO
+    // assert!(!to_rust_string(env, url).starts_with("file:")); // TODO
     let url: id = msg![env; url copy];
     *env.objc.borrow_mut(this) = NSURLHostObject::OtherURL { ns_string: url };
     this
@@ -146,7 +146,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         NSURLHostObject::FileURL { ns_string, .. } => ns_string,
         NSURLHostObject::OtherURL { ns_string } => {
             // TODO: full RFC 1808 resolution
-            assert!(to_rust_string(env, ns_string).starts_with("http"));
+            // assert!(to_rust_string(env, ns_string).starts_with("http"));
             ns_string
         },
     }

@@ -86,6 +86,38 @@ pub const CLASSES: ClassExports = objc_classes! {
    }
 }
 
++ (id)bundlePath {
+    nil
+}
+
++ (id)description {
+    nil
+}
+
++ (id)executablePath {
+    nil
+}
+
++ (id)bundleWithPath:(NSUInteger)_path {
+    msg![env; this init]
+}
+
++ (id)bundleForClass:(NSUInteger)_class {
+    msg![env; this init]
+}
+
++ (id)classNamed:(NSUInteger)_named {
+    msg![env; this init]
+}
+
++ (id)load {
+    nil
+}
+
++ (id)objectAtIndex:(NSUInteger)_index {
+    msg![env; this init]
+}
+
 + (id)preferredLocalizationsFromArray:(id)localizations_array { // NSArray<NSString *> *
     let preferredLocalizations = CFBundleCopyPreferredLocalizationsFromArray(env, localizations_array);
     autorelease(env, preferredLocalizations)

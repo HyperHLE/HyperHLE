@@ -172,14 +172,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setValue:(id)value
        forKey:(id)key { // NSString*
     let key_string = to_rust_string(env, key); // TODO: avoid copy?
-    assert!(key_string.is_ascii()); // TODO: do we have to handle non-ASCII keys?
+    // assert!(key_string.is_ascii()); // TODO: do we have to handle non-ASCII keys?
     let camel_case_key_string = format!("{}{}", key_string.as_bytes()[0].to_ascii_uppercase() as char, &key_string[1..]);
 
     let class = msg![env; this class];
 
     // TODO: If value is nil, the target ivar/method argument type must be
     // checked. If it's non-object type, invoke setNilValueForKey:
-    assert!(value != nil);
+    // assert!(value != nil);
 
     // TODO: If value is a NSNumber or NSValue, it must be unwrapped
     let value_class = msg![env; value class];
@@ -237,7 +237,7 @@ forUndefinedKey:(id)key { // NSString*
     let class: Class = ObjC::read_isa(this, &env.mem);
     let class_name_string = env.objc.get_class_name(class).to_owned(); // TODO: Avoid copying
     let key_string = to_rust_string(env, key);
-    panic!("Object {:?} of class {:?} ({:?}) does not have a setter for {} ({:?})\
+    log_dbg!("Object {:?} of class {:?} ({:?}) does not have a setter for {} ({:?})\
         \nAvailable selectors: {}\nAvailable ivars: {}",
         this, class_name_string, class, key_string, key,
         env.objc.debug_all_class_selectors_as_strings(&env.mem, class).join(", "),

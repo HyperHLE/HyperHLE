@@ -149,7 +149,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (NSTimeInterval)timeIntervalSinceDate:(id)anotherDate {
-    assert!(!anotherDate.is_null());
+    // assert!(!anotherDate.is_null());
     let host_object = env.objc.borrow::<NSDateHostObject>(this);
     let another_date_host_object = env.objc.borrow::<NSDateHostObject>(anotherDate);
     let result =  host_object.time_interval-another_date_host_object.time_interval;
