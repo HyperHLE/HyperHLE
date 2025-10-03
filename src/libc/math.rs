@@ -787,6 +787,9 @@ fn CC_SHA1_Update(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn CFStringCreateWithFileSystemRepresentation(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn strpbrk(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -973,5 +976,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CC_SHA1(_, _)),
     export_c_func!(CC_SHA1_Init(_, _)),
     export_c_func!(CC_SHA1_Update(_, _)),
- export_c_func!(CFStringCreateWithFileSystemRepresentation(_, _)),
+    export_c_func!(CFStringCreateWithFileSystemRepresentation(_, _)),
+    export_c_func!(strpbrk(_, _)),
 ];
