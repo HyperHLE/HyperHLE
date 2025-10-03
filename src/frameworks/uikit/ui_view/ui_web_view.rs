@@ -8,7 +8,7 @@
 use crate::frameworks::foundation::ns_string::to_rust_string;
 use crate::frameworks::foundation::{NSUInteger, NSInteger};
 use crate::msg;
-use crate::objc::{id, nil, objc_classes, ClassExports};
+use crate::objc::{id, nil, objc_classes, retain, ClassExports, NSZonePtr};
 use std::borrow::Cow;
 
 pub const CLASSES: ClassExports = objc_classes! {
