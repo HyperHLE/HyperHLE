@@ -188,6 +188,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, exec_path)
 }
 
+- (id)initWithPath:(NSUInteger)_path {
+    msg![env; this init]
+}
+
 - (id)pathForResource:(id)name // NSString*
                ofType:(id)extension // NSString*
           inDirectory:(id)directory { // NSString*
