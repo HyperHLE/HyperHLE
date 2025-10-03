@@ -184,7 +184,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO: If value is a NSNumber or NSValue, it must be unwrapped
     let value_class = msg![env; value class];
     let ns_value_class = env.objc.get_known_class("NSValue", &mut env.mem);
-    // assert!(!env.objc.class_is_subclass_of(value_class, ns_value_class));
+    assert!(!env.objc.class_is_subclass_of(value_class, ns_value_class));
 
     // Look for the first accessor named set<Key>: or _set<Key>, in that order.
     // If found, invoke it with the input value (or unwrapped value, as needed)
