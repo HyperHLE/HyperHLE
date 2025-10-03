@@ -59,8 +59,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // NSCoding implementation
-- (id)initWithCoder:(NSUInteger)coder {
-    msg![env; this init]
+- (id)initWithCoder:(id)coder {
+    nil
 }
 
 - (())setScalesPageToFit:(bool)_scales {
