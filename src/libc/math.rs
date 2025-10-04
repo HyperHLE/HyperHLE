@@ -871,6 +871,9 @@ fn CFBundleCopyExecutableURL(_env: &mut Environment, arg1: f32, arg2: f32) -> f3
 fn AudioFileStreamGetProperty(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn sysconf(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -1086,4 +1089,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFBundleGetInfoDictionary(_, _)),
     export_c_func!(CFBundleCopyExecutableURL(_, _)),
     export_c_func!(AudioFileStreamGetProperty(_, _)),
+    export_c_func!(sysconf(_, _)),
 ];
