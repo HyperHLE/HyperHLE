@@ -859,6 +859,15 @@ fn CFRunLoopContainsTimer(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn CFRunLoopRemoveTimer(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn CFBundleCopyResourceURLForLocalization(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CFBundleGetInfoDictionary(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
+fn CFBundleCopyExecutableURL(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -1070,4 +1079,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFRunLoopStop(_, _)),
     export_c_func!(CFRunLoopContainsTimer(_, _)),
     export_c_func!(CFRunLoopRemoveTimer(_, _)),
+    export_c_func!(CFBundleCopyResourceURLForLocalization(_, _)),
+    export_c_func!(CFBundleGetInfoDictionary(_, _)),
+    export_c_func!(CFBundleCopyExecutableURL(_, _)),
 ];
