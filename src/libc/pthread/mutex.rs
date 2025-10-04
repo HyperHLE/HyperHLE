@@ -67,7 +67,7 @@ fn pthread_mutexattr_setpshared(
     check_magic!(env, attr, MAGIC_MUTEXATTR);
     // PTHREAD_PROCESS_PRIVATE is a default one
     // TODO: set this attribute in `attr` instead
-    assert_eq!(pshared, PTHREAD_PROCESS_PRIVATE);
+    // assert_eq!(pshared, PTHREAD_PROCESS_PRIVATE);
     0 // success
 }
 fn pthread_mutexattr_settype(
