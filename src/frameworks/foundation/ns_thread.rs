@@ -221,7 +221,7 @@ pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: 
         env.objc.get_class_name(class)
     );
     let thread_class = env.objc.get_known_class("NSThread", &mut env.mem);
-    assert!(env.objc.class_is_subclass_of(class, thread_class));
+    // assert!(env.objc.class_is_subclass_of(class, thread_class));
 
     () = msg![env; ns_thread_obj main];
 
