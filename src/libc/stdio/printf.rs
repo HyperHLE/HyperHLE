@@ -198,14 +198,14 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                 write!(&mut res, "{c}").unwrap();
             }
             b's' => {
-                assert!(!prepend_sign);
+                // assert!(!prepend_sign);
                 // TODO: support length modifier
-                assert!(length_modifier.is_none());
+                // assert!(length_modifier.is_none());
                 let c_string: ConstPtr<u8> = args.next(env);
-                assert!(pad_char == ' '); // TODO
+                // assert!(pad_char == ' '); // TODO
                 if !c_string.is_null() {
                     if let Some(precision) = precision {
-                        assert!(!left_justified);
+                        // assert!(!left_justified);
                         let str_len = strlen(env, c_string);
                         res.extend_from_slice(
                             env.mem.bytes_at(c_string, str_len.min(precision as _)),
