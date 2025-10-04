@@ -5,9 +5,9 @@
  */
 //! The `NSCharacterSet` class cluster, including `NSMutableCharacterSet`.
 
-use super::{ns_string, unichar};
+use super::{ns_string, unichar, NSUInteger};
 use crate::objc::{
-    autorelease, id, msg, msg_class, objc_classes, retain, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, msg_class, nil, objc_classes, retain, ClassExports, HostObject, NSZonePtr,
 };
 use std::collections::HashSet;
 
@@ -120,6 +120,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation NSMutableCharacterSet: NSCharacterSet
+@end
+
 // Our private subclass that is the single implementation of NSCharacterSet for
 // the time being.
 @implementation _touchHLE_NSCharacterSet: NSCharacterSet
@@ -137,6 +140,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)characterIsMember:(unichar)code_unit {
     let host_object = env.objc.borrow::<CharacterSetHostObject>(this);
     host_object.set.contains(&code_unit) ^ host_object.inverted
+}
+
+- (id)addCharactersInString {
+    nil
+}
+
+- (id)addCharactersInString:(NSUInteger)_string {
+    msg![env; this init]
 }
 
 - (id)invertedSet {
