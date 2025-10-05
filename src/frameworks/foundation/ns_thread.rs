@@ -24,6 +24,7 @@ use std::time::Duration;
 
 #[derive(Default)]
 pub struct State {
+    is_main_threaded: bool,
     is_multi_threaded: bool,
     ns_threads: HashMap<pthread_t, id>,
 }
@@ -69,6 +70,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     // only for `detachNewThreadSelector:toTarget:withObject:` and
     // `start` methods (according to the docs)
     env.framework_state.foundation.ns_thread.is_multi_threaded
+}
+
++ (bool)isMainThread {
+    env.framework_state.foundation.ns_thread.is_main_threaded
 }
 
 + (f64)threadPriority {
@@ -126,6 +131,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // redundant with `start`, but we do it for the sake of completeness
     env.framework_state.foundation.ns_thread.is_multi_threaded = true;
+    env.framework_state.foundation.ns_thread.is_main_threaded = true;
 
     msg![env; new start]
 }
@@ -162,6 +168,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     State::get(env).ns_threads.insert(pthread, this);
 
     env.framework_state.foundation.ns_thread.is_multi_threaded = true;
+    env.framework_state.foundation.ns_thread.is_main_threaded = true;
     // TODO: post NSWillBecomeMultiThreadedNotification
 }
 
