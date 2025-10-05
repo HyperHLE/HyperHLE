@@ -475,6 +475,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
+- (id)stringFromNumber:(NSUInteger)_string {
+    msg![env; this init]
+}
+
 - (())setGroupingSize:(bool)size {
     log!("TODO: setGroupingSize:{}", size);
 }
