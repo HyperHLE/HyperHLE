@@ -1470,6 +1470,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_static_object(this, host_object, &mut env.mem)
 }
 
+- (id)main {
+    nil
+}
 - (id) retain { this }
 - (()) release {}
 - (id) autorelease { this }
