@@ -471,8 +471,40 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: setDefaultFormatterBehavior:{}", behavior);
 }
 
+- (id)numberFromString:(NSUInteger)_string {
+    msg![env; this init]
+}
+
+- (id)stringFromNumber:(NSUInteger)_string {
+    msg![env; this init]
+}
+
+- (())setGroupingSize:(bool)size {
+    log!("TODO: setGroupingSize:{}", size);
+}
+
+- (())setDecimalSeparator:(bool)separator {
+    log!("TODO: setDecimalSeparator:{}", separator);
+}
+
 - (())setNumberStyle:(bool)style {
     log!("TODO: setNumberStyle:{}", style);
+}
+
+- (())setMinimumIntegerDigits:(bool)digits {
+    log!("TODO: setMinimumIntegerDigits:{}", digits);
+}
+
+- (())setMaximumIntegerDigits:(bool)digits {
+    log!("TODO: setMaximumIntegerDigits:{}", digits);
+}
+
+- (())setMinimumFractionDigits:(bool)digits {
+    log!("TODO: setMinimumFractionDigits:{}", digits);
+}
+
+- (())setMaximumFractionDigits:(bool)digits {
+    log!("TODO: setMaximumFractionDigits:{}", digits);
 }
 
 - (())setPositiveFormat:(bool)format {

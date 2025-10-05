@@ -5,7 +5,7 @@
  */
 //! `NSTimeZone`.
 
-use crate::frameworks::foundation::{ns_string, NSInteger};
+use crate::frameworks::foundation::{ns_string, NSInteger, NSUInteger};
 use crate::objc::{autorelease, id, nil, release, retain, ClassExports, HostObject, NSZonePtr};
 use crate::{msg, objc_classes};
 
@@ -40,10 +40,30 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this timeZoneWithName:tz_name]
 }
 
++ (id)systemTimeZone {
+    nil
+}
+
++ (id)timeZoneForSecondsFromGMT {
+    nil
+}
+
++ (id)timeZoneForSecondsFromGMT:(NSUInteger)_gmt {
+    msg![env; this init]
+}
+
 - (())dealloc {
     let tz_name = env.objc.borrow_mut::<NSTimeZoneHostObject>(this).time_zone;
     release(env, tz_name);
     env.objc.dealloc_object(this, &mut env.mem)
+}
+
+- (id)name {
+    nil
+}
+
+- (id)daylightSavingTimeOffset {
+    nil
 }
 
 - (id)initWithName:(id)tz_name { // NSString *
@@ -51,10 +71,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     retain(env, tz_name);
     env.objc.borrow_mut::<NSTimeZoneHostObject>(this).time_zone = tz_name;
     this
-}
-
-- (id)name {
-    nil
 }
 
 - (NSInteger)secondsFromGMT {

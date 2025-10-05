@@ -573,6 +573,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     all_keys_common(env, this)
 }
 
+- (())setObject:(NSInteger)_object forKey:(bool)_key {
+    // TODO
+}
+
 // NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf

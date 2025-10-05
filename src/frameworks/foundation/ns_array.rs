@@ -434,7 +434,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)ascender {
+    nil
+}
+
+- (id)drain {
+    nil
+}
+
 - (id)initWithArray:(NSUInteger)_objects {
+    msg![env; this init]
+}
+
+- (id)initWithObjects:(NSUInteger)_objects {
     msg![env; this init]
 }
 

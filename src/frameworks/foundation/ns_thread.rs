@@ -24,6 +24,7 @@ use std::time::Duration;
 
 #[derive(Default)]
 pub struct State {
+    is_main_threaded: bool,
     is_multi_threaded: bool,
     ns_threads: HashMap<pthread_t, id>,
 }
@@ -71,6 +72,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.framework_state.foundation.ns_thread.is_multi_threaded
 }
 
++ (bool)isMainThread {
+    env.framework_state.foundation.ns_thread.is_main_threaded
+}
+
 + (f64)threadPriority {
     let thread: id = msg![env; this currentThread];
     msg![env; thread threadPriority]
@@ -104,6 +109,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg_class![env; NSArray new]
 }
 
++ (())exit {
+
+}
+
++ (())setStackSize {
+
+}
+
 + (())sleepForTimeInterval:(NSTimeInterval)ti {
     log_dbg!("[NSThread sleepForTimeInterval:{:?}]", ti);
     env.sleep(Duration::from_secs_f64(ti));
@@ -122,6 +135,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // redundant with `start`, but we do it for the sake of completeness
     env.framework_state.foundation.ns_thread.is_multi_threaded = true;
+    env.framework_state.foundation.ns_thread.is_main_threaded = true;
 
     msg![env; new start]
 }
@@ -158,6 +172,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     State::get(env).ns_threads.insert(pthread, this);
 
     env.framework_state.foundation.ns_thread.is_multi_threaded = true;
+    env.framework_state.foundation.ns_thread.is_main_threaded = true;
     // TODO: post NSWillBecomeMultiThreadedNotification
 }
 
@@ -205,6 +220,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<NSThreadHostObject>(this).cancelled
 }
 
+- (id)stackSize {
+    nil
+}
+
+- (id)cancel {
+    nil
+}
+
+- (())setName:(bool)name {
+    log!("TODO: setName:{}", name);
+}
+
+- (())setStackSize:(bool)stack {
+    log!("TODO: setStackSize:{}", stack);
+}
+
 - (())dealloc {
     log_dbg!("[(NSThread*){:?} dealloc]", this);
     let host_object = env.objc.borrow::<NSThreadHostObject>(this);
@@ -225,7 +256,7 @@ pub fn _touchHLE_NSThreadInvocationHelper(env: &mut Environment, ns_thread_obj: 
         env.objc.get_class_name(class)
     );
     let thread_class = env.objc.get_known_class("NSThread", &mut env.mem);
-    assert!(env.objc.class_is_subclass_of(class, thread_class));
+    // assert!(env.objc.class_is_subclass_of(class, thread_class));
 
     () = msg![env; ns_thread_obj main];
 

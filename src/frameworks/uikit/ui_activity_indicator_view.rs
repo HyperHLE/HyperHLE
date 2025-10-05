@@ -55,6 +55,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
+- (id)isVisible {
+    nil
+}
+
 - (id)showInView:(NSUInteger)_view {
     msg![env; this init]
 }

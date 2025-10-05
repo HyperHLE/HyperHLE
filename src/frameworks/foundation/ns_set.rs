@@ -84,6 +84,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg_class![env; _touchHLE_NSMutableSet allocWithZone:zone]
 }
 
++ (id)addObject {
+    nil
+}
+
++ (id)set {
+    nil
+}
+
++ (id)setWithArray:(NSUInteger)array {
+    msg![env; this init]
+}
+
++ (id)setWithCapacity:(NSUInteger)capacity {
+    msg![env; this init]
+}
+
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     todo!(); // TODO: this should produce an immutable copy
@@ -199,6 +215,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<SetHostObject>(this).dict = dict;
 
     this
+}
+
+- (id)initWithCapacity:(NSUInteger)capacity {
+    msg![env; this init]
 }
 
 - (id)initWithObjects:(id)first_obj, ...args {

@@ -26,7 +26,8 @@ use crate::frameworks::core_graphics::cg_color::CGColorRef;
 use crate::frameworks::core_graphics::cg_context::{CGContextClearRect, CGContextRef};
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::get_static_str;
-use crate::frameworks::foundation::{ns_array, NSInteger, NSTimeInterval, NSUInteger};
+use crate::frameworks::foundation
+    ::{ns_array, NSInteger, NSTimeInterval, NSUInteger};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr, ObjC,

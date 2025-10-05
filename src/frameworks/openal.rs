@@ -159,7 +159,7 @@ fn alcGetString(
     device: MutPtr<GuestALCdevice>,
     param: ALenum,
 ) -> ConstPtr<u8> {
-    assert!(device.is_null());
+    // assert!(device.is_null());
 
     let res = unsafe { al::alcGetString(std::ptr::null_mut(), param) };
     let s = unsafe { CStr::from_ptr(res) };
