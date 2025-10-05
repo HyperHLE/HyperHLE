@@ -883,6 +883,9 @@ fn madvise(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
 fn difftime(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
     arg1.min(arg2)
 }
+fn CATransform3DMakeRotation(_env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    arg1.min(arg2)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abs(_)),
@@ -1102,4 +1105,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(abort(_, _)),
     export_c_func!(madvise(_, _)),
     export_c_func!(difftime(_, _)),
+    export_c_func!(CATransform3DMakeRotation(_, _)),
 ];
