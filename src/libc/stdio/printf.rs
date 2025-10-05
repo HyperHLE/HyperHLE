@@ -29,7 +29,7 @@ const ALL_SPECIFIERS: [u8; 25] = [
 ];
 
 const INTEGER_SPECIFIERS: [u8; 6] = [b'd', b'i', b'o', b'u', b'x', b'X'];
-const FLOAT_SPECIFIERS: [u8; 3] = [b'f', b'e', b'g'];
+const FLOAT_SPECIFIERS: [u8; 3] = [b'f', b'F', b'e', b'g'];
 
 /// String formatting implementation for `printf` and `NSLog` function families.
 ///
@@ -379,6 +379,16 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                 let formatted = f_format(float, pad_width, pad_char, precision);
                 res.extend_from_slice(formatted.as_bytes());
             }
+            b'F' => {
+                // assert!(!prepend_sign);
+                // assert!(!left_justified);
+                let float: f64 = args.next(env);
+                let pad_width = pad_width as usize;
+                let precision = precision.unwrap_or(6);
+
+                let formatted = f_format(float, pad_width, pad_char, precision);
+                res.extend_from_slice(formatted.as_bytes());
+            }            
             b'e' => {
                 assert!(!prepend_sign);
                 assert!(!left_justified);
