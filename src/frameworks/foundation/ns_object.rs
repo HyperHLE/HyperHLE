@@ -123,6 +123,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
+- (id)locationServicesEnabled {
+    nil
+}
+
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
     env.objc.dealloc_object(this, &mut env.mem)
