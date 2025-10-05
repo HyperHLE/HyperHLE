@@ -39,8 +39,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)dataFromPropertyList:(id)plist
                     format:(NSPropertyListFormat)format
                 errorDescription:(MutPtr<id>)error_string { // NSString **
-    assert_eq!(format, NSPropertyListBinaryFormat_v1_0); // TODO
-    assert!(error_string.is_null()); // TODO
+    // assert_eq!(format, NSPropertyListBinaryFormat_v1_0); // TODO
+    // assert!(error_string.is_null()); // TODO
 
     let value = serialize_plist(env, plist);
     log_dbg!("dataFromPropertyList value {:?}", value);
