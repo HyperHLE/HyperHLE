@@ -8,7 +8,7 @@
 use super::ui_device::*;
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str};
-use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSUInteger};
+use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSTimeInterval, NSUInteger};
 use crate::mem::MutPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
@@ -114,6 +114,10 @@ pub const CLASSES: ClassExports = objc_classes! {
                      animated:(bool)_animated {
     // TODO: animation
     msg![env; this setStatusBarOrientation:orientation]
+}
+
+- (NSTimeInterval)statusBarOrientationAnimationDuration {
+    0.0
 }
 
 - (bool)isIdleTimerDisabled {
