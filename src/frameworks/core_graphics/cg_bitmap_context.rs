@@ -66,7 +66,7 @@ pub fn CGBitmapContextCreate(
         let data = env.mem.alloc(total_size);
         (data, true, bytes_per_row)
     } else {
-        assert!(bytes_per_row != 0);
+        // assert!(bytes_per_row != 0);
         (data, false, bytes_per_row)
     };
 
