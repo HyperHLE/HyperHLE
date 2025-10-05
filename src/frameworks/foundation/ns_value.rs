@@ -471,6 +471,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: setDefaultFormatterBehavior:{}", behavior);
 }
 
+- (())setGroupingSize:(bool)size {
+    log!("TODO: setGroupingSize:{}", size);
+}
+
+- (())setDecimalSeparator:(bool)separator {
+    log!("TODO: setDecimalSeparator:{}", separator);
+}
+
 - (())setNumberStyle:(bool)style {
     log!("TODO: setNumberStyle:{}", style);
 }
