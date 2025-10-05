@@ -475,6 +475,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: setNumberStyle:{}", style);
 }
 
+- (())setMinimumIntegerDigits:(bool)digits {
+    log!("TODO: setMinimumIntegerDigits:{}", digits);
+}
+
+- (())setMaximumIntegerDigits:(bool)digits {
+    log!("TODO: setMaximumIntegerDigits:{}", digits);
+}
+
 - (())setPositiveFormat:(bool)format {
     log!("TODO: setPositiveFormat:{}", format);
 }
