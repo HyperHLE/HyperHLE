@@ -29,7 +29,7 @@ const ALL_SPECIFIERS: [u8; 25] = [
 ];
 
 const INTEGER_SPECIFIERS: [u8; 6] = [b'd', b'i', b'o', b'u', b'x', b'X'];
-const FLOAT_SPECIFIERS: [u8; 3] = [b'f', b'F', b'e', b'g'];
+const FLOAT_SPECIFIERS: [u8; 4] = [b'f', b'F', b'e', b'g'];
 
 /// String formatting implementation for `printf` and `NSLog` function families.
 ///
