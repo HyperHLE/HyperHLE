@@ -8,6 +8,7 @@
 //! Useful resources:
 //! - The [Target-Action section](https://developer.apple.com/library/archive/documentation/General/Conceptual/CocoaEncyclopedia/Target-Action/Target-Action.html) of Apple's "Concepts in Objective-C Programming".
 
+pub mod ui_bar_button_item;
 pub mod ui_button;
 pub mod ui_segmented_control;
 pub mod ui_slider;
@@ -15,7 +16,7 @@ pub mod ui_switch;
 pub mod ui_text_field;
 
 use crate::frameworks::core_graphics::CGPoint;
-use crate::frameworks::foundation::NSUInteger;
+use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, msg_send, msg_super, nil, objc_classes, release,
     retain, ClassExports, NSZonePtr, SEL,
@@ -137,6 +138,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         state |= UIControlStateSelected;
     }
     state
+}
+
+- (())cancelTrackingWithEvent:(id)_event {
+    // default implementation, subclasses can override this
 }
 
 - (bool)isEnabled {
@@ -332,6 +337,18 @@ forControlEvents:(UIControlEvents)events {
 }
 
 // TODO: more triggers/targets/actions stuff
+
+@end
+
+@implementation UIPageControl: UIControl
+
+- (())setCurrentPage:(NSInteger)currentPage {
+    log!("TODO: [(UIPageControl*) {:?} setCurrentPage:{}]", this, currentPage);
+}
+
+- (())setNumberOfPages:(NSInteger)numberOfPages {
+    log!("TODO: [(UIPageControl*) {:?} setNumberOfPages:{}]", this, numberOfPages);
+}
 
 @end
 
