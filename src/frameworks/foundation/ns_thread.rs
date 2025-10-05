@@ -100,6 +100,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg_class![env; NSArray new]
 }
 
++ (())exit {
+
+}
+
++ (())setStackSize {
+
+}
+
 + (())sleepForTimeInterval:(NSTimeInterval)ti {
     log_dbg!("[NSThread sleepForTimeInterval:{:?}]", ti);
     env.sleep(Duration::from_secs_f64(ti));
@@ -199,6 +207,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (bool)isCancelled {
     env.objc.borrow::<NSThreadHostObject>(this).cancelled
+}
+
+- (id)stackSize {
+    nil
+}
+
+- (id)cancel {
+    nil
+}
+
+- (())setName:(bool)name {
+    log!("TODO: setName:{}", name);
+}
+
+- (())setStackSize:(bool)stack {
+    log!("TODO: setStackSize:{}", stack);
 }
 
 - (())dealloc {
