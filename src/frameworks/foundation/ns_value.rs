@@ -483,6 +483,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: setMaximumIntegerDigits:{}", digits);
 }
 
+- (())setMinimumFractionDigits:(bool)digits {
+    log!("TODO: setMinimumFractionDigits:{}", digits);
+}
+
+- (())setMaximumFractionDigits:(bool)digits {
+    log!("TODO: setMaximumFractionDigits:{}", digits);
+}
+
 - (())setPositiveFormat:(bool)format {
     log!("TODO: setPositiveFormat:{}", format);
 }
