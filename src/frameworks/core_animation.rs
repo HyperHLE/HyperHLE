@@ -19,5 +19,6 @@ pub use composition::recomposite_if_necessary;
 
 #[derive(Default)]
 pub struct State {
+    ca_media_timing_function: ca_media_timing_function::State,
     composition: composition::State,
 }
