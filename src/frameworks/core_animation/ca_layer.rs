@@ -9,7 +9,7 @@ use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_graphics::cg_bitmap_context::{
     CGBitmapContextCreate, CGBitmapContextGetHeight, CGBitmapContextGetWidth,
 };
-use crate::frameworks::core_graphics::cg_color::{CGColorRef, CGColorRelease, CGColorRetain};
+use crate::frameworks::core_graphics::cg_color::{CGColorHostObject, CGColorRef};
 use crate::frameworks::core_graphics::cg_color_space::CGColorSpaceCreateDeviceRGB;
 use crate::frameworks::core_graphics::cg_context::{
     CGContextClearRect, CGContextRef, CGContextRelease, CGContextTranslateCTM,
@@ -20,7 +20,9 @@ use crate::frameworks::core_graphics::cg_image::{
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string;
 use crate::mem::{GuestUSize, Ptr};
-use crate::objc::{id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, ObjC};
+use crate::objc::{
+    autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, ObjC,
+};
 use std::collections::HashMap;
 use crate::frameworks::core_animation::ca_transform::CATransform3D;
 
@@ -38,7 +40,7 @@ pub(super) struct CALayerHostObject {
     pub(super) hidden: bool,
     pub(super) opaque: bool,
     pub(super) opacity: f32,
-    pub(super) background_color: CGColorRef,
+    pub(super) background_color: Option<CGColorHostObject>,
     pub(super) corner_radius: CGFloat,
     pub(super) needs_display: bool,
     pub(super) transform: CATransform3D,
@@ -94,7 +96,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         hidden: false,
         opaque: false,
         opacity: 1.0,
-        background_color: nil, // transparency
+        background_color: None, // transparency
         corner_radius: 0.0,
         needs_display: false,
         transform: CATransform3D::identity(),
@@ -118,7 +120,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         drawable_properties,
         contents,
         superlayer,
-        background_color,
         cg_context,
         ref mut sublayers,
         ..
@@ -132,8 +133,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if contents != nil {
         release(env, contents);
     }
-
-    CGColorRelease(env, background_color);
 
     if let Some(cg_context) = cg_context {
         CGContextRelease(env, cg_context);
@@ -286,13 +285,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (CGColorRef)backgroundColor {
-    env.objc.borrow::<CALayerHostObject>(this).background_color
+    if let Some(bg_color) = env.objc.borrow::<CALayerHostObject>(this).background_color.clone() {
+        let class = env.objc.get_known_class("_touchHLE_CGColor", &mut env.mem);
+        let obj = env.objc.alloc_object(class, Box::new(bg_color), &mut env.mem);
+        autorelease(env, obj)
+    } else {
+        nil
+    }
 }
 - (())setBackgroundColor:(CGColorRef)new_color {
-    let host_obj = env.objc.borrow_mut::<CALayerHostObject>(this);
-    let old_color = std::mem::replace(&mut host_obj.background_color, new_color);
-    CGColorRetain(env, new_color);
-    CGColorRelease(env, old_color);
+    let new_color = if new_color == nil {
+        None
+    } else {
+        Some(env.objc.borrow::<CGColorHostObject>(new_color).clone())
+    };
+    env.objc.borrow_mut::<CALayerHostObject>(this).background_color = new_color;
 }
 
 - (CGFloat)cornerRadius {
