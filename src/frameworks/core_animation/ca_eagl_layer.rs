@@ -103,9 +103,6 @@ pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
                 })
             || layer_host_obj.hidden
             || layer_host_obj.opacity != 1.0
-            // TODO: support affine transforms that result in a full-screen
-            //       layer (typical example is 90° rotation).
-            || !layer_host_obj.affine_transform.is_identity()
         {
             return nil;
         }
@@ -149,4 +146,4 @@ pub fn present_pixels(env: &mut Environment, layer: id, pixels: Vec<u8>, width: 
     let host_obj = env.objc.borrow_mut::<CALayerHostObject>(layer);
     host_obj.presented_pixels = Some((pixels, width, height));
     host_obj.gles_texture_is_up_to_date = false;
-                                  }
+}
