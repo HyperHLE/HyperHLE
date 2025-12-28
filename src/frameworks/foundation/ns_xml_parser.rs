@@ -218,7 +218,7 @@ pub const CLASSES: ClassExports = objc_classes! {
                         .register_host_selector("parser:foundCharacters:".to_string(), &mut env.mem);
                     let responds: bool = msg![env; delegate respondsToSelector:sel];
                     if responds {
-                        let text = e.escape().unwrap().decode().unwrap().to_string();
+                        let text = e.decode().unwrap().to_string();
                         let text = from_rust_string(env, text);
                         let text = autorelease(env, text);
                         () = msg![env; delegate parser:this foundCharacters:text];
