@@ -14,7 +14,9 @@ pub mod ca_layer;
 pub mod ca_media_timing_function;
 pub mod ca_transform;
 
+mod animation;
 mod composition;
+
 pub use composition::recomposite_if_necessary;
 
 #[derive(Default)]
