@@ -472,7 +472,12 @@ unsafe fn composite_layer_recursive(
         false
     } else {
         let (r, g, b, a) = cg_color::to_rgba(objc, host_obj.background_color);
-        gles.Color4f(r * opacity, g * opacity, b * opacity, a * opacity);
+        gles.Color4f(
+            r * a * opacity,
+            g * a * opacity,
+            b * a * opacity,
+            a * opacity,
+        );
         gles.Enable(gles11::BLEND);
         gles.BlendFunc(gles11::ONE, gles11::ONE_MINUS_SRC_ALPHA);
 
