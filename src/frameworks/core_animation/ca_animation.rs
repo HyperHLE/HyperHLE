@@ -92,6 +92,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
++ (id)animation {
+    let object = msg![env; this new];
+    autorelease(env, object)
+}
+    
 - (())setDelegate:(id)delegate { // CAAnimationDelegate*
     log_dbg!("[(CAAnimation*){:?} setDelegate:{:?}]", this, delegate);
     env.objc.borrow_mut::<CAAnimationHostObject>(this).delegate = delegate;
@@ -276,10 +281,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 
 @implementation CATransition : CAAnimation
-
-+ (id)animation {
-    msg![env; this new]
-}
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::<CABasicAnimationHostObject>::default();
