@@ -19,10 +19,10 @@ use crate::frameworks::core_graphics::CGFloat;
 use crate::mem::MutPtr;
 
 type CATransitionType = id; // NSString*
-const kCATransitionFade: &str = "kCATransitionFade";
-const kCATransitionMoveIn: &str = "kCATransitionMoveIn";
-const kCATransitionPush: &str = "kCATransitionPush";
-const kCATransitionReveal: &str = "kCATransitionReveal";
+const kCATransitionFade: &str = "fade";
+const kCATransitionMoveIn: &str = "moveIn";
+const kCATransitionPush: &str = "push";
+const kCATransitionReveal: &str = "reveal";
 
 /// `CATransitionType` values.
 pub const CONSTANTS: ConstantExports = &[
