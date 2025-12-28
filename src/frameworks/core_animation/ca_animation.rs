@@ -97,7 +97,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<CAAnimationHostObject>(this).delegate = delegate;
     retain(env, delegate);
 }
-
+- (id)delegate {
+    env.objc.borrow::<CAAnimationHostObject>(this).delegate
+}
+    
 - (())setTimingFunction:(id)timingFunction { // CAMediaTimingFunction*
     log_dbg!("[(CAAnimation*){:?} setTimingFunction:{:?}]", this, timingFunction);
     env.objc.borrow_mut::<CAAnimationHostObject>(this).timing_function = timingFunction;
