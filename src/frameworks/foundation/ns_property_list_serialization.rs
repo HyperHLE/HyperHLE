@@ -260,6 +260,12 @@ fn serialize_plist(env: &mut Environment, plist: id) -> Value {
         let num = env.objc.borrow::<NSNumberHostObject>(plist);
         match num {
             NSNumberHostObject::Bool(b) => Value::Boolean(*b),
+            NSNumber::UnsignedLongLong(v) => {
+    // iOS plist допускает uint64, но для совместимости
+    // приводим к signed (играм обычно всё равно)
+    let v = v as i64;
+    plist::Value::Integer(v.into())
+            }
             NSNumberHostObject::Int(i) => Value::from(*i),
             NSNumberHostObject::Float(f) => Value::from(*f),
             NSNumberHostObject::Double(d) => Value::from(*d),
