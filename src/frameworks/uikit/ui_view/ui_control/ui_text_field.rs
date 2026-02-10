@@ -410,9 +410,3 @@ pub fn handle_return(env: &mut Environment, text_field: id) {
         () = msg![env; delegate textFieldShouldReturn:text_field];
     }
 }
-
-fn setContentVerticalAlignment(&mut self, _alignment: i32) {
-    // Заглушка:
-    // iOS выравнивает текст, нам достаточно не падать
-    log::warn!("UITextField setContentVerticalAlignment called (stub)");
-}
