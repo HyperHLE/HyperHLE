@@ -774,6 +774,17 @@ impl Dyld {
         Ok(function_ptr)
     }
 
+    fn objc_getClass(env: &mut Environment, name: id) -> id {
+        let class_name = env.objc.get_c_string(name);
+
+        if let Some(cls) = env.objc.lookup_class(&class_name) {
+            return cls;
+        }
+
+        // Возвращаем Nil вместо panic
+        crate::objc::nil
+        }
+
     pub fn create_guest_function(
         &mut self,
         mem: &mut Mem,
