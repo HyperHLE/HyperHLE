@@ -269,6 +269,12 @@ pub fn CGContextSetTextDrawingMode(env: &mut Environment, context: CGContextRef,
     env.objc.borrow_mut::<CGContextHostObject>(context).state.text_drawing_mode = mode;
 }
 
+pub extern "C" fn CGContextGetTextPosition(_ctx: *mut core::ffi::c_void) -> CGPoint {
+    // Заглушка:
+    // возвращаем (0,0), чтобы не падало
+    CGPoint { x: 0.0, y: 0.0 }
+}
+
 pub fn CGContextSetShadowWithColor(env: &mut Environment, context: CGContextRef, offset: CGSize, blur: CGFloat, color: CGColorRef) {
     env.objc.borrow_mut::<CGContextHostObject>(context).state.shadow_offset = offset;
     env.objc.borrow_mut::<CGContextHostObject>(context).state.shadow_blur = blur;
