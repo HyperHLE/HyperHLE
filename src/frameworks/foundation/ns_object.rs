@@ -91,6 +91,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, str)
 }
 
+- (*const i8)UTF8String {
+    // iOS 2.x behavior:
+    // NSObject does not implement UTF8String directly,
+    // but message forwarding effectively results in:
+    // [[self description] UTF8String]
+
+    let desc: id = msg![env; this description];
+    msg![env; desc UTF8String]
+}
+    
 - (id)init {
     this
 }
