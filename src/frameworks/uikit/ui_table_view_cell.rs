@@ -3,32 +3,20 @@
  * License, v. 2.0.
  */
 
-use crate::frameworks::foundation::ns_object::NSObject;
-use crate::frameworks::uikit::ui_view::UIView;
-use crate::objc::{
-    autorelease, id, msg, nil, objc_classes, ClassExports, MutVoidPtr,
-};
+use crate::objc::{id, nil};
+use crate::{msg, Environment};
 
-pub const CLASSES: ClassExports = objc_classes! {
+objc_classes! {
 
-(env, this, _cmd);
+@class UITableViewCell : UIView
 
-@implementation UITableViewCell : UIView
+@implementation UITableViewCell
 
-- (id)initWithFrame:(crate::frameworks::core_graphics::cg_geometry::CGRect)_frame
-  reuseIdentifier:(id)_reuseIdentifier
-{
-    // iOS 2.x behavior:
-    // UITableViewCell existed but was very minimal
-
-    let this: id = msg![env; this init];
+- (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)_reuseIdentifier {
+    let this: id = msg![env; this initWithFrame:frame];
     this
-}
-
-- (id)reuseIdentifier {
-    nil
 }
 
 @end
 
-};
+}
