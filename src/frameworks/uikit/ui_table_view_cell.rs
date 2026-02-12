@@ -1,16 +1,20 @@
-use crate::Environment;
-use crate::objc::{id, objc_classes};
+use crate::{Environment, msg_send, id};
 use crate::frameworks::core_graphics::CGRect;
-use crate::msg;
+use crate::frameworks::foundation::NSString;
+use crate::objc::classes::objc_classes;
 
 pub fn register(env: &mut Environment) {
-    // Вызываем макрос, который напрямую регистрирует классы в env
+    // Создаём класс UITableViewCell, наследуемый от UIView
     objc_classes! {
         (env, this, _cmd);
 
         @implementation UITableViewCell : UIView
-            - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
-                let this: id = msg![env; super(this) "initWithFrame:reuseIdentifier:" frame identifier];
+            // Реализация initWithFrame:reuseIdentifier:
+            - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier) {
+                // Вызываем super initWithFrame:
+                let super_obj: id = msg_send(env, (super(this), "initWithFrame:", frame));
+
+                // Тут можно сохранить identifier, если нужно
                 this
             }
         @end
