@@ -1,7 +1,7 @@
 use crate::{Environment};
 use crate::objc::{id, msg_send};
 use crate::frameworks::core_graphics::CGRect;
-use crate::frameworks::foundation::NSString;
+use crate::frameworks::foundation::ns_string;
 use crate::objc::classes::objc_classes;
 
 pub fn register(env: &mut Environment) {
