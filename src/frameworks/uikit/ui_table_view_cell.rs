@@ -5,17 +5,16 @@
 
 use crate::objc::{
     id, msg_send, nil,
-    objc_classes,
+    objc_classes, ClassExports,
 };
 use crate::frameworks::uikit::ui_view::CGRect;
 
-objc_classes! {
+pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
 
     @implementation UITableViewCell : UIView
 
-    - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)_reuse {
-        // super.initWithFrame:
+    - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)_reuseIdentifier {
         let super_obj: id = msg_send(env, (this, "initWithFrame:", frame));
         super_obj
     }
@@ -25,8 +24,8 @@ objc_classes! {
     }
 
     - (())prepareForReuse {
-        // intentionally empty
+        ()
     }
 
     @end
-}
+};
