@@ -1,4 +1,5 @@
-use crate::objc::{id, msg, msg_class, Environment};
+use crate::objc::{id, msg, msg_class};
+use crate::environment::Environment; // ✅
 
 pub fn register_table_view_classes(env: &mut Environment) {
     // Пример регистрации UITableView
