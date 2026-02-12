@@ -7,7 +7,7 @@ use crate::objc::{
     id, msg_send, nil,
     objc_classes, ClassExports,
 };
-use crate::frameworks::uikit::ui_view::CGRect;
+use crate::frameworks::core_graphics::CGRect;
 
 pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
