@@ -31,6 +31,11 @@ pub mod ui_touch;
 pub mod ui_view;
 pub mod ui_view_controller;
 
+pub fn register_classes(env: &mut Environment) {
+    // Другие UIKit-классы, например ui_view, ui_image и т.д.
+    ui_table_view_cell::register(env);
+}
+
 #[derive(Default)]
 pub struct State {
     ui_accelerometer: ui_accelerometer::State,
