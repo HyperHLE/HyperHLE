@@ -28,7 +28,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         ()
     }
 
-    - (id)initWithFrame:(CGRect)frame reuseIdentifier:(NSString *)identifier
+    - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier
 
     @end
 };
