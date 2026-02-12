@@ -3,20 +3,11 @@
  * License, v. 2.0.
  */
 
-use crate::objc::{id};
-use crate::{msg};
+use crate::objc::{id, msg, msg_class, Environment};
 
-objc_classes! {
-
-@class UITableViewCell : UIView
-
-@implementation UITableViewCell
-
-- (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)_reuseIdentifier {
-    let this: id = msg![env; this initWithFrame:frame];
-    this
-}
-
-@end
-
+pub fn register_table_view_cell(env: &mut Environment) {
+    env.objc.register_class("UITableViewCell", Some("UIView"), |env, this| {
+        let _self: id = msg![env; this init];
+        _self
+    });
 }
