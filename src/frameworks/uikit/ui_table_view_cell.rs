@@ -8,6 +8,7 @@ use crate::objc::{
     objc_classes, ClassExports,
 };
 use crate::frameworks::core_graphics::CGRect;
+use crate::msg;
 
 pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
