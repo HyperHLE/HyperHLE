@@ -1,17 +1,27 @@
-use crate::objc::{id, msg, msg_class};
-use crate::environment::Environment; // ✅
+use crate::objc::{id, msg, msg_send, msg_class};
+use crate::environment::Environment;
+use crate::libc::NSUInteger;
 
-pub fn register_table_view_classes(env: &mut Environment) {
-    // Пример регистрации UITableView
-    env.objc.register_class("UITableView", Some("UIView"), |env, this| {
-        // инициализация экземпляра
-        let _self: id = msg![env; this init];
-        _self
-    });
+crate::objc_classes! {
+    (env, this, _cmd);
 
-    // Пример регистрации UITableViewCell
-    env.objc.register_class("UITableViewCell", Some("UIView"), |env, this| {
-        let _self: id = msg![env; this init];
-        _self
-    });
+    @class UITableView : UIView
+
+    - (id)initWithFrame:(CGRect)frame style:(NSInteger)style {
+        // В конструкторе можно вызывать супер-метод
+        let super_res: id = msg_send(env, (super(this), "initWithFrame:", frame));
+        super_res
+    }
+
+    - (NSInteger)numberOfSections {
+        1
+    }
+
+    - (NSInteger)tableView:(id)tableView numberOfRowsInSection:(NSInteger)section {
+        0
+    }
+
+    - (id)tableView:(id)tableView cellForRowAtIndexPath:(id)indexPath {
+        nil
+    }
 }
