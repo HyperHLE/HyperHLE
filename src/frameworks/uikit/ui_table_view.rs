@@ -1,24 +1,16 @@
-use crate::{msg};
-use crate::objc::{id, Class};
-use crate::objc_classes;
+use crate::objc::{id, msg, msg_class, Environment};
 
-objc_classes! {
-    (env, this, _cmd);
+pub fn register_table_view_classes(env: &mut Environment) {
+    // Пример регистрации UITableView
+    env.objc.register_class("UITableView", Some("UIView"), |env, this| {
+        // инициализация экземпляра
+        let _self: id = msg![env; this init];
+        _self
+    });
 
-    // методы класса/экземпляра идут прямо здесь
-    - (id)init {
-        msg![env; this init] // пример вызова суперкласса
-    }
-
-    - (NSUInteger)numberOfRowsInSection:(NSUInteger)section {
-        0
-    }
-
-    - (id)cellForRowAtIndexPath:(id)indexPath {
-        id::null()
-    }
-
-    - (())reloadData {
-        log!("UITableView reloadData called");
-    }
+    // Пример регистрации UITableViewCell
+    env.objc.register_class("UITableViewCell", Some("UIView"), |env, this| {
+        let _self: id = msg![env; this init];
+        _self
+    });
 }
