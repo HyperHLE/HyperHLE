@@ -15,7 +15,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     @implementation UITableViewCell : UIView
 
     - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)_reuseIdentifier {
-        let super_obj: id = msg_send(env, (this, "initWithFrame:", frame));
+        let super_obj: id = msg![env; this initWithFrame:frame];
         super_obj
     }
 
