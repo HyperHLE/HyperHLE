@@ -33,4 +33,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         let obj: id = msg![env; this initWithFrame:frame];
         obj
     }
+
+    @end
 };
