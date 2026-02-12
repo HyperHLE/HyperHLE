@@ -5,23 +5,20 @@ use crate::objc_classes;
 objc_classes! {
     (env, this, _cmd);
 
-    class UITableView: UIView {
+    // методы класса/экземпляра идут прямо здесь
+    - (id)init {
+        msg![env; this init] // пример вызова суперкласса
+    }
 
-        - (id)init {
-            log!("UITableView init");
-            msg![env; this init]
-        }
+    - (NSUInteger)numberOfRowsInSection:(NSUInteger)section {
+        0
+    }
 
-        - (NSUInteger)numberOfRowsInSection:(NSUInteger)section {
-            0 // заглушка
-        }
+    - (id)cellForRowAtIndexPath:(id)indexPath {
+        id::null()
+    }
 
-        - (id)cellForRowAtIndexPath:(id)indexPath {
-            id::null() // заглушка
-        }
-
-        - (())reloadData {
-            log!("UITableView reloadData called");
-        }
+    - (())reloadData {
+        log!("UITableView reloadData called");
     }
 }
