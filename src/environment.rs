@@ -438,6 +438,9 @@ impl Environment {
             false => None,
         });
 
+        let mut env = Environment::new();
+        crate::frameworks::uikit::register_classes(&mut env);
+        
         let main_thread_init_routine = Coroutine::new(move |yielder, mut env: Environment| {
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 env.with_yielder(yielder, move |env| {
