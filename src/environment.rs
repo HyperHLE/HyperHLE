@@ -438,9 +438,6 @@ impl Environment {
             false => None,
         });
 
-        let mut env = Environment::new();
-        crate::frameworks::uikit::register_classes(&mut env);
-        
         let main_thread_init_routine = Coroutine::new(move |yielder, mut env: Environment| {
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 env.with_yielder(yielder, move |env| {
@@ -520,6 +517,9 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
         };
 
+        // ✅ Регистрируем UIKit-классы сразу после создания env
+        crate::frameworks::uikit::register_classes(&mut env);
+        
         if env.options.dumping_options.any() {
             env.dump_file =
                 Some(std::fs::File::create(&env.options.dumping_file).map_err(|e| e.to_string())?);
