@@ -13,7 +13,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
 
-#pragma mark - UITableViewCell
 
 @implementation UITableViewCell : UIView {
     _reuseIdentifier: id,
@@ -87,9 +86,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 @end
-
-
-#pragma mark - UITableView
 
 @implementation UITableView : UIScrollView {
     _dataSource: id,
