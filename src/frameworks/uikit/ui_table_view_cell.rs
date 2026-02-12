@@ -28,6 +28,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         ()
     }
 
-    - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier
-
+    - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
+        // UIView не знает reuseIdentifier — просто вызываем initWithFrame:
+        let obj: id = msg![env; this initWithFrame:frame];
+        obj
+    }
 };
