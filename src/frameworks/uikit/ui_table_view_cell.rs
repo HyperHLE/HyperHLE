@@ -1,4 +1,5 @@
-use crate::{Environment, msg_send, id};
+use crate::{Environment};
+use crate::objc::{id, msg_send};
 use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::NSString;
 use crate::objc::classes::objc_classes;
