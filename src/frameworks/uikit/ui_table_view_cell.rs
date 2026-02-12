@@ -3,8 +3,8 @@
  * License, v. 2.0.
  */
 
-use crate::objc::{id, nil};
-use crate::{msg, Environment};
+use crate::objc::{id};
+use crate::{msg};
 
 objc_classes! {
 
