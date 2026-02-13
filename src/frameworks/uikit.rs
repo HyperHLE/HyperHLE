@@ -32,8 +32,8 @@ pub mod ui_view;
 pub mod ui_view_controller;
 
 pub fn register_classes(env: &mut Environment) {
-    // Другие UIKit-классы, например ui_view, ui_image и т.д.
-    ui_table_view_cell::register(env);
+    // все ваши UIKit-classes здесь
+    ui_table_view_cell::register_classes(env); // <-- если сделали pub fn register_classes
 }
 
 pub fn register(env: &mut Environment) {
