@@ -11,7 +11,7 @@ pub fn register(env: &mut Environment) {
         (env, this, _cmd);
 
         @implementation UITableViewCell : UIView
-            - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier) {
+            - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
                 let this: id = msg![env; super this initWithFrame:frame];
                 this
             }
