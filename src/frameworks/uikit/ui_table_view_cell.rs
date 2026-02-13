@@ -2,19 +2,19 @@
  * MPL 2.0
  */
 
-use crate::objc_classes;
-use crate::objc::id;
-use crate::frameworks::core_graphics::CGRect;
-use crate::msg;
+use crate::{Environment};
+use crate::objc::id; // тип id
+use crate::msg;       // макрос msg! нужен, если будут селекторы
 
-static CLASSES: &[(&str, crate::objc::ClassTemplate)] = objc_classes! {
+objc_classes! {
     (env, this, _cmd);
 
     @implementation UITableViewCell : UIView
 
+    // Инициализация для touchHLE
     - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)reuseIdentifier {
-    this
+        this
     }
 
     @end
-};
+}
