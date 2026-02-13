@@ -5,7 +5,6 @@
 use crate::objc_classes; // это публичный re-export макроса
 use crate::{Environment, id, msg};
 use crate::objc::id; // тип id
-use crate::msg;       // макрос msg! нужен, если будут селекторы
 
 objc_classes! {
     (env, this, _cmd);
