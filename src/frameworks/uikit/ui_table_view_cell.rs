@@ -5,6 +5,7 @@
 use crate::objc_classes;
 use crate::objc::id;
 use crate::frameworks::core_graphics::CGRect;
+use crate::msg;
 
 static CLASSES: &[(&str, crate::objc::ClassTemplate)] = objc_classes! {
     (env, this, _cmd);
