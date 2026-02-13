@@ -13,8 +13,7 @@ static CLASSES: &[(&str, crate::objc::ClassTemplate)] = objc_classes! {
     @implementation UITableViewCell : UIView
 
     - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)reuseIdentifier {
-        let this: id = msg![env; super this initWithFrame:frame];
-        this
+    this
     }
 
     @end
