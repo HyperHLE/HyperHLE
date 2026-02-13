@@ -1,22 +1,21 @@
-use crate::{Environment};
-use crate::objc::{id, msg_send};
+/*
+ * MPL 2.0
+ */
+
+use crate::{Environment, objc_classes};
+use crate::objc::id;
 use crate::frameworks::core_graphics::CGRect;
-use crate::frameworks::foundation::ns_string;
-use crate::objc::classes::objc_classes;
 
-pub fn register(env: &mut Environment) {
-    objc_classes! {
-        (env, this, _cmd);
+objc_classes! {
+    (env, this, _cmd);
 
-        @implementation UITableViewCell : UIView
-            // Реализация initWithFrame:reuseIdentifier:
-            - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
-                // Вызываем super initWithFrame:
-                let super_obj: id = msg_send(env, (super(this), "initWithFrame:", frame));
+    @implementation UITableViewCell : UIView
 
-                // Здесь можно сохранить identifier в поле, если нужно
-                this
-            }
-        @end
-    };
+    - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)reuseIdentifier {
+        // вызываем super initWithFrame:
+        let this: id = msg![env; super(this) initWithFrame:frame];
+        this
+    }
+
+    @end
 }
