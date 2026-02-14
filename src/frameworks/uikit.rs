@@ -31,24 +31,6 @@ pub mod ui_touch;
 pub mod ui_view;
 pub mod ui_view_controller;
 
-pub fn register_classes(env: &mut Environment) {
-    ui_table_view_cell::register(env);
-    // ... регистрация других UIKit классов
-}
-
-pub fn register(env: &mut Environment) {
-    // Здесь макрос objc_classes! используется внутри модуля objc,
-    // потому что этот модуль имеет доступ к приватному classes.
-    crate::objc::register_class(
-        env,
-        "UITableViewCell",
-        Some("UIView"),
-        |env, this| {
-            // инициализация, методы и т.д.
-        },
-    );
-}
-
 #[derive(Default)]
 pub struct State {
     ui_accelerometer: ui_accelerometer::State,
