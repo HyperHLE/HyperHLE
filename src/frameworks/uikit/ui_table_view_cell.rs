@@ -2,9 +2,9 @@
  * MPL 2.0
  */
 
-use crate::objc_classes; // это публичный re-export макроса
-use crate::{Environment, id, msg};
-use crate::objc::id; // тип id
+use crate::Environment;
+use crate::objc::id;   // тип id
+use crate::msg;         // макрос msg!
 
 pub fn register(env: &mut Environment) {
     objc_classes! {
