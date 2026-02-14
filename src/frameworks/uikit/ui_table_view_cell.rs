@@ -5,6 +5,7 @@
 use crate::Environment;
 use crate::objc::id;   // тип id
 use crate::msg;         // макрос msg!
+use crate::objc_classes;
 
 pub fn register(env: &mut Environment) {
     objc_classes! {
