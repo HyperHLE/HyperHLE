@@ -13,6 +13,27 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::mem::MutVoidPtr;
 use crate::Environment;
 
+use std::sync::Mutex;
+lazy_static::lazy_static! {
+    static ref EXIT_FUNCS: Mutex<Vec<fn()>> = Mutex::new(Vec::new());
+}
+
+// заменяем __cxa_atexit
+#[no_mangle]
+pub extern "C" fn __cxa_atexit(func: extern "C" fn(), _arg: *mut u8, _dso: *mut u8) -> i32 {
+    EXIT_FUNCS.lock().unwrap().push(func);
+    0 // возвращаем успех
+}
+
+// заменяем __cxa_finalize
+#[no_mangle]
+pub extern "C" fn __cxa_finalize(_f: *mut u8) {
+    let funcs = EXIT_FUNCS.lock().unwrap();
+    for f in funcs.iter() {
+        f(); // вызываем все функции выхода
+    }
+}
+
 fn __cxa_atexit(
     _env: &mut Environment,
     func: GuestFunction, // void (*func)(void *)
