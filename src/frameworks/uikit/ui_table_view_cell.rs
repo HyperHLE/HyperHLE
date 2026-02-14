@@ -3,25 +3,20 @@
  */
 
 use crate::Environment;
-use crate::objc::id;   // тип id
-use crate::msg;         // макрос msg!
+use crate::objc::id;
+use crate::msg;
 use crate::objc_classes;
 use crate::frameworks::core_graphics::CGRect;
 
-pub fn register(env: &mut Environment) {
-    objc_classes! {
-        (env, this, _cmd);
+objc_classes! {
+    (env, this, _cmd);
 
-        @implementation UITableViewCell : UIView
-            - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
-                // Получаем указатель на суперкласс
-                let super_cls: id = msg![env; this superclass];
+    @implementation UITableViewCell : UIView
 
-                // Вызываем инициализатор суперкласса
-                let this: id = msg![env; super_cls initWithFrame:frame];
+        - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
+            let this: id = msg![env; super this initWithFrame:frame];
+            this
+        }
 
-                this
-            }
-        @end
-    }
+    @end
 }
