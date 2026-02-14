@@ -37,6 +37,6 @@ fn __cxa_finalize(_f: MutVoidPtr) {
 }
 
 pub const FUNCTIONS: FunctionExports = &[
-    export_c_func!(__cxa_atexit(_, _, _)),
-    export_c_func!(__cxa_finalize(_)),
+    export_c_func!(__cxa_atexit);
+    export_c_func!(__cxa_finalize),
 ];
