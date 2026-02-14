@@ -12,7 +12,12 @@ pub fn register(env: &mut Environment) {
 
         @implementation UITableViewCell : UIView
             - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
-                let this: id = msg![env; super(this) initWithFrame:frame reuseIdentifier:identifier];
+                // Получаем указатель на суперкласс
+                let super_cls: id = msg![env; this superclass];
+
+                // Вызываем инициализатор суперкласса
+                let this: id = msg![env; super_cls initWithFrame:frame];
+
                 this
             }
         @end
