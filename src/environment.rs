@@ -516,9 +516,6 @@ impl Environment {
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
         };
-
-        // ✅ Регистрируем UIKit-классы сразу после создания env
-        crate::frameworks::uikit::register_classes(&mut env);
         
         if env.options.dumping_options.any() {
             env.dump_file =
