@@ -14,45 +14,25 @@ use crate::mem::MutVoidPtr;
 use crate::Environment;
 
 use std::sync::Mutex;
+
 lazy_static::lazy_static! {
-    static ref EXIT_FUNCS: Mutex<Vec<fn()>> = Mutex::new(Vec::new());
-}
-
-// заменяем __cxa_atexit
-#[no_mangle]
-pub extern "C" fn __cxa_atexit(func: extern "C" fn(), _arg: *mut u8, _dso: *mut u8) -> i32 {
-    EXIT_FUNCS.lock().unwrap().push(func);
-    0 // возвращаем успех
-}
-
-// заменяем __cxa_finalize
-#[no_mangle]
-pub extern "C" fn __cxa_finalize(_f: *mut u8) {
-    let funcs = EXIT_FUNCS.lock().unwrap();
-    for f in funcs.iter() {
-        f(); // вызываем все функции выхода
-    }
+    static ref EXIT_FUNCS: Mutex<Vec<GuestFunction>> = Mutex::new(Vec::new());
 }
 
 fn __cxa_atexit(
     _env: &mut Environment,
-    func: GuestFunction, // void (*func)(void *)
-    p: MutVoidPtr,
-    d: MutVoidPtr,
+    func: GuestFunction,
+    _p: MutVoidPtr,
 ) -> i32 {
-    // TODO: when this is implemented, make sure it's properly compatible with
-    // C atexit.
-    log!(
-        "TODO: __cxa_atexit({:?}, {:?}, {:?}) (unimplemented)",
-        func,
-        p,
-        d
-    );
+    EXIT_FUNCS.lock().unwrap().push(func);
     0 // success
 }
 
-fn __cxa_finalize(_env: &mut Environment, d: MutVoidPtr) {
-    log!("TODO: __cxa_finalize({:?}) (unimplemented)", d);
+fn __cxa_finalize(_f: MutVoidPtr) {
+    let funcs = EXIT_FUNCS.lock().unwrap();
+    for f in funcs.iter() {
+        f.call(); // вызов GuestFunction в эмуляторе
+    }
 }
 
 pub const FUNCTIONS: FunctionExports = &[
