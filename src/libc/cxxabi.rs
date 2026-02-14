@@ -13,9 +13,7 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::mem::MutVoidPtr;
 use crate::Environment;
 
-#[macro_use]
-extern crate lazy_static;
-
+use lazy_static::lazy_static;
 use std::sync::Mutex;
 
 lazy_static::lazy_static! {
