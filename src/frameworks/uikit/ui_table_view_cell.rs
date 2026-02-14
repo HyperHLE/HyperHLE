@@ -12,7 +12,7 @@ pub fn register(env: &mut Environment) {
 
         @implementation UITableViewCell : UIView
             - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
-                let this: id = msg![env; super this initWithFrame:frame];
+                let this: id = msg![env; super(this) initWithFrame:frame reuseIdentifier:identifier];
                 this
             }
         @end
