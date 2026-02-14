@@ -8,15 +8,17 @@ use crate::msg;
 use crate::objc_classes;
 use crate::frameworks::core_graphics::CGRect;
 
-objc_classes! {
-    (env, this, _cmd);
+const _: () = {
+    objc_classes! {
+        (env, this, _cmd);
 
-    @implementation UITableViewCell : UIView
+        @implementation UITableViewCell : UIView
 
-        - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
-            let this: id = msg![env; super this initWithFrame:frame];
-            this
-        }
+            - (id)initWithFrame:(CGRect)frame reuseIdentifier:(id)identifier {
+                let this: id = msg![env; super this initWithFrame:frame];
+                this
+            }
 
-    @end
-}
+        @end
+    }
+};
