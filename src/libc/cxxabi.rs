@@ -20,7 +20,7 @@ lazy_static::lazy_static! {
     static ref EXIT_FUNCS: Mutex<Vec<GuestFunction>> = Mutex::new(Vec::new());
 }
 
-fn __cxa_atexit(
+pub fn __cxa_atexit(
     _env: &mut Environment,
     func: GuestFunction,
     _p: MutVoidPtr,
@@ -29,11 +29,12 @@ fn __cxa_atexit(
     0 // success
 }
 
-fn __cxa_finalize(_f: MutVoidPtr) {
-    let funcs = EXIT_FUNCS.lock().unwrap();
-    for f in funcs.iter() {
-        f.call(); // вызов GuestFunction в эмуляторе
-    }
+pub fn __cxa_finalize(
+    _env: &mut Environment,
+    _p: MutVoidPtr,
+) -> i32 {
+    // по стандарту допускается no-op
+    0
 }
 
 pub const FUNCTIONS: FunctionExports = &[
