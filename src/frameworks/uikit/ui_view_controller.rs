@@ -14,7 +14,7 @@ use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str,
 use crate::frameworks::uikit::ui_view::set_view_controller;
 use crate::objc::{
     id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports, HostObject,
-    NSZonePtr,
+    NSZonePtr, register_class,
 };
 use crate::Environment;
 
@@ -228,4 +228,13 @@ fn check_nib_exists(env: &mut Environment, bundle: id, nib_name: id) -> bool {
     let type_: id = get_static_str(env, "nib");
     let res: id = msg![env; bundle pathForResource:nib_name ofType:type_];
     res != nil
+}
+
+pub fn register_main_view_controller() {
+    register_class(
+        "MainViewController",
+        "UIViewController",
+        &[],
+        &[],
+    );
 }
