@@ -17,6 +17,7 @@ use crate::objc::{
     NSZonePtr, register_class,
 };
 use crate::Environment;
+use crate::frameworks::uikit::UIViewController;
 
 pub mod ui_navigation_controller;
 
