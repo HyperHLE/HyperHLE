@@ -16,9 +16,9 @@ use crate::frameworks::foundation::NSInteger;
 use crate::mem::{ConstVoidPtr, MutVoidPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, objc_classes, retain, Class, ClassExports, HostObject,
-    NSZonePtr,
+    NSZonePtr, Sel,
 };
-use crate::Environment;
+use crate::{msg, Environment};
 use std::cmp::Ordering;
 
 #[derive(Debug)]
@@ -407,6 +407,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, desc)
 }
 
+- (id)initWithUnsignedLongLong:(u64)value {
+        initWithUnsignedLongLong(env, this, _cmd, value)
+}
+    
 - (NSUInteger)hash {
     // The only requirement for [obj hash] is that values that compare equal
     // (via [obj isEqual] have the same hash. Hashing the underlying
@@ -530,7 +534,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setGroupingSeparator:(bool)separator {
     log!("TODO: setGroupingSeparator:{}", separator);
 }
-
+    
 @end
 
 @implementation NSDecimalNumber: NSNumber
@@ -564,4 +568,20 @@ pub fn is_conversion_lossless(env: &mut Environment, this: id, type_: CFNumberTy
         _ => unimplemented!("is_conversion_lossless for {}", type_),
     };
     msg![env; this isEqualToNumber:num2]
+}
+
+pub fn initWithUnsignedLongLong(
+    env: &mut Environment,
+    this: id,
+    _cmd: Sel,
+    value: u64,
+) -> id {
+    // Используем уже существующий helper NSValue
+    super::store_raw_value(
+        env,
+        this,
+        &value.to_ne_bytes(),
+        b"Q\0", // Objective-C type encoding for unsigned long long
+    );
+    this
 }
