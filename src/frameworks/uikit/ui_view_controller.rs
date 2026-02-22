@@ -14,10 +14,9 @@ use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str,
 use crate::frameworks::uikit::ui_view::set_view_controller;
 use crate::objc::{
     id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports, HostObject,
-    NSZonePtr, register_class,
+    NSZonePtr,
 };
 use crate::Environment;
-use crate::frameworks::uikit::UIViewController;
 
 pub mod ui_navigation_controller;
 
