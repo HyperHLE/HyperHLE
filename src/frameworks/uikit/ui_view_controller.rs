@@ -229,12 +229,3 @@ fn check_nib_exists(env: &mut Environment, bundle: id, nib_name: id) -> bool {
     let res: id = msg![env; bundle pathForResource:nib_name ofType:type_];
     res != nil
 }
-
-pub fn register_main_view_controller() {
-    register_class(
-        "MainViewController",
-        "UIViewController",
-        &[],
-        &[],
-    );
-}
