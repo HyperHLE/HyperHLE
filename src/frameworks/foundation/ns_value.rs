@@ -18,7 +18,7 @@ use crate::objc::{
     autorelease, id, msg, msg_class, objc_classes, retain, Class, ClassExports, HostObject,
     NSZonePtr, Sel,
 };
-use crate::{msg, Environment};
+use crate::Environment;
 use std::cmp::Ordering;
 
 #[derive(Debug)]
