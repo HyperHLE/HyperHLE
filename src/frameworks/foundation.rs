@@ -141,7 +141,7 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
 pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize) {
     unsafe {
         
-        let addr = bytes.bits(); // VAddr (u32)
+        let addr = bytes.to_bits(); // VAddr (u32)
 
         let data = unsafe {
             std::slice::from_raw_parts(addr as *const u8, size)
