@@ -573,7 +573,7 @@ pub fn is_conversion_lossless(env: &mut Environment, this: id, type_: CFNumberTy
 pub fn initWithUnsignedLongLong(
     env: &mut Environment,
     this: id,
-    _cmd: Sel,
+    _cmd: SEL,
     value: u64,
 ) -> id {
     // Используем уже существующий helper NSValue
