@@ -12,8 +12,9 @@
 //! `NSString` easier to understand.
 
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::objc::id;
+use crate::objc::{id retain};
 use crate::Environment;
+use crate::mem::ConstVoidPtr;
 
 pub mod ns_array;
 pub mod ns_autorelease_pool;
@@ -134,6 +135,22 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     hashable.hash(&mut hasher);
     let hash_u64: u64 = hasher.finish();
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
+}
+
+/// Хранит сырое значение внутри NSValue / NSNumber
+pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize) {
+    unsafe {
+        let data = std::slice::from_raw_parts(bytes.as_ptr() as *const u8, size);
+        let boxed: Box<[u8]> = data.into();
+        let ptr = Box::into_raw(boxed);
+
+        // сохраняем указатель в HostObject
+        obj.as_host_object_mut()
+            .expect("NSValue must be HostObject")
+            .set_userdata(ptr as *mut u8);
+
+        retain(obj);
+    }
 }
 
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSStringFromRange(_))];
