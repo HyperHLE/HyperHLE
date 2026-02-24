@@ -579,10 +579,10 @@ pub fn initWithUnsignedLongLong(
 ) -> id {
     let bytes = value.to_ne_bytes();
 
-    // Преобразуем указатель на массив в Ptr<c_void, false>
-    let ptr = crate::mem::ConstVoidPtr::from_bits(
-        (bytes.as_ptr() as usize).try_into().unwrap()
-    );
+    // Вместо bytes.as_ptr() as usize
+let ptr = crate::mem::ConstVoidPtr::from_bits(
+    bytes.as_ptr() as u32  // или (bytes.as_ptr() as usize).try_into().unwrap()
+);
 
     super::store_raw_value(
         this,
