@@ -571,17 +571,11 @@ pub fn is_conversion_lossless(env: &mut Environment, this: id, type_: CFNumberTy
 }
 
 pub fn initWithUnsignedLongLong(
-    env: &mut Environment,
-    this: id,
-    _cmd: SEL,
-    value: u64,
-) -> id {
-    // Используем уже существующий helper NSValue
+    let bytes = value.to_ne_bytes();
+    let ptr = crate::mem::ConstVoidPtr::from_ptr(bytes.as_ptr() as *const _);
+
     super::store_raw_value(
-        env,
         this,
-        &value.to_ne_bytes(),
-        b"Q\0", // Objective-C type encoding for unsigned long long
+        ptr,
+        bytes.len(),
     );
-    this
-}
