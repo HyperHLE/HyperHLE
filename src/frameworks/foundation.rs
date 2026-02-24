@@ -140,7 +140,12 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
 /// Хранит сырое значение внутри NSValue / NSNumber
 pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize) {
     unsafe {
-        let data = std::slice::from_raw_parts(bytes.as_ptr() as *const u8, size);
+        
+        let addr = bytes.bits(); // VAddr (u32)
+
+        let data = unsafe {
+            std::slice::from_raw_parts(addr as *const u8, size)
+        };
         let boxed: Box<[u8]> = data.into();
         let ptr = Box::into_raw(boxed);
 
