@@ -12,7 +12,7 @@
 //! `NSString` easier to understand.
 
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::objc::{id retain};
+use crate::objc::{id, retain};
 use crate::Environment;
 use crate::mem::ConstVoidPtr;
 
