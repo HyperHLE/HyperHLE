@@ -20,6 +20,7 @@ use crate::objc::{
 };
 use crate::Environment;
 use std::cmp::Ordering;
+use std::convert::TryInto;
 
 #[derive(Debug)]
 pub(super) enum NSValueHostObject {
@@ -576,13 +577,13 @@ pub fn initWithUnsignedLongLong(
     _cmd: SEL,
     value: u64,
 ) -> id {
-    // Преобразуем число в массив байт
     let bytes = value.to_ne_bytes();
 
     // Преобразуем указатель на массив в Ptr<c_void, false>
-    let ptr = crate::mem::ConstVoidPtr::from_bits(bytes.as_ptr() as usize);
+    let ptr = crate::mem::ConstVoidPtr::from_bits(
+        (bytes.as_ptr() as usize).try_into().unwrap()
+    );
 
-    // Сохраняем значение в объекте
     super::store_raw_value(
         this,
         ptr,
