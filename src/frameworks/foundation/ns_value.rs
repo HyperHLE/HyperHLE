@@ -571,11 +571,21 @@ pub fn is_conversion_lossless(env: &mut Environment, this: id, type_: CFNumberTy
 }
 
 pub fn initWithUnsignedLongLong(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    value: u64,
+) -> id {
     let bytes = value.to_ne_bytes();
-    let ptr = crate::mem::ConstVoidPtr::from_ptr(bytes.as_ptr() as *const _);
+    let ptr = crate::mem::ConstVoidPtr::from_ptr(
+        bytes.as_ptr() as *const _
+    );
 
     super::store_raw_value(
         this,
         ptr,
         bytes.len(),
     );
+
+    this
+}
