@@ -137,25 +137,16 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
 }
 
-/// Хранит сырое значение внутри NSValue / NSNumber
-pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize) {
-    unsafe {
-        
-        let addr = bytes.to_bits(); // VAddr (u32)
+pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize, env: &mut Environment) {
+    let addr = bytes.to_bits();
 
-        let data = unsafe {
-            std::slice::from_raw_parts(addr as *const u8, size)
-        };
-        let boxed: Box<[u8]> = data.into();
-        let ptr = Box::into_raw(boxed);
+    let data = unsafe {
+        std::slice::from_raw_parts(addr as *const u8, size)
+    };
 
-        // сохраняем указатель в HostObject
-        obj.as_host_object_mut()
-            .expect("NSValue must be HostObject")
-            .set_userdata(ptr as *mut u8);
-
-        retain(obj);
-    }
+    let host = env.objc.get_host_object_mut::<NSValueHost>(obj);
+    host.bytes.clear();
+    host.bytes.extend_from_slice(data);
 }
 
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSStringFromRange(_))];
