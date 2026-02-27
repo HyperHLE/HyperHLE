@@ -15,6 +15,7 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::objc::{id, retain};
 use crate::Environment;
 use crate::mem::ConstVoidPtr;
+use crate::frameworks::foundation::ns_value::NSValueHost;
 
 pub mod ns_array;
 pub mod ns_autorelease_pool;
