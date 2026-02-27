@@ -145,7 +145,7 @@ pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize, env: &mut Envi
         std::slice::from_raw_parts(addr as *const u8, size)
     };
 
-    let host = env.objc.get_host_object_mut::<NSValueHost>(obj);
+    let host = env.objc.get_host_object::<NSValueHost>(obj);
     host.bytes.clear();
     host.bytes.extend_from_slice(data);
 }
