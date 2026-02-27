@@ -21,11 +21,10 @@ use crate::objc::{
 use crate::Environment;
 use std::cmp::Ordering;
 use std::convert::TryInto;
+use std::cell::RefCell;
 
-#[derive(Default)]
 pub struct NSValueHost {
-    pub bytes: Vec<u8>,
-    pub objc_type: Vec<u8>,
+    pub bytes: RefCell<Vec<u8>>,
 }
 
 #[derive(Debug)]
