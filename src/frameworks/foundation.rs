@@ -138,7 +138,12 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
 }
 
-pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize, env: &mut Environment) {
+pub fn store_raw_value(
+    obj: id,
+    bytes: ConstVoidPtr,
+    size: usize,
+    env: &mut Environment,
+) {
     let addr = bytes.to_bits();
 
     let data = unsafe {
@@ -146,8 +151,9 @@ pub fn store_raw_value(obj: id, bytes: ConstVoidPtr, size: usize, env: &mut Envi
     };
 
     let host = env.objc.get_host_object::<NSValueHost>(obj);
-    host.bytes.clear();
-    host.bytes.extend_from_slice(data);
+    let mut stored = host.bytes.borrow_mut();
+    stored.clear();
+    stored.extend_from_slice(data);
 }
 
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSStringFromRange(_))];
