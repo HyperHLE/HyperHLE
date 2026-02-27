@@ -16,6 +16,7 @@ use crate::objc::{id, retain};
 use crate::Environment;
 use crate::mem::ConstVoidPtr;
 use crate::frameworks::foundation::ns_value::NSValueHost;
+use std::any::Any;
 
 pub mod ns_array;
 pub mod ns_autorelease_pool;
@@ -150,7 +151,16 @@ pub fn store_raw_value(
         std::slice::from_raw_parts(addr as *const u8, size)
     };
 
-    let host = env.objc.get_host_object::<NSValueHost>(obj);
+    let host_any = env
+        .objc
+        .get_host_object(obj)
+        .expect("NSValue has no host object");
+
+    let host = host_any
+        .as_any()
+        .downcast_ref::<NSValueHost>()
+        .expect("Host object is not NSValueHost");
+
     let mut stored = host.bytes.borrow_mut();
     stored.clear();
     stored.extend_from_slice(data);
