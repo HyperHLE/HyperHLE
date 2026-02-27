@@ -115,6 +115,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
+- (id)initWithUnsignedLongLong:(u64)value {
+    let bytes = value.to_ne_bytes();
+
+    let ptr = crate::mem::ConstVoidPtr::from_bits(
+        bytes.as_ptr() as u32
+    );
+
+    super::store_raw_value(
+        this,
+        ptr,
+        bytes.len(),
+        env,
+    );
+
+    this
+}
+    
 + (id)valueWithCGRect:(CGRect)value {
     let new: id = msg![env; this alloc];
     *env.objc.borrow_mut(new) = NSValueHostObject::CGRect(value);
@@ -412,10 +429,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     autorelease(env, desc)
 }
-
-- (id)initWithUnsignedLongLong:(u64)value {
-        initWithUnsignedLongLong(env, this, _cmd, value)
-}
     
 - (NSUInteger)hash {
     // The only requirement for [obj hash] is that values that compare equal
@@ -574,28 +587,4 @@ pub fn is_conversion_lossless(env: &mut Environment, this: id, type_: CFNumberTy
         _ => unimplemented!("is_conversion_lossless for {}", type_),
     };
     msg![env; this isEqualToNumber:num2]
-}
-
-pub fn initWithUnsignedLongLong(
-    env: &mut Environment,
-    this: id,
-    _cmd: SEL,
-    value: u64,
-) -> id {
-    let bytes = value.to_ne_bytes();
-
-    // Вместо bytes.as_ptr() as usize
-let ptr = crate::mem::ConstVoidPtr::from_bits(
-    bytes.as_ptr() as u32  // или (bytes.as_ptr() as usize).try_into().unwrap()
-);
-
-    super::store_raw_value(
-        this,
-        ptr,
-        bytes.len(),
-        env,
-     
-     );
-
-    this
 }
