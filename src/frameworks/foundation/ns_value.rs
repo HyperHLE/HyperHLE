@@ -594,7 +594,9 @@ let ptr = crate::mem::ConstVoidPtr::from_bits(
         this,
         ptr,
         bytes.len(),
-    );
+        env,
+     
+     );
 
     this
 }
