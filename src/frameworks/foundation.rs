@@ -12,11 +12,8 @@
 //! `NSString` easier to understand.
 
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::objc::{id, retain};
+use crate::objc::id;
 use crate::Environment;
-use crate::mem::ConstVoidPtr;
-use crate::frameworks::foundation::ns_value::NSValueHost;
-use std::any::Any;
 
 pub mod ns_array;
 pub mod ns_autorelease_pool;
@@ -137,33 +134,6 @@ fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     hashable.hash(&mut hasher);
     let hash_u64: u64 = hasher.finish();
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
-}
-
-pub fn store_raw_value(
-    obj: id,
-    bytes: ConstVoidPtr,
-    size: usize,
-    env: &mut Environment,
-) {
-    let addr = bytes.to_bits();
-
-    let data = unsafe {
-        std::slice::from_raw_parts(addr as *const u8, size)
-    };
-
-    let host_any = env
-        .objc
-        .get_host_object(obj)
-        .expect("NSValue has no host object");
-
-    let host = host_any
-        .as_any()
-        .downcast_ref::<NSValueHost>()
-        .expect("Host object is not NSValueHost");
-
-    let mut stored = host.bytes.borrow_mut();
-    stored.clear();
-    stored.extend_from_slice(data);
 }
 
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSStringFromRange(_))];
