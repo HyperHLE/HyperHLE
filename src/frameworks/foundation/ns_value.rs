@@ -16,16 +16,10 @@ use crate::frameworks::foundation::NSInteger;
 use crate::mem::{ConstVoidPtr, MutVoidPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, objc_classes, retain, Class, ClassExports, HostObject,
-    NSZonePtr, SEL,
+    NSZonePtr,
 };
 use crate::Environment;
 use std::cmp::Ordering;
-use std::convert::TryInto;
-use std::cell::RefCell;
-
-pub struct NSValueHost {
-    pub bytes: RefCell<Vec<u8>>,
-}
 
 #[derive(Debug)]
 pub(super) enum NSValueHostObject {
@@ -115,23 +109,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
-- (id)initWithUnsignedLongLong:(u64)value {
-    let bytes = value.to_ne_bytes();
-
-    let ptr = crate::mem::ConstVoidPtr::from_bits(
-        bytes.as_ptr() as u32
-    );
-
-    super::store_raw_value(
-        this,
-        ptr,
-        bytes.len(),
-        env,
-    );
-
-    this
-}
-    
 + (id)valueWithCGRect:(CGRect)value {
     let new: id = msg![env; this alloc];
     *env.objc.borrow_mut(new) = NSValueHostObject::CGRect(value);
@@ -429,7 +406,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     autorelease(env, desc)
 }
-    
+
 - (NSUInteger)hash {
     // The only requirement for [obj hash] is that values that compare equal
     // (via [obj isEqual] have the same hash. Hashing the underlying
@@ -553,7 +530,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setGroupingSeparator:(bool)separator {
     log!("TODO: setGroupingSeparator:{}", separator);
 }
-    
+
 @end
 
 @implementation NSDecimalNumber: NSNumber
