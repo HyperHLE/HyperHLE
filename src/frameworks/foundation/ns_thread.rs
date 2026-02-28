@@ -220,6 +220,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<NSThreadHostObject>(this).cancelled
 }
 
+- (bool)isMainThread {
+    true
+}
+    
 - (id)stackSize {
     nil
 }
