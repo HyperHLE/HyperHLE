@@ -390,6 +390,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; res substringFromIndex:1u32]
 }
 
+- (id)initWithCharactersNoCopy:(ConstVoidPtr)chars
+                       length:(NSUInteger)length
+                 freeWhenDone:(bool)_free {
+    // unichar = u16
+    let slice = unsafe {
+        std::slice::from_raw_parts(chars.as_ptr() as *const u16, length as usize)
+    };
+
+    // Преобразуем UTF-16 → Rust String
+    let string = String::from_utf16_lossy(slice);
+
+    // Переиспользуем уже существующую реализацию
+    *env.objc.borrow_mut(this) = crate::objc::objects::NSStringHostObject::from_rust(string);
+
+    this
+                 }
+    
 + (NSStringEncoding)defaultCStringEncoding {
     // I don't want to figure out what that is on all platforms, and the use
     // I've seen of this method was on ASCII strings, so let's just hardcode
