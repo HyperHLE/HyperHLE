@@ -287,6 +287,22 @@ forUndefinedKey:(id)key { // NSString*
     add_perform_request(env, run_loop, this, sel, arg, Some(delay), false);
 }
 
+- (())performSelectorInBackground:(SEL)sel
+                        withObject:(id)arg {
+    log_dbg!(
+        "performSelectorInBackground:{} withObject:{:?} (running synchronously)",
+        sel.as_str(&env.mem),
+        arg
+    );
+
+    if sel.as_str(&env.mem).ends_with(':') {
+        () = msg_send(env, (this, sel, arg));
+    } else {
+        assert!(arg.is_null());
+        () = msg_send(env, (this, sel));
+    }
+                        }
+    
 - (())performSelectorOnMainThread:(SEL)sel withObject:(id)arg waitUntilDone:(bool)wait {
     log_dbg!("performSelectorOnMainThread:{} withObject:{:?} waitUntilDone:{}", sel.as_str(&env.mem), arg, wait);
     if wait && env.current_thread == 0 {
