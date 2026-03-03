@@ -149,6 +149,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (id)navigationItem {
+    nil // просто игнорируем
+}
+    
 // Usually overridden by the application
 - (())viewDidLoad {
     log_dbg!("[(UIViewController*){:?} viewDidLoad]", this);
