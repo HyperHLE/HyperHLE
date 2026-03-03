@@ -403,20 +403,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithCharactersNoCopy:(ConstVoidPtr)chars
                        length:(NSUInteger)length
-                 freeWhenDone:(bool)_free {
-    // unichar = u16
-    let slice = unsafe {
-        std::slice::from_raw_parts(chars.as_ptr() as *const u16, length as usize)
-    };
-
-    // Преобразуем UTF-16 → Rust String
-    let string = String::from_utf16_lossy(slice);
-
-    // Переиспользуем уже существующую реализацию
-    *env.objc.borrow_mut(this) = crate::objc::objects::NSStringHostObject::from_rust(string);
-
-    this
-                 }
+                 freeWhenDone:(bool)_free
+{
+    // Просто вызываем обычный initWithCharacters:length:
+    msg![env; this initWithCharacters:chars length:length]
+}
     
 // These are the two methods that have to be overridden by subclasses, so these
 // implementations don't have to care about foreign subclasses.
