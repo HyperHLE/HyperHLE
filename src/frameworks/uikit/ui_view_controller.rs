@@ -152,6 +152,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)navigationItem {
     nil // просто игнорируем
 }
+
+- (id)navigationController {
+    // Пока возвращаем nil (полноценную логику добавим позже)
+    nil
+}
     
 // Usually overridden by the application
 - (())viewDidLoad {
