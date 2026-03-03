@@ -389,6 +389,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     // because we started from an empty string
     msg![env; res substringFromIndex:1u32]
 }
+    
++ (NSStringEncoding)defaultCStringEncoding {
+    // I don't want to figure out what that is on all platforms, and the use
+    // I've seen of this method was on ASCII strings, so let's just hardcode
+    // UTF-8 and hope that works.
+    NSUTF8StringEncoding
+}
+
+- (id)dataUsingEncoding:(NSStringEncoding)encoding {
+    msg![env; this dataUsingEncoding:encoding allowLossyConversion:false]
+}
 
 - (id)initWithCharactersNoCopy:(ConstVoidPtr)chars
                        length:(NSUInteger)length
@@ -407,17 +418,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
                  }
     
-+ (NSStringEncoding)defaultCStringEncoding {
-    // I don't want to figure out what that is on all platforms, and the use
-    // I've seen of this method was on ASCII strings, so let's just hardcode
-    // UTF-8 and hope that works.
-    NSUTF8StringEncoding
-}
-
-- (id)dataUsingEncoding:(NSStringEncoding)encoding {
-    msg![env; this dataUsingEncoding:encoding allowLossyConversion:false]
-}
-
 // These are the two methods that have to be overridden by subclasses, so these
 // implementations don't have to care about foreign subclasses.
 - (NSUInteger)length {
