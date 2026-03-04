@@ -261,15 +261,16 @@ pub const CLASSES: ClassExports = objc_classes! {
         label,
         source
     } = env.objc.borrow(this);
-    let &UIRuntimeEventConnectionHostObject {
-        superclass: _,
-        event_mask
-    } = env.objc.borrow(this);
 
-    let selector = to_rust_string(env, label);
-    let action = env.objc.lookup_selector(&selector).unwrap();
+    let key = to_rust_string(env, label);
 
-    () = msg![env; source addTarget:destination action:action forControlEvents:event_mask];
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        () = msg![env; source setValue:destination forKey:label];
+    }));
+
+    if result.is_err() {
+        log!("Ignoring missing outlet '{}' on {:?}", key, source);
+    }
 }
 
 // NSCoding implementation
