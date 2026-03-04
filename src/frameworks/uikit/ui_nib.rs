@@ -120,7 +120,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCoding implementation
 - (id)initWithCoder:(id)coder {
-- (id)initWithCoder:(id)coder {
     let id_key = get_static_str(env, "UIProxiedObjectIdentifier");
     let id_nss: id = msg![env; coder decodeObjectForKey:id_key];
     let id_str = to_rust_string(env, id_nss);
