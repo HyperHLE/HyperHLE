@@ -125,26 +125,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     let id_str = to_rust_string(env, id_nss);
 
     if id_str == "IBFilesOwner" {
-        let delegate: id = msg![env; coder delegate];
-        assert!(delegate != nil);
+    let delegate: id = msg![env; coder delegate];
+    assert!(delegate != nil);
 
-        let file_owner =
-            env.objc.borrow::<UINibHostObject>(delegate).file_owner;
-        assert!(file_owner != nil);
-
-        file_owner
-    } else if id_str == "IBFirstResponder" {
-          log!("Replacing IBFirstResponder proxy with nil");
-          nil
-    }
-
-    } else {
-        log!(
-            "TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced",
-            id_str,
-            this
-        );
+    file_owner
+} else if id_str == "IBFirstResponder" {
+    log!("Replacing IBFirstResponder proxy with nil");
+    nil
+} else {
+    log!(
+        "TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced",
+        id_str,
         this
+    );
+    this
     }
 }   // ← ВОТ ЭТОЙ СКОБКИ НЕ ХВАТАЛО
         
