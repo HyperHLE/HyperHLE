@@ -128,7 +128,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     let delegate: id = msg![env; coder delegate];
     assert!(delegate != nil);
 
-    file_owner
+    // Возвращаем напрямую file_owner
+    env.objc.borrow::<UINibHostObject>(delegate).file_owner
 } else if id_str == "IBFirstResponder" {
     log!("Replacing IBFirstResponder proxy with nil");
     nil
@@ -139,6 +140,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         this
     );
     this
+}
     }
 }   // ← ВОТ ЭТОЙ СКОБКИ НЕ ХВАТАЛО
         
