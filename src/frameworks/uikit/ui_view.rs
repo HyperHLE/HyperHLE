@@ -43,22 +43,24 @@ pub struct State {
 }
 
 pub(super) struct UIViewHostObject {
-    /// CALayer или сабкласс
+    /// CALayer or subclass.
     layer: id,
+    /// Subviews in back-to-front order. These are strong references.
     subviews: Vec<id>,
+    /// The superview. This is a weak reference.
     superview: id,
+    /// The view controller that controls this view. This is a weak reference
     view_controller: id,
     tag: NSInteger,
     clears_context_before_drawing: bool,
     user_interaction_enabled: bool,
     multiple_touch_enabled: bool,
-
-    // ← добавляем сюда
-    delegate: id, // новый делегат
 }
 impl HostObject for UIViewHostObject {}
 impl Default for UIViewHostObject {
     fn default() -> UIViewHostObject {
+        // The Default trait is implemented so subclasses will get the same
+        // defaults.
         UIViewHostObject {
             layer: nil,
             subviews: Vec::new(),
@@ -68,8 +70,6 @@ impl Default for UIViewHostObject {
             clears_context_before_drawing: true,
             user_interaction_enabled: true,
             multiple_touch_enabled: false,
-
-            delegate: nil, // по умолчанию нет делегата
         }
     }
 }
@@ -117,14 +117,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (()) beginAnimations: (id)_animationID context: (MutVoidPtr)_context {}
 
-+ (())setDelegate:(id)delegate {
-    env.objc.borrow_mut::<UIViewHostObject>(this).delegate = delegate;
-}
-
-+ (id)delegate {
-    env.objc.borrow::<UIViewHostObject>(this).delegate
-}
-    
 + (()) setAnimationCurve: (NSInteger) _curve {}
 + (()) setAnimationDuration: (NSTimeInterval) _duration {}
 + (()) setAnimationDelay: (NSTimeInterval) _delay {}
