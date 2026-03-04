@@ -134,13 +134,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
         file_owner
     } else if id_str == "IBFirstResponder" {
-        log!("Replacing IBFirstResponder proxy");
+          log!("Replacing IBFirstResponder proxy with nil");
+          nil
+    }
 
-        let responder_class: Class = msg_class![env; UIResponder class];
-        let responder: id = msg![env; responder_class alloc];
-        let responder: id = msg![env; responder init];
-
-        responder
     } else {
         log!(
             "TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced",
