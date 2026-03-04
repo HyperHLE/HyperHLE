@@ -120,6 +120,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCoding implementation
 - (id)initWithCoder:(id)coder {
+- (id)initWithCoder:(id)coder {
     let id_key = get_static_str(env, "UIProxiedObjectIdentifier");
     let id_nss: id = msg![env; coder decodeObjectForKey:id_key];
     let id_str = to_rust_string(env, id_nss);
@@ -128,24 +129,20 @@ pub const CLASSES: ClassExports = objc_classes! {
         let delegate: id = msg![env; coder delegate];
         assert!(delegate != nil);
 
-        let file_owner = env.objc.borrow::<UINibHostObject>(delegate).file_owner;
+        let file_owner =
+            env.objc.borrow::<UINibHostObject>(delegate).file_owner;
         assert!(file_owner != nil);
 
         file_owner
-    } 
-    else if id_str == "IBFirstResponder" {
-        // 🔥 ВОТ СЮДА МЫ ДОБАВЛЯЕМ
-
+    } else if id_str == "IBFirstResponder" {
         log!("Replacing IBFirstResponder proxy");
 
-        // создаём простой UIResponder
         let responder_class: Class = msg_class![env; UIResponder class];
         let responder: id = msg![env; responder_class alloc];
         let responder: id = msg![env; responder init];
 
         responder
-    }
-    else {
+    } else {
         log!(
             "TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced",
             id_str,
@@ -153,6 +150,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         );
         this
     }
+}   // ← ВОТ ЭТОЙ СКОБКИ НЕ ХВАТАЛО
         
 @end
 
