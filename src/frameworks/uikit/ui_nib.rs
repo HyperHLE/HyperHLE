@@ -122,36 +122,38 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithCoder:(id)coder {
     let id_key = get_static_str(env, "UIProxiedObjectIdentifier");
     let id_nss: id = msg![env; coder decodeObjectForKey:id_key];
-    let id = to_rust_string(env, id_nss);
+    let id_str = to_rust_string(env, id_nss);
 
-    if id == "IBFilesOwner" {
-        // The file owner is usually the UIApplication instance.
-        // Replacing the proxy with that instance is important so that the
-        // "delegate" outlet can be connected between it and the
-        // UIApplicationDelegate.
-        //
-        // TODO: Below implementation could still be "wrong".
-        // Other options to consider:
-        // - The name "UIProxyObject" implies that it might be intended to
-        //   proxy messages to another object, rather than be replaced by it.
-        //   Check what iPhone OS does?
-        // - If this object is meant to be replaced, it's probably meant to
-        //   be done _after_ the call to `initWithCoder:`
+    if id_str == "IBFilesOwner" {
         let delegate: id = msg![env; coder delegate];
-        // TODO: can this happen?
         assert!(delegate != nil);
-        let ui_nib_class: Class = msg_class![env; UINib class];
-        let delegate_class: Class = msg![env; delegate class];
-        assert!(msg![env; delegate_class isKindOfClass:ui_nib_class]);
+
         let file_owner = env.objc.borrow::<UINibHostObject>(delegate).file_owner;
         assert!(file_owner != nil);
+
         file_owner
-    } else {
-        log!("TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced", id, this);
+    } 
+    else if id_str == "IBFirstResponder" {
+        // 🔥 ВОТ СЮДА МЫ ДОБАВЛЯЕМ
+
+        log!("Replacing IBFirstResponder proxy");
+
+        // создаём простой UIResponder
+        let responder_class: Class = msg_class![env; UIResponder class];
+        let responder: id = msg![env; responder_class alloc];
+        let responder: id = msg![env; responder init];
+
+        responder
+    }
+    else {
+        log!(
+            "TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced",
+            id_str,
+            this
+        );
         this
     }
-}
-
+        
 @end
 
 // Another undocumented type used by nib files. This one seems to be used to
