@@ -52,17 +52,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation UINib: NSObject
 
-+ (id)nibWithNibName:(id)nib_name // NSString *
-              bundle:(id)bundle { //NSBundle *
++ (id)nibWithNibName:(id)nib_name bundle:(id)bundle {
     let main_bundle = msg_class![env; NSBundle mainBundle];
-    let bundle: id = if bundle == nil {
-        main_bundle
-    } else {
-        // TODO: non-main bundles
-        assert_eq!(bundle, main_bundle);
-        bundle
-    };
-
+    let bundle: id = if bundle == nil { main_bundle } else { bundle };
     retain(env, nib_name);
     retain(env, bundle);
     let host_object = Box::new(UINibHostObject {
@@ -71,114 +63,75 @@ pub const CLASSES: ClassExports = objc_classes! {
         file_owner: nil
     });
     let new = env.objc.alloc_object(this, host_object, &mut env.mem);
-
     autorelease(env, new)
 }
 
 - (())dealloc {
-    let &UINibHostObject {
-        nib_name,
-        bundle,
-        ..
-    } = env.objc.borrow(this);
+    let &UINibHostObject { nib_name, bundle, .. } = env.objc.borrow(this);
     release(env, nib_name);
     release(env, bundle);
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
-- (id)instantiateWithOwner:(id)owner
-                   options:(id)options { // NSDictionary *
-    assert!(owner != nil); // TODO
-    assert!(options == nil); // TODO
+- (id)instantiateWithOwner:(id)owner options:(id)options {
+    assert!(owner != nil);
+    assert!(options == nil);
+    let nib = env.objc.borrow_mut::<UINibHostObject>(this);
+    nib.file_owner = owner;
 
-    let bundle = env.objc.borrow::<UINibHostObject>(this).bundle;
-    let nib_name = env.objc.borrow::<UINibHostObject>(this).nib_name;
-    let type_: id = get_static_str(env, "nib");
-    let path: id  = msg![env; bundle pathForResource:nib_name ofType:type_];
+    let bundle = nib.bundle;
+    let nib_name = nib.nib_name;
+    let path: id = msg![env; bundle pathForResource:nib_name ofType:get_static_str(env, "nib")];
+    assert!(path != nil && msg![env; path isAbsolutePath]);
 
-    assert!(path != nil);
-    assert!(msg![env; path isAbsolutePath]);
-    let nib_path = to_rust_string(env, path).to_string();
-
-    assert!(env.objc.borrow::<UINibHostObject>(this).file_owner == nil);
-    env.objc.borrow_mut::<UINibHostObject>(this).file_owner = owner;
-
-    let unarchiver = load_nib_file(env, this, GuestPathBuf::from(nib_path)).unwrap();
+    let unarchiver = load_nib_file(env, this, GuestPathBuf::from(to_rust_string(env, path))).unwrap();
     let top_level_objects_key = get_static_str(env, "UINibTopLevelObjectsKey");
     let top_level_objects = msg![env; unarchiver decodeObjectForKey:top_level_objects_key];
     release(env, unarchiver);
-    env.objc.borrow_mut::<UINibHostObject>(this).file_owner = nil;
+    nib.file_owner = nil;
 
     top_level_objects
 }
 
 @end
 
-// An undocumented type that nib files reference by name. NSKeyedUnarchiver will
-// find and instantiate this class.
 @implementation UIProxyObject: NSObject
 
-// NSCoding implementation
 - (id)initWithCoder:(id)coder {
     let id_key = get_static_str(env, "UIProxiedObjectIdentifier");
     let id_nss: id = msg![env; coder decodeObjectForKey:id_key];
     let id_str = to_rust_string(env, id_nss);
 
     if id_str == "IBFilesOwner" {
-    let delegate: id = msg![env; coder delegate];
-    assert!(delegate != nil);
-
-    // Возвращаем напрямую file_owner
-    env.objc.borrow::<UINibHostObject>(delegate).file_owner
-} else if id_str == "IBFirstResponder" {
-    log!("Replacing IBFirstResponder proxy with nil");
-    nil
-} else {
-    log!(
-        "TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced",
-        id_str,
+        let delegate: id = msg![env; coder delegate];
+        assert!(delegate != nil);
+        env.objc.borrow::<UINibHostObject>(delegate).file_owner
+    } else if id_str == "IBFirstResponder" {
+        nil
+    } else {
         this
-    );
-    this
-}
     }
-}   // ← ВОТ ЭТОЙ СКОБКИ НЕ ХВАТАЛО
-        
+}
+
 @end
 
-// Another undocumented type used by nib files. This one seems to be used to
-// instantiate types that don't implement NSCoding (i.e. don't respond to
-// initWithCoder:). See the link at the top of this file.
 @implementation UIClassSwapper: NSObject
 
-// NSCoding implementation
 - (id)initWithCoder:(id)coder {
-
-    let name_key = get_static_str(env, "UIClassName");
-    let name_nss: id = msg![env; coder decodeObjectForKey:name_key];
+    let name_nss: id = msg![env; coder decodeObjectForKey:get_static_str(env, "UIClassName")];
     let name = to_rust_string(env, name_nss);
-
-    let orig_key = get_static_str(env, "UIOriginalClassName");
-    let orig_nss: id = msg![env; coder decodeObjectForKey:orig_key];
+    let orig_nss: id = msg![env; coder decodeObjectForKey:get_static_str(env, "UIOriginalClassName")];
     let orig = to_rust_string(env, orig_nss);
 
     let class = env.objc.get_known_class(&name, &mut env.mem);
-
     let object: id = msg![env; class alloc];
-    let object: id = if orig == "UICustomObject" {
-        msg![env; object init]
-    } else {
-        msg![env; object initWithCoder:coder]
-    };
+    let object: id = if orig == "UICustomObject" { msg![env; object init] } else { msg![env; object initWithCoder:coder] };
     release(env, this);
-    // TODO: autorelease the object?
     object
 }
 
 @end
 
-// Another undocumented type used by nib files. This one's purpose seems to be
-// to connect outlets once all the objects are deserialized.
 @implementation UIRuntimeConnection: NSObject
 
 + (id)alloc {
@@ -186,61 +139,29 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
-// NSCoding implementation
 - (id)initWithCoder:(id)coder {
-
-    let destination_key = get_static_str(env, "UIDestination");
-    let destination: id = msg![env; coder decodeObjectForKey: destination_key];
-
-    let label_key = get_static_str(env, "UILabel");
-    let label: id = msg![env; coder decodeObjectForKey: label_key];
-
-    let source_key = get_static_str(env, "UISource");
-    let source: id = msg![env; coder decodeObjectForKey: source_key];
-
-    retain(env, destination);
-    retain(env, source);
-    retain(env, label);
     let host_obj = env.objc.borrow_mut::<UIRuntimeConnectionHostObject>(this);
-    host_obj.destination = destination;
-    host_obj.label = label;
-    host_obj.source = source;
-
+    host_obj.destination = msg![env; coder decodeObjectForKey:get_static_str(env, "UIDestination")];
+    host_obj.label = msg![env; coder decodeObjectForKey:get_static_str(env, "UILabel")];
+    host_obj.source = msg![env; coder decodeObjectForKey:get_static_str(env, "UISource")];
     this
 }
 
-- (())dealloc {
-    let &UIRuntimeConnectionHostObject {
-        destination,
-        label,
-        source
-    } = env.objc.borrow(this);
-    release(env, destination);
-    release(env, label);
-    release(env, source);
+- (())connect {
+    let host = env.objc.borrow::<UIRuntimeConnectionHostObject>(this);
+    let _ = std::panic::catch_unwind(|| { () = msg![env; host.source setValue:host.destination forKey:host.label]; });
+}
 
+- (())dealloc {
+    let host = env.objc.borrow(this);
+    release(env, host.destination);
+    release(env, host.label);
+    release(env, host.source);
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
 @end
 
-// Another undocumented type referenced by nib files by name.
-// Example taken from a nib file:
-// 298 => {
-//   "$classes" => [
-//     0 => "UIRuntimeEventConnection"
-//     1 => "UIRuntimeConnection"
-//     2 => "NSObject"
-//   ]
-//   "$classname" => "UIRuntimeEventConnection"
-// }
-// 299 => {
-//   "$class" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 298}
-//   "UIDestination" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 7}
-//   "UIEventMask" => 64
-//   "UILabel" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 300}
-//   "UISource" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 178}
-// }
 @implementation UIRuntimeEventConnection: UIRuntimeConnection
 
 + (id)alloc {
@@ -249,33 +170,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())connect {
-    let &UIRuntimeConnectionHostObject {
-        destination,
-        label,
-        source
-    } = env.objc.borrow(this);
-
-    let key = to_rust_string(env, label);
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        () = msg![env; source setValue:destination forKey:label];
-    }));
-
-    if result.is_err() {
-        log!("Ignoring missing outlet '{}' on {:?}", key, source);
-    }
+    let host = env.objc.borrow::<UIRuntimeConnectionHostObject>(this);
+    let _ = std::panic::catch_unwind(|| { () = msg![env; host.source setValue:host.destination forKey:host.label]; });
 }
 
-// NSCoding implementation
 - (id)initWithCoder:(id)coder {
-    let this: id = msg_super![env; this initWithCoder: coder];
-
-    let event_mask_key = get_static_str(env, "UIEventMask");
-    let event_mask: i32 = msg![env; coder decodeIntForKey: event_mask_key];
-
+    let this: id = msg_super![env; this initWithCoder:coder];
     let host_obj = env.objc.borrow_mut::<UIRuntimeEventConnectionHostObject>(this);
-    host_obj.event_mask = event_mask as UIControlEvents;
-
+    host_obj.event_mask = msg![env; coder decodeIntForKey:get_static_str(env, "UIEventMask")] as UIControlEvents;
     this
 }
 
@@ -285,32 +187,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
-// Another undocumented type referenced by nib files by name.
-// Example taken from a nib file:
-// 29 => {
-//   "$classes" => [
-//     0 => "UIRuntimeOutletConnection"
-//     1 => "UIRuntimeConnection"
-//     2 => "NSObject"
-//   ]
-//   "$classname" => "UIRuntimeOutletConnection"
-// }
-// 30 => {
-//   "$class" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 29}
-//   "UIDestination" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 11}
-//   "UILabel" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 31}
-//   "UISource" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 7}
-// }
 @implementation UIRuntimeOutletConnection: UIRuntimeConnection
 
 - (())connect {
-    let &UIRuntimeConnectionHostObject {
-        destination,
-        label,
-        source
-    } = env.objc.borrow(this);
-
-    () = msg![env; source setValue:destination forKey:label];
+    let host = env.objc.borrow::<UIRuntimeConnectionHostObject>(this);
+    () = msg![env; host.source setValue:host.destination forKey:host.label];
 }
 
 @end
