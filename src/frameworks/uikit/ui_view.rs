@@ -117,11 +117,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (()) beginAnimations: (id)_animationID context: (MutVoidPtr)_context {}
 
-- (())setDelegate:(id)delegate {
++ (())setDelegate:(id)delegate {
     env.objc.borrow_mut::<UIViewHostObject>(this).delegate = delegate;
 }
 
-- (id)delegate {
++ (id)delegate {
     env.objc.borrow::<UIViewHostObject>(this).delegate
 }
     
