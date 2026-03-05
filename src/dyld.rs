@@ -202,6 +202,17 @@ impl Dyld {
     const SYMBOL_STUB_INSTRUCTIONS: [u32; 2] = [0xe59fc000, 0xe59cf000];
     const PIC_SYMBOL_STUB_INSTRUCTIONS: [u32; 3] = [0xe59fc004, 0xe08fc00c, 0xe59cf000];
 
+non_lazy_host_functions.insert(
+    "___objc_personality_v0",
+    
+crate::frameworks::objc_exception::objc_personality_v0 as _
+);
+
+non_lazy_host_functions.insert(
+    "_OBJC_EHTYPE_id",
+crate::frameworks::objc_exception::fake_objc_ehtype_id as _
+);
+
     pub fn new() -> Dyld {
         Dyld {
             linked_host_functions: Vec::new(),
