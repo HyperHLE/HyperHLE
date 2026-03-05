@@ -514,18 +514,34 @@ impl Dyld {
                 continue;
             }
             if let Some((_, template)) = search_lists(constant_lists::CONSTANT_LISTS, symbol) {
-                // Delay linking of constant until we have a `&mut Environment`,
-                // that makes it much easier to build NSString objects etc.
                 self.constants_to_link_later.push((ptr_ptr, template));
                 continue;
             }
 
-            log!(
-                "Warning: unhandled non-lazy symbol {:?} at {:?} in \"{}\"",
-                symbol,
-                ptr_ptr,
-                bin.name
-            );
+// === Objective-C exception runtime support ===
+if symbol == "___objc_personality_v0" {
+    let host_addr = self.env.register_host_function(
+        crate::frameworks::objc_exception::objc_personality_v0
+    );
+
+    self.env.mem.write_ptr(ptr_ptr, host_addr);
+    continue;
+}
+
+if symbol == "_OBJC_EHTYPE_id" {
+    let fake = self.env.mem.alloc(4);
+    self.env.mem.write_u32(fake, 1);
+
+    self.env.mem.write_ptr(ptr_ptr, fake);
+    continue;
+}
+
+log!(
+    "Warning: unhandled non-lazy symbol {:?} at {:?} in \"{}\"",
+    symbol,
+    ptr_ptr,
+    bin.name
+);
         }
 
         // FIXME: check for internal relocations?
