@@ -520,13 +520,14 @@ impl Dyld {
 
 // === Objective-C exception runtime support ===
 if symbol == "___objc_personality_v0" {
-    self.non_lazy_host_functions.push((
-        ptr_ptr,
-        crate::frameworks::objc_exception::objc_personality_v0 as _
-    ));
+    self.non_lazy_host_functions.insert(
+    "___objc_personality_v0",
+        
+crate::frameworks::objc_exception::objc_personality_v0 as _
+    );
     continue;
 }
-
+    
 if symbol == "_OBJC_EHTYPE_id" {
     // Просто кладём фиктивное значение (1)
     self.linked_host_functions.push((ptr_ptr, 1));
