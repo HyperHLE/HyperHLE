@@ -520,19 +520,18 @@ impl Dyld {
 
 // === Objective-C exception runtime support ===
 if symbol == "___objc_personality_v0" {
-    let host_addr = self.env.register_host_function(
-        crate::frameworks::objc_exception::objc_personality_v0
-    );
-
-    self.env.mem.write_ptr(ptr_ptr, host_addr);
+    self.non_lazy_host_functions.push((
+        ptr_ptr,
+        crate::frameworks::objc_exception::objc_personality_v0 as _
+    ));
     continue;
 }
 
 if symbol == "_OBJC_EHTYPE_id" {
-    let fake = self.env.mem.alloc(4);
-    self.env.mem.write_u32(fake, 1);
-
-    self.env.mem.write_ptr(ptr_ptr, fake);
+    self.non_lazy_host_functions.push((
+        ptr_ptr,
+        crate::frameworks::objc_exception::fake_objc_ehtype_id as _
+    ));
     continue;
 }
 
