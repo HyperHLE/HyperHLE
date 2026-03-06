@@ -57,40 +57,37 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO
 }
 
-+ (())dataWithContentsOfURL:(NSInteger)url options:(bool)_options error:(bool)_error {
-    // TODO
-}
++ (id)dataWithContentsOfURL:(id)url {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithContentsOfURL:url];
+    autorelease(env, new)
+} // <--- УБЕДИСЬ, ЧТО ЭТА СКОБКА ЕСТЬ!
+
+// ВСТАВЛЯЙ СЮДА:
 
 - (bool)writeToFile:(id)path_ptr options:(NSUInteger)_options error:(MutPtr<id>)_error_ptr {
     let path = to_rust_string(env, path_ptr);
     let guest_path = GuestPath::new(&path);
     
-    // Получаем данные из текущего объекта NSData
-    let host_obj = env.objc.get_host_object::<NSDataHostObject>(this).unwrap();
+    let host_obj = env.objc.get_host_object::<NSDataHostObject>(this).expect("NSData host object missing");
     let length = host_obj.length as usize;
     let bytes_ptr = host_obj.bytes;
 
-    if length == 0 {
-        log::warn!("NSData: Попытка записать пустой файл по пути {:?}", guest_path);
-    }
-
-    // Читаем байты из памяти эмулируемого устройства
     let data = env.mem.get_slice(bytes_ptr.cast::<u8>(), length);
 
-    // Мапим путь в реальную файловую систему (Document/Library и т.д.)
     if let Some(host_path) = env.fs.map_guest_path_to_host(&guest_path) {
         match std::fs::write(&host_path, data) {
             Ok(_) => {
-                log::info!("NSData: Успешно сохранено: {:?}", host_path);
-                true // Возвращаем YES (1)
+                log::info!("NSData: Saved to {:?}", host_path);
+                true
             }
             Err(e) => {
-                log::error!("NSData: Ошибка записи файла {:?}: {}", host_path, e);
-                false // Возвращаем NO (0)
+                log::error!("NSData: Failed to write to {:?}: {}", host_path, e);
+                false
             }
         }
     } else {
-        log::error!("NSData: Не удалось сопоставить путь: {:?}", guest_path);
+        log::error!("NSData: Could not map path {:?}", guest_path);
         false
     }
 }
