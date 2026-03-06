@@ -42,7 +42,6 @@ caf = "0.1.0"
 hound = "3.5.0"
 mach_object = "0.1.17"
 plist = "1.8.0"
-miniaudio = "0.10"
 zip = { version = "0.6.4", default-features = false, features = ["deflate"] }
 rusttype = "0.9.3"
 owned_ttf_parser = "0.15.2"
