@@ -12,9 +12,7 @@ use crate::frameworks::foundation::NSString;
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_data;
 use crate::fs::GuestPath;
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr, Ptr};
-use crate::objc::{
-    autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr, ObjcObject, SEL,
-};
+use crate::objc::{autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr, objc_object, SEL};
 use crate::{msg_class, Environment};
 use std::path::PathBuf;
 
