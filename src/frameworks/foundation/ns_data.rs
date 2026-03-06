@@ -64,22 +64,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 } // <--- УБЕДИСЬ, ЧТО ЭТА СКОБКА ЕСТЬ!
 
 // ВСТАВЛЯЙ СЮДА:
-
-- (bool)writeToFile:(id)path      // NSString*
-           options:(GuestUSize)options
-             error:(MutPtr<id>)outError {  // NSError**
-    let atomic = (options & NSDataWritingAtomic) != 0;
-
-    // переиспользуем логику writeToFile:atomically:
-    let result: bool = msg![env; this writeToFile:path atomically:atomic];
-
-    // Если нужен outError — пока пишем nil (приложение, судя по всему, его игнорирует)
-    if !outError.is_null() {
-        env.mem.write(outError, nil);
-    }
-
-    result
-             }
     
 + (id)dataWithBytesNoCopy:(MutVoidPtr)bytes
                    length:(NSUInteger)length {
@@ -303,6 +287,16 @@ pub const CLASSES: ClassExports = objc_classes! {
         length,
     );
 }
+
+- (bool)writeToFile:(id)path
+            options:(GuestUSize)options
+              error:(MutPtr<id>)outError {
+    let atomic = (options & 1) != 0; // NSDataWritingAtomic = 1
+    if !outError.is_null() {
+        env.mem.write(outError, nil);
+    }
+    msg![env; this writeToFile:path atomically:atomic]
+              }
 
 @end
 
