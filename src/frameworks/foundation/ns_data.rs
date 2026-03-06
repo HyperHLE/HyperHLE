@@ -65,35 +65,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // ВСТАВЛЯЙ СЮДА:
 
-- (bool)writeToFile:(id)path_ptr options:(NSUInteger)_options error:(MutPtr<id>)_error_ptr {
-            let path = to_rust_string(env, path_ptr);
-            let guest_path = GuestPath::new(&path);
-            
-            let host_obj = env.objc.get_host_object::<NSDataHostObject>(this).expect("NSData host object missing");
-            let length = host_obj.length as usize;
-            let bytes_ptr = host_obj.bytes;
+- (bool)writeToFile:(id)path      // NSString*
+           options:(GuestUSize)options
+             error:(MutPtr<id>)outError {  // NSError**
+    let atomic = (options & NSDataWritingAtomic) != 0;
 
-            if length == 0 {
-                return true; 
-            }
+    // переиспользуем логику writeToFile:atomically:
+    let result: bool = msg![env; this writeToFile:path atomically:atomic];
 
-            let data = env.mem.get_slice(bytes_ptr.cast::<u8>(), length);
+    // Если нужен outError — пока пишем nil (приложение, судя по всему, его игнорирует)
+    if !outError.is_null() {
+        env.mem.write(outError, nil);
+    }
 
-            if let Some(host_path) = env.fs.map_guest_path_to_host(&guest_path) {
-                match std::fs::write(&host_path, data) {
-                    Ok(_) => {
-                        log::info!("NSData: Saved to {:?}", host_path);
-                        true
-                    }
-                    Err(e) => {
-                        log::error!("NSData: Failed to write: {}", e);
-                        false
-                    }
-                }
-            } else {
-                false
-            }
-}
+    result
+             }
     
 + (id)dataWithBytesNoCopy:(MutVoidPtr)bytes
                    length:(NSUInteger)length {
