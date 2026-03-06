@@ -66,30 +66,33 @@ pub const CLASSES: ClassExports = objc_classes! {
 // ВСТАВЛЯЙ СЮДА:
 
 - (bool)writeToFile:(id)path_ptr options:(NSUInteger)_options error:(MutPtr<id>)_error_ptr {
-    let path = to_rust_string(env, path_ptr);
-    let guest_path = GuestPath::new(&path);
-    
-    let host_obj = env.objc.get_host_object::<NSDataHostObject>(this).expect("NSData host object missing");
-    let length = host_obj.length as usize;
-    let bytes_ptr = host_obj.bytes;
+            let path = to_rust_string(env, path_ptr);
+            let guest_path = GuestPath::new(&path);
+            
+            let host_obj = env.objc.get_host_object::<NSDataHostObject>(this).expect("NSData host object missing");
+            let length = host_obj.length as usize;
+            let bytes_ptr = host_obj.bytes;
 
-    let data = env.mem.get_slice(bytes_ptr.cast::<u8>(), length);
-
-    if let Some(host_path) = env.fs.map_guest_path_to_host(&guest_path) {
-        match std::fs::write(&host_path, data) {
-            Ok(_) => {
-                log::info!("NSData: Saved to {:?}", host_path);
-                true
+            if length == 0 {
+                return true; 
             }
-            Err(e) => {
-                log::error!("NSData: Failed to write to {:?}: {}", host_path, e);
+
+            let data = env.mem.get_slice(bytes_ptr.cast::<u8>(), length);
+
+            if let Some(host_path) = env.fs.map_guest_path_to_host(&guest_path) {
+                match std::fs::write(&host_path, data) {
+                    Ok(_) => {
+                        log::info!("NSData: Saved to {:?}", host_path);
+                        true
+                    }
+                    Err(e) => {
+                        log::error!("NSData: Failed to write: {}", e);
+                        false
+                    }
+                }
+            } else {
                 false
             }
-        }
-    } else {
-        log::error!("NSData: Could not map path {:?}", guest_path);
-        false
-    }
 }
     
 + (id)dataWithBytesNoCopy:(MutVoidPtr)bytes
