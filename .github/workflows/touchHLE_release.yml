@@ -96,6 +96,8 @@ jobs:
       with:
         path: vendor/boost
         key: boost_1_81_0
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libopenal-dev libboost-dev
     - if: ${{ steps.cache-boost.outputs.cache-hit != 'true' }}
       name: Download Boost
       run: curl -L -o boost_1_81_0.7z "https://archives.boost.io/release/1.81.0/source/boost_1_81_0.7z"
