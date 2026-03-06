@@ -171,7 +171,18 @@ jobs:
     - name: Get Submodules
       run: git submodule update --init
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libopenal-dev libboost-dev
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y \
+      libsdl2-dev \
+      libopenal-dev \
+      libboost-dev \
+      clang \
+      llvm-dev \
+      llvm \
+      gcc-multilib \
+      g++-multilib \
+      libc6-dev-i386
     - name: Try to get cached copy of cmake
       id: cache-cmake
       uses: actions/cache@v3
