@@ -7,13 +7,16 @@
 
 use super::ns_string::to_rust_string;
 use super::{NSRange, NSInteger, NSUInteger};
+use crate::cpu::CpuState;
+use crate::frameworks::foundation::NSString;
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_data;
 use crate::fs::GuestPath;
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr, Ptr};
 use crate::objc::{
-    autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr, ObjcObject, SEL,
 };
 use crate::{msg_class, Environment};
+use std::path::PathBuf;
 
 pub(super) struct NSDataHostObject {
     pub(super) bytes: MutVoidPtr,
@@ -58,6 +61,40 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO
 }
 
+- (bool)writeToFile:(id)path_ptr options:(NSUInteger)_options error:(MutPtr<id>)_error_ptr {
+    let path = to_rust_string(env, path_ptr);
+    let guest_path = GuestPath::new(&path);
+    
+    // Получаем данные из текущего объекта NSData
+    let host_obj = env.objc.get_host_object::<NSDataHostObject>(this).unwrap();
+    let length = host_obj.length as usize;
+    let bytes_ptr = host_obj.bytes;
+
+    if length == 0 {
+        log::warn!("NSData: Попытка записать пустой файл по пути {:?}", guest_path);
+    }
+
+    // Читаем байты из памяти эмулируемого устройства
+    let data = env.mem.get_slice(bytes_ptr.cast::<u8>(), length);
+
+    // Мапим путь в реальную файловую систему (Document/Library и т.д.)
+    if let Some(host_path) = env.fs.map_guest_path_to_host(&guest_path) {
+        match std::fs::write(&host_path, data) {
+            Ok(_) => {
+                log::info!("NSData: Успешно сохранено: {:?}", host_path);
+                true // Возвращаем YES (1)
+            }
+            Err(e) => {
+                log::error!("NSData: Ошибка записи файла {:?}: {}", host_path, e);
+                false // Возвращаем NO (0)
+            }
+        }
+    } else {
+        log::error!("NSData: Не удалось сопоставить путь: {:?}", guest_path);
+        false
+    }
+}
+    
 + (id)dataWithBytesNoCopy:(MutVoidPtr)bytes
                    length:(NSUInteger)length {
     let new: id = msg![env; this alloc];
