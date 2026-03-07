@@ -7,14 +7,13 @@
 
 use super::ns_string::to_rust_string;
 use super::{NSRange, NSInteger, NSUInteger};
-use crate::cpu::CpuState;
-use crate::frameworks::foundation::NSString;
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_data;
 use crate::fs::GuestPath;
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr, Ptr};
-use crate::objc::{autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr, objc_object, SEL};
+use crate::objc::{
+    autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
+};
 use crate::{msg_class, Environment};
-use std::path::PathBuf;
 
 pub(super) struct NSDataHostObject {
     pub(super) bytes: MutVoidPtr,
@@ -55,14 +54,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO
 }
 
-+ (id)dataWithContentsOfURL:(id)url {
-    let new: id = msg![env; this alloc];
-    let new: id = msg![env; new initWithContentsOfURL:url];
-    autorelease(env, new)
-} // <--- УБЕДИСЬ, ЧТО ЭТА СКОБКА ЕСТЬ!
++ (())dataWithContentsOfURL:(NSInteger)url options:(bool)_options error:(bool)_error {
+    // TODO
+}
 
-// ВСТАВЛЯЙ СЮДА:
-    
 + (id)dataWithBytesNoCopy:(MutVoidPtr)bytes
                    length:(NSUInteger)length {
     let new: id = msg![env; this alloc];
@@ -285,16 +280,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         length,
     );
 }
-
-- (bool)writeToFile:(id)path
-            options:(GuestUSize)options
-              error:(MutPtr<id>)outError {
-    let atomic = (options & 1) != 0; // NSDataWritingAtomic = 1
-    if !outError.is_null() {
-        env.mem.write(outError, nil);
-    }
-    msg![env; this writeToFile:path atomically:atomic]
-              }
 
 @end
 
