@@ -46,7 +46,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)isGyroAvailable {
     crate::log::info!("Stubbed: -[CMMotionManager isGyroAvailable]");
     false
-    }
+}
         
 @end
 // --- КОНЕЦ ДОБАВЛЕНИЯ ---
