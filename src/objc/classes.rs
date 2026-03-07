@@ -565,17 +565,31 @@ impl ObjC {
                 panic!("Missing implementation for class {name}!");
             }
 
-            // We don't have a real implementation for this class, use a
-            // placeholder.
-
-            class_host_object = Box::new(UnimplementedClass {
-                name: name.to_string(),
-                is_metaclass: false,
-            });
-            metaclass_host_object = Box::new(UnimplementedClass {
-                name: name.to_string(),
-                is_metaclass: true,
-            });
+            // --- ИСПРАВЛЕНИЕ ТУТ ---
+            // Если игра просит CMMotionManager (гироскоп), подменяем его на FakeClass.
+            // FakeClass автоматически отвечает 0 (false) на любые запросы.
+            if name == "CMMotionManager" {
+                log!("Note: substituting fake class for CMMotionManager to avoid gyro crash");
+                class_host_object = Box::new(FakeClass {
+                    name: name.to_string(),
+                    is_metaclass: false,
+                });
+                metaclass_host_object = Box::new(FakeClass {
+                    name: name.to_string(),
+                    is_metaclass: true,
+                });
+            } else {
+                // Для всех остальных неизвестных классов оставляем стандартную заглушку
+                class_host_object = Box::new(UnimplementedClass {
+                    name: name.to_string(),
+                    is_metaclass: false,
+                });
+                metaclass_host_object = Box::new(UnimplementedClass {
+                    name: name.to_string(),
+                    is_metaclass: true,
+                });
+            }
+            // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         }
 
         // NSObject's metaclass is special: it is its own metaclass, and it's
@@ -607,6 +621,7 @@ impl ObjC {
             class
         }
     }
+
 
     /// For use by [crate::dyld]: register all the classes from the application
     /// binary.
