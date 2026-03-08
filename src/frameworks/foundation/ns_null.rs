@@ -13,37 +13,23 @@ pub struct State {
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
-
-(env, this, _cmd);
-
-// This is a singleton that takes the place of nil in collections which don't
-// allow that value.
-@implementation NSNull: NSObject
-
-+ (id)null {
-    if let Some(null) = env.framework_state.foundation.ns_null.null {
-        null
-    } else {
-        let new = env.objc.alloc_static_object(
-            this,
-            Box::new(TrivialHostObject),
-            &mut env.mem
-        );
-        env.framework_state.foundation.ns_null.null = Some(new);
-        new
-   }
-}
-
-- (id)retain { this }
-- (())release {
-    // no-op
-}
-- (id)autorelease { this }
-
+    (env, this, _cmd) => {
+        @implementation NSNull: NSObject
+        - (id)retain {
+            this
+        }
+        - (())release {}
+        - (id)autorelease {
+            this
+        }
         @end
+    }
+};
 
-        // --- НАШ ГИРОСКОП ---
-        @implementation CMMotionManager : NSObject
+// --- СОЗДАЕМ ОТДЕЛЬНЫЙ БЛОК ДЛЯ ГИРОСКОПА ---
+pub const CM_CLASSES: ClassExports = objc_classes! {
+    (env, this, _cmd) => {
+        @implementation CMMotionManager: NSObject
         - (bool)isGyroAvailable {
             false
         }
