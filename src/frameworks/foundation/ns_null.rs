@@ -35,7 +35,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)retain { this }
-- (())release {}
+- (())release {
+    // no-op
+}
 - (id)autorelease { this }
 
         @end
