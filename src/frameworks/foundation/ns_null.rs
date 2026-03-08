@@ -26,9 +26,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 };
 
-pub const CM_CLASSES: ClassExports = objc_classes! {
-    (env, this, _cmd);
-    
     @implementation CMMotionManager: NSObject
     - (bool)isGyroAvailable {
         false
