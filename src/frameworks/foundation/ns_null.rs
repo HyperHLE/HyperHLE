@@ -38,17 +38,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())release {}
 - (id)autorelease { this }
 
-@end
+        @end
 
-// --- ДОБАВЛЯЕМ НАШ КЛАСС СЮДА ---
-@implementation CMMotionManager: NSObject
-        
-- (bool)isGyroAvailable {
-    crate::log::info!("Stubbed: -[CMMotionManager isGyroAvailable]");
-    false
-}
-        
-@end
-// --- КОНЕЦ ДОБАВЛЕНИЯ ---
+        // --- НАШ ГИРОСКОП ---
+        @implementation CMMotionManager : NSObject
+        - (bool)isGyroAvailable {
+            false
+        }
+        @end
     }
 };
