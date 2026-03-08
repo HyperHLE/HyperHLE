@@ -1,7 +1,6 @@
-use crate::objc::macros::*;
 use crate::objc::types::*;
 
-pub const CLASSES: ClassExports = objc_classes! {
+pub const CLASSES: crate::objc::ClassExports = objc_classes! {
     (env, this, _cmd);
     
     @implementation CMMotionManager: NSObject
