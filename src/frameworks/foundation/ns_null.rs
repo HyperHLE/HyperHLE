@@ -13,26 +13,25 @@ pub struct State {
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
-    (env, this, _cmd) => {
-        @implementation NSNull: NSObject
-        - (id)retain {
-            this
-        }
-        - (())release {}
-        - (id)autorelease {
-            this
-        }
-        @end
+    (env, this, _cmd);
+    
+    @implementation NSNull: NSObject
+    - (id)retain {
+        this
     }
+    - (())release {}
+    - (id)autorelease {
+        this
+    }
+    @end
 };
 
-// --- СОЗДАЕМ ОТДЕЛЬНЫЙ БЛОК ДЛЯ ГИРОСКОПА ---
 pub const CM_CLASSES: ClassExports = objc_classes! {
-    (env, this, _cmd) => {
-        @implementation CMMotionManager: NSObject
-        - (bool)isGyroAvailable {
-            false
-        }
-        @end
+    (env, this, _cmd);
+    
+    @implementation CMMotionManager: NSObject
+    - (bool)isGyroAvailable {
+        false
     }
+    @end
 };
