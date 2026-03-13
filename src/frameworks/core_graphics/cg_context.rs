@@ -164,6 +164,13 @@ pub fn CGContextTranslateCTM(
     host_obj.state.transform = host_obj.state.transform.translate(tx, ty);
 }
 
+fn CGContextGetTextPosition(
+    _env: &mut Environment,
+    _context: CGContextRef,
+) -> CGPoint {
+    CGPoint { x: 0.0, y: 0.0 }
+}
+
 pub fn CGContextDrawImage(
     env: &mut Environment,
     context: CGContextRef,
@@ -327,6 +334,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextClearRect(_, _)),
     export_c_func!(CGContextConcatCTM(_, _)),
     export_c_func!(CGContextGetCTM(_)),
+    export_c_func!(CGContextGetTextPosition(_)),
     export_c_func!(CGContextRotateCTM(_, _)),
     export_c_func!(CGContextScaleCTM(_, _, _)),
     export_c_func!(CGContextTranslateCTM(_, _, _)),
