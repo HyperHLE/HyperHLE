@@ -13,7 +13,7 @@ pub const CLASSES: crate::objc::ClassExports = objc_classes! {
 
     // Обязательно для NSSet и коллекций
     - (u32)hash {
-        this as u32
+        0 // <--- Возвращаем просто 0, никаких кастов!
     }
 
     - (bool)isEqual:(id)_other {
@@ -38,5 +38,6 @@ pub const CLASSES: crate::objc::ClassExports = objc_classes! {
     - (id)description {
         this
     }
+    
     @end
 };
