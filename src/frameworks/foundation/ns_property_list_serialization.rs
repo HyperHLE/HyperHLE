@@ -266,6 +266,7 @@ fn serialize_plist(env: &mut Environment, plist: id) -> Value {
             NSNumberHostObject::LongLong(ll) => Value::from(*ll),
             NSNumberHostObject::Short(s) => Value::from(*s),
             NSNumberHostObject::Char(c) => Value::from(*c),
+            NSNumberHostObject::UnsignedLongLong(ull) => Value::from(*ull as i64), // ← добавить
             _ => todo!("num {:?}", num),
         }
     } else if class == env.objc.get_known_class("NSData", &mut env.mem) {
