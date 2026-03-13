@@ -31,6 +31,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSObject
 
++ (id)instanceMethodForSelector:(SEL)selector {
+    // Возвращаем ненулевой указатель если метод существует, nil если нет.
+    // Используем respondsToSelector: для проверки через инстанс (приближение).
+    // Большинство приложений используют результат только как bool.
+    let responds: bool = msg![env; this respondsToSelector:selector];
+    if responds {
+        // Возвращаем любой ненулевой IMP-заменитель
+        id::from_raw(0x1)
+    } else {
+        nil
+    }
+}
+    
 + (id)alloc {
     msg![env; this allocWithZone:(MutVoidPtr::null())]
 }
