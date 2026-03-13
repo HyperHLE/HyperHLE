@@ -61,6 +61,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSBundle: NSObject
 
++ (id)pathForResource:(id)name // NSString*
+              ofType:(id)ext   // NSString*
+{
+    let main_bundle: id = msg_class![env; NSBundle mainBundle];
+    msg![env; main_bundle pathForResource:name ofType:ext]
+}
+    
 + (id)mainBundle {
     if let Some(bundle) = env.framework_state.foundation.ns_bundle.main_bundle {
         bundle
