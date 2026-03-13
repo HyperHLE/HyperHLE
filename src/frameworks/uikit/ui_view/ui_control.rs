@@ -119,6 +119,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg_super![env; this dealloc]
 }
 
+- (())setContentVerticalAlignment:(i32)alignment {
+    // UIControlContentVerticalAlignment, просто игнорируем
+    log_dbg!("TODO: setContentVerticalAlignment:{}", alignment);
+}
+    
 - (UIControlState)state {
     let &UIControlHostObject {
         highlighted,
