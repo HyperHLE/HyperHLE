@@ -87,6 +87,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // TODO: more accessors
 
+- (bool)runMode:(id)_mode beforeDate:(id)_limit_date {
+        // Мы просто говорим игре, что цикл "прокрутился".
+        // Этого обычно достаточно, чтобы сетевые запросы не вешали игру.
+        true
+    }
+    
 - (id) retain { this }
 - (()) release {}
 - (id) autorelease { this }
