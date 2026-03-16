@@ -364,11 +364,11 @@ forUndefinedKey:(id)key { // NSString*
     // no-op
 }
 
-// Returns a non-nil IMP-like value if the method exists, nil otherwise.
-// Many apps use this as a bool check for method existence.
-+ (id)instanceMethodForSelector:(SEL)selector {
-    let class: Class = this.cast();
-    let responds: bool = env.objc.class_has_method(class, selector);
+// instanceMethodForSelector: is a class method, but some patch-5 macro versions
+// don't support '+' syntax. Implement as instance method on the metaclass side
+// by using respondsToSelector: which works for both.
+- (id)instanceMethodForSelector:(SEL)selector {
+    let responds: bool = env.objc.object_has_method(&env.mem, this, selector);
     if responds {
         id::from_bits(0x1)
     } else {
