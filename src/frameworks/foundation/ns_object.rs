@@ -127,8 +127,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
-- (id)methodForSelector:(NSUInteger)selector {
-    msg![env; this init]
+- (id)methodForSelector:(NSUInteger)_selector {
+    nil
 }
 
 - (id)instanceMethodForSelector:(SEL)_selector {
@@ -136,8 +136,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
-- (id)methodSignatureForSelector:(NSUInteger)selector {
-    msg![env; this init]
+- (id)methodSignatureForSelector:(NSUInteger)_selector {
+    nil
 }
 
 - (id)locationServicesEnabled {
