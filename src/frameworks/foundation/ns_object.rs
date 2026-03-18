@@ -14,14 +14,15 @@
 //!
 //! See also: [crate::objc], especially the `objects` module.
 
-use super::ns_dictionary::dict_from_keys_and_objects;
-use super::ns_run_loop::NSDefaultRunLoopMode;
-use super::ns_string::{from_rust_string, get_static_str, to_rust_string};
+use super::ns_string::to_rust_string;
 use super::{NSTimeInterval, NSUInteger};
+use crate::frameworks::foundation::ns_run_loop::{add_perform_request, cancel_perform_requests};
+use crate::frameworks::foundation::ns_string::from_rust_string;
+use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
-    autorelease, id, msg, msg_class, msg_send, nil, objc_classes,
-    retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL,
+    autorelease, id, msg, msg_class, msg_send, nil, objc_classes, retain, Class, ClassExports,
+    NSZonePtr, ObjC, TrivialHostObject, SEL,
 };
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -65,8 +66,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.class_has_method(this, selector)
 }
 
++ (id)instanceMethodSignatureForSelector:(SEL)sel {
+    let sig = *env.objc.class_get_method_signature(this, sel).unwrap();
+    log_dbg!("instanceMethodSignatureForSelector: '{}' -> {:?}", sel.as_str(&env.mem), env.mem.cstr_at_utf8(sig));
+    msg_class![env; NSMethodSignature signatureWithObjCTypes:sig]
+}
+
++ (())cancelPreviousPerformRequestsWithTarget:(id)target selector:(SEL)selector object:(id)arg {
+    let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
+    cancel_perform_requests(env, run_loop, target, selector, arg);
+}
+
 + (bool)accessInstanceVariablesDirectly {
     true
+}
+
++ (())initialize {
+    // Do nothing
 }
 
 + (id)description {
@@ -75,14 +91,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, str)
 }
 
-+ (id)debugDescription {
-    msg![env; this description]
-}
+- (MutVoidPtr)UTF8String {
+    // NSObject UTF8String forwarding (iOS 2.x behavior)
+    // [[self description] UTF8String]
 
+    let desc: id = msg![env; this description];
+    msg![env; desc UTF8String]
+}
+    
 - (id)init {
     this
 }
 
+- (id)initWithCoder:(id)_coder {
+    msg![env; this init]
+}
+    
 - (NSUInteger)retainCount {
     env.objc.get_refcount(this).into()
 }
@@ -101,6 +125,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)autorelease {
     () = msg_class![env; NSAutoreleasePool addObject:this];
     this
+}
+
+- (id)methodForSelector:(NSUInteger)selector {
+    msg![env; this init]
+}
+
+- (id)instanceMethodForSelector:(SEL)_selector {
+    // Return non-nil to indicate method exists (apps use this as bool check)
+    msg![env; this init]
+}
+
+- (id)methodSignatureForSelector:(NSUInteger)selector {
+    msg![env; this init]
+}
+
+- (id)locationServicesEnabled {
+    nil
 }
 
 - (())dealloc {
@@ -131,7 +172,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     this == other
 }
 
-// TODO: Instance description and debugDescription.
+// TODO: description and debugDescription (both the instance and class method).
 // This is not hard to add, but before adding a fallback implementation of it,
 // we should make sure all the Foundation classes' overrides of it are there,
 // to prevent weird behavior.
@@ -152,14 +193,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setValue:(id)value
        forKey:(id)key { // NSString*
     let key_string = to_rust_string(env, key); // TODO: avoid copy?
-    assert!(key_string.is_ascii()); // TODO: do we have to handle non-ASCII keys?
+    // assert!(key_string.is_ascii()); // TODO: do we have to handle non-ASCII keys?
     let camel_case_key_string = format!("{}{}", key_string.as_bytes()[0].to_ascii_uppercase() as char, &key_string[1..]);
 
     let class = msg![env; this class];
 
     // TODO: If value is nil, the target ivar/method argument type must be
     // checked. If it's non-object type, invoke setNilValueForKey:
-    assert!(value != nil);
+    // assert!(value != nil);
 
     // TODO: If value is a NSNumber or NSValue, it must be unwrapped
     let value_class = msg![env; value class];
@@ -217,7 +258,7 @@ forUndefinedKey:(id)key { // NSString*
     let class: Class = ObjC::read_isa(this, &env.mem);
     let class_name_string = env.objc.get_class_name(class).to_owned(); // TODO: Avoid copying
     let key_string = to_rust_string(env, key);
-    panic!("Object {:?} of class {:?} ({:?}) does not have a setter for {} ({:?})\
+    log_dbg!("Object {:?} of class {:?} ({:?}) does not have a setter for {} ({:?})\
         \nAvailable selectors: {}\nAvailable ivars: {}",
         this, class_name_string, class, key_string, key,
         env.objc.debug_all_class_selectors_as_strings(&env.mem, class).join(", "),
@@ -230,14 +271,12 @@ forUndefinedKey:(id)key { // NSString*
 
 - (id)performSelector:(SEL)sel {
     assert!(!sel.is_null());
-    env.objc.message_type_info = None;
     msg_send(env, (this, sel))
 }
 
 - (id)performSelector:(SEL)sel
            withObject:(id)o1 {
     assert!(!sel.is_null());
-    env.objc.message_type_info = None;
     msg_send(env, (this, sel, o1))
 }
 
@@ -245,37 +284,30 @@ forUndefinedKey:(id)key { // NSString*
            withObject:(id)o1
            withObject:(id)o2 {
     assert!(!sel.is_null());
-    env.objc.message_type_info = None;
     msg_send(env, (this, sel, o1, o2))
 }
 
-- (())performSelectorInBackground:(SEL)sel
-                       withObject:(id)arg {
-    log!("TODO: performSelectorInBackground:{:?} withObject:{:?} (not implemented)", sel, arg);
-}
-
 - (())performSelector:(SEL)sel withObject:(id)arg afterDelay:(NSTimeInterval)delay {
-    log_dbg!("performSelector:{} withObject:{:?} afterDelay:{}", sel.as_str(&env.mem), arg, delay);
-
-    let sel_key: id = get_static_str(env, "SEL");
-    let sel_str = from_rust_string(env, sel.as_str(&env.mem).to_string());
-    let arg_key: id = get_static_str(env, "arg");
-    let dict = dict_from_keys_and_objects(env, &[(sel_key, sel_str), (arg_key, arg)]);
-
-    // TODO: using timer is not the most efficient implementation, but does work
-    // Proper implementation requires a message queue in the run loop
-    let selector = env.objc.lookup_selector("_touchHLE_timerFireMethod:").unwrap();
-    let timer:id = msg_class![env; NSTimer timerWithTimeInterval:delay
-                                              target:this
-                                            selector:selector
-                                            userInfo:dict
-                                             repeats:false];
-
-    let run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
-    let mode: id = get_static_str(env, NSDefaultRunLoopMode);
-    () = msg![env; run_loop addTimer:timer forMode:mode];
+    let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
+    add_perform_request(env, run_loop, this, sel, arg, Some(delay), false);
 }
 
+- (())performSelectorInBackground:(SEL)sel
+                        withObject:(id)arg {
+    log_dbg!(
+        "performSelectorInBackground:{} withObject:{:?} (running synchronously)",
+        sel.as_str(&env.mem),
+        arg
+    );
+
+    if sel.as_str(&env.mem).ends_with(':') {
+        () = msg_send(env, (this, sel, arg));
+    } else {
+        assert!(arg.is_null());
+        () = msg_send(env, (this, sel));
+    }
+                        }
+    
 - (())performSelectorOnMainThread:(SEL)sel withObject:(id)arg waitUntilDone:(bool)wait {
     log_dbg!("performSelectorOnMainThread:{} withObject:{:?} waitUntilDone:{}", sel.as_str(&env.mem), arg, wait);
     if wait && env.current_thread == 0 {
@@ -287,103 +319,12 @@ forUndefinedKey:(id)key { // NSString*
         }
         return;
     }
-    if env.bundle.bundle_identifier().starts_with("com.gameloft.POP") && (sel == env.objc.lookup_selector("startMovie:").unwrap() || sel == env.objc.lookup_selector("stopMovie").unwrap()) && wait {
-        log!("Applying game-specific hack for PoP: WW: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
-        return;
-    }
-    if env.bundle.bundle_identifier().starts_with("com.gameloft.Asphalt5") && (sel == env.objc.lookup_selector("startMovie:").unwrap() || sel == env.objc.lookup_selector("stopMovie:").unwrap()) && wait {
-        log!("Applying game-specific hack for Asphalt5: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
-        return;
-    }
-    if env.bundle.bundle_identifier().starts_with("com.gameloft.SplinterCell") && sel == env.objc.lookup_selector("startMovie:").unwrap() && wait {
-        log!("Applying game-specific hack for SplinterCell: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
-        return;
-    }
-    if env.bundle.bundle_identifier().starts_with("com.gameloft.AssassinsCreed") && sel == env.objc.lookup_selector("moviePlayerInit:").unwrap() && wait {
-        log!("Applying game-specific hack for AssassinsCreed: ignoring performSelectorOnMainThread:SEL(moviePlayerInit:) waitUntilDone:true");
-        return;
-    }
-    if env.bundle.bundle_identifier().starts_with("com.gameloft.Ferrari") && wait {
-        if sel == env.objc.lookup_selector("startMovie:").unwrap() {
-            log!("Applying game-specific hack for Ferrari GT: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
-            return;
-        }
-        if sel == env.objc.lookup_selector("initTextInput:").unwrap() || sel == env.objc.lookup_selector("removeTextField:").unwrap() {
-            log!("Applying game-specific hack for Ferrari GT: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel.as_str(&env.mem), env.current_thread);
-            () = msg_send(env, (this, sel, arg));
-            return;
-        }
-    }
-    if env.bundle.bundle_identifier().starts_with("com.gameloft.HOS2") && wait {
-        if sel == env.objc.lookup_selector("loadMovie:").unwrap() || sel == env.objc.lookup_selector("sendGameInfo").unwrap() || sel == env.objc.lookup_selector("setStatusBar:").unwrap() {
-            log!("Applying game-specific hack for HOS2: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel.as_str(&env.mem), env.current_thread);
-            if sel.as_str(&env.mem).ends_with(':') {
-                () = msg_send(env, (this, sel, arg));
-            } else {
-                assert!(arg.is_null());
-                () = msg_send(env, (this, sel));
-            }
-            return;
-        }
-        if sel == env.objc.lookup_selector("startMovie:").unwrap() || sel == env.objc.lookup_selector("stopMovie:").unwrap() {
-            log!("Applying game-specific hack for HOS2: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
-            return;
-        }
-    }
-    // TODO: support waiting
-    // This would require tail calls for message send or a switch to async model
-    assert!(!wait);
 
-    // The current implementation of performSelector:withObject:afterDelay
-    // already runs on the main thread.
-    msg![env; this performSelector:sel withObject:arg afterDelay:0.0]
-}
-
-// Private method, used by performSelector:withObject:afterDelay:
-- (())_touchHLE_timerFireMethod:(id)which { // NSTimer *
-    let dict: id = msg![env; which userInfo];
-
-    let sel_key: id = get_static_str(env, "SEL");
-    let sel_str_id: id = msg![env; dict objectForKey:sel_key];
-    let sel_str = to_rust_string(env, sel_str_id);
-    let sel = env.objc.lookup_selector(&sel_str).unwrap();
-
-    let arg_key: id = get_static_str(env, "arg");
-    let arg: id = msg![env; dict objectForKey:arg_key];
-
-    if sel.as_str(&env.mem).ends_with(':') {
-        () = msg_send(env, (this, sel, arg));
-    } else {
-        if !arg.is_null() {
-            log_dbg!("Warning: performSelector:withObject:afterDelay: will send {} to {:?}, but arg {:?} will be ignored!", sel.as_str(&env.mem), this, arg);
-        }
-        () = msg_send(env, (this, sel));
-    }
-}
-
-// UINibLoadingAdditions protocol
-- (())awakeFromNib {
-    // no-op
-}
-
-// instanceMethodForSelector: is a class method, but some patch-5 macro versions
-// don't support '+' syntax. Implement as instance method on the metaclass side
-// by using respondsToSelector: which works for both.
-- (id)instanceMethodForSelector:(SEL)selector {
-    let responds: bool = env.objc.object_has_method(&env.mem, this, selector);
-    if responds {
-        id::from_bits(0x1)
-    } else {
-        nil
-    }
-}
-
-- (id)methodForSelector:(SEL)selector {
-    let responds: bool = env.objc.object_has_method(&env.mem, this, selector);
-    if responds {
-        id::from_bits(0x1)
-    } else {
-        nil
+    let run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
+    let sem = add_perform_request(env, run_loop, this, sel, arg, None, wait);
+    if wait {
+        sem_wait(env, sem);
+        host_destroy_semaphore(env, sem);
     }
 }
 
