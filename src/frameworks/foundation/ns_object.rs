@@ -132,8 +132,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)instanceMethodForSelector:(SEL)_selector {
-    // Return non-nil to indicate method exists (apps use this as bool check)
-    msg![env; this init]
+    // Return nil — apps should use respondsToSelector: for existence checks
+    nil
 }
 
 - (id)methodSignatureForSelector:(NSUInteger)selector {
