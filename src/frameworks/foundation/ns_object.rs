@@ -18,7 +18,6 @@ use super::ns_dictionary::dict_from_keys_and_objects;
 use super::ns_run_loop::NSDefaultRunLoopMode;
 use super::ns_string::{from_rust_string, get_static_str, to_rust_string};
 use super::{NSTimeInterval, NSUInteger};
-use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
 use crate::mem::MutVoidPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, nil, objc_classes,
@@ -249,7 +248,7 @@ forUndefinedKey:(id)key { // NSString*
 
 - (())performSelectorInBackground:(SEL)sel
                        withObject:(id)arg {
-    detach_new_thread_inner(env, sel, this, arg, /* tolerate_type_mismatch: */ true)
+    log!("TODO: performSelectorInBackground:{:?} withObject:{:?} (not implemented)", sel, arg);
 }
 
 - (())performSelector:(SEL)sel withObject:(id)arg afterDelay:(NSTimeInterval)delay {
