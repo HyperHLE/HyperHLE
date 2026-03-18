@@ -230,12 +230,14 @@ forUndefinedKey:(id)key { // NSString*
 
 - (id)performSelector:(SEL)sel {
     assert!(!sel.is_null());
+    env.objc.message_type_info = None;
     msg_send(env, (this, sel))
 }
 
 - (id)performSelector:(SEL)sel
            withObject:(id)o1 {
     assert!(!sel.is_null());
+    env.objc.message_type_info = None;
     msg_send(env, (this, sel, o1))
 }
 
@@ -243,6 +245,7 @@ forUndefinedKey:(id)key { // NSString*
            withObject:(id)o1
            withObject:(id)o2 {
     assert!(!sel.is_null());
+    env.objc.message_type_info = None;
     msg_send(env, (this, sel, o1, o2))
 }
 
