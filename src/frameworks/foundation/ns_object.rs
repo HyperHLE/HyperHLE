@@ -21,7 +21,7 @@ use super::{NSTimeInterval, NSUInteger};
 use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
 use crate::mem::MutVoidPtr;
 use crate::objc::{
-    autorelease, id, msg, msg_class, msg_send, msg_send_no_type_checking, nil, objc_classes,
+    autorelease, id, msg, msg_class, msg_send, nil, objc_classes,
     retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL,
 };
 
