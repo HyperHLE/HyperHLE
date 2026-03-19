@@ -127,7 +127,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
-- (id)methodForSelector:(NSUInteger)_selector {
+- (id)methodForSelector:(SEL)_selector {
     nil
 }
 
@@ -136,7 +136,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
-- (id)methodSignatureForSelector:(NSUInteger)_selector {
+- (id)methodSignatureForSelector:(SEL)_selector {
     nil
 }
 
