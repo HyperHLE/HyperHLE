@@ -328,6 +328,18 @@ forUndefinedKey:(id)key { // NSString*
     }
 }
 
+- (())touchesBegan:(id)_touches withEvent:(id)_event {
+}
+
+- (())touchesMoved:(id)_touches withEvent:(id)_event {
+}
+
+- (())touchesEnded:(id)_touches withEvent:(id)_event {
+}
+
+- (())touchesCancelled:(id)_touches withEvent:(id)_event {
+}
+
 @end
 
 };
