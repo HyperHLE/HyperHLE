@@ -336,6 +336,43 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg_super![env; this dealloc]
 }
 
+- (id)initWithImage:(id)_image
+              style:(UIBarButtonItemStyle)style
+             target:(id)target
+             action:(SEL)action
+{
+    let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
+    host.style = style;
+    host.target = target;
+    host.action = Some(action);
+    retain(env, target);
+    if target != nil {
+        () = msg![env; this addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    }
+    msg_super![env; this init]
+}
+
+- (id)initWithCustomView:(id)_view {
+    msg_super![env; this init]
+}
+
+- (id)initWithImage:(id)_image
+ landscapeImagePhone:(id)_landscape_image
+              style:(UIBarButtonItemStyle)style
+             target:(id)target
+             action:(SEL)action
+{
+    let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
+    host.style = style;
+    host.target = target;
+    host.action = Some(action);
+    retain(env, target);
+    if target != nil {
+        () = msg![env; this addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    }
+    msg_super![env; this init]
+}
+
 @end
 
 };
