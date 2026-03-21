@@ -7,6 +7,7 @@
 
 use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::uikit::ui_view::UIViewHostObject;
 use crate::impl_HostObject_with_superclass;
 use crate::objc::{id, msg_super, nil, objc_classes, ClassExports, NSZonePtr};
 
@@ -16,7 +17,7 @@ type UITextAutocorrectionType = NSInteger;
 type UIKeyboardType = NSInteger;
 
 struct UISearchBarHostObject {
-    superclass: super::UIViewHostObject,
+    superclass: UIViewHostObject,
     delegate: id,
 }
 impl_HostObject_with_superclass!(UISearchBarHostObject);
@@ -60,18 +61,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<UISearchBarHostObject>(this).delegate
 }
 
-- (())setPlaceholder:(id)placeholder {
+- (())setPlaceholder:(id)_placeholder {
     log!("TODO: UISearchBar setPlaceholder:");
-    let _ = placeholder;
 }
 
 - (id)placeholder {
     nil
 }
 
-- (())setText:(id)text {
+- (())setText:(id)_text {
     log!("TODO: UISearchBar setText:");
-    let _ = text;
 }
 
 - (id)text {
@@ -102,9 +101,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: UISearchBar setShowsScopeBar:{}", shows);
 }
 
-- (())setScopeButtonTitles:(id)titles {
+- (())setScopeButtonTitles:(id)_titles {
     log!("TODO: UISearchBar setScopeButtonTitles:");
-    let _ = titles;
 }
 
 - (())setSelectedScopeButtonIndex:(NSInteger)index {
@@ -123,14 +121,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: UISearchBar setKeyboardType:{}", type_);
 }
 
-- (())setTintColor:(id)color {
+- (())setTintColor:(id)_color {
     log!("TODO: UISearchBar setTintColor:");
-    let _ = color;
 }
 
-- (())setBackgroundImage:(id)image {
+- (())setBackgroundImage:(id)_image {
     log!("TODO: UISearchBar setBackgroundImage:");
-    let _ = image;
 }
 
 - (bool)becomeFirstResponder {
