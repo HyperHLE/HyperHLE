@@ -14,7 +14,7 @@ use crate::libc::pthread::thread::{
 };
 use crate::mem::{guest_size_of, MutPtr};
 use crate::objc::{
-    id, msg_send, nil, objc_classes, release, retain, Class, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, msg_send, nil, objc_classes, release, retain, Class, ClassExports, HostObject, NSZonePtr,
     SEL,
 };
 use crate::Environment;
@@ -245,6 +245,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = env.objc.borrow::<NSThreadHostObject>(this);
     release(env, host_object.thread_dictionary);
     env.objc.dealloc_object(this, &mut env.mem)
+}
+
+- (id)description {
+    let desc = format!("<NSThread: {:?}>", this);
+    let s = super::ns_string::from_rust_string(env, desc);
+    autorelease(env, s)
+}
+
+- (id)name {
+    nil
+}
+
+- (())setName:(id)_name {
 }
 
 @end
