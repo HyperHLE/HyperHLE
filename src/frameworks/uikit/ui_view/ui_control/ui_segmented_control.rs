@@ -39,7 +39,7 @@ fn rebuild_segments(env: &mut crate::Environment, this: id) {
         .segment_labels
         .clone();
     for label in &old_labels {
-        let _: () = msg![env; *label removeFromSuperview];
+        let _: () = { let l = *label; msg![env; l removeFromSuperview] };
         release(env, *label);
     }
     env.objc
@@ -83,7 +83,7 @@ fn rebuild_segments(env: &mut crate::Environment, this: id) {
 
         let label: id = msg_class![env; UILabel alloc];
         let label: id = msg![env; label initWithFrame:frame];
-        () = msg![env; label setText:*title];
+        () = { let t = *title; msg![env; label setText:t] };
         () = msg![env; label setTextAlignment:1i32]; // NSTextAlignmentCenter
 
         let font: id = msg_class![env; UIFont systemFontOfSize:12_f32];
