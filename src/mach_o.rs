@@ -447,6 +447,8 @@ impl MachO {
                             // apparently used within libstdc++ for linking to
                             // itself, e.g. to "__Znwm". might be a PIC thing
                             Some(Symbol::Defined { name: Some(n), .. }) => Some(String::from(n)),
+                            // Debug symbols can appear in indirect symbol table, ignore them
+                            Some(Symbol::Debug { .. }) => None,
                             None => None,
                             _ => panic!("Unexpected symbol kind {sym:?}"),
                         })
