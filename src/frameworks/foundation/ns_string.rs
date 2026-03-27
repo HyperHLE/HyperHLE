@@ -1577,7 +1577,31 @@ fn data_using_encoding_lossy_inner(
         encoding == NSUTF8StringEncoding
             || encoding == NSASCIIStringEncoding
             || encoding == NSISOLatin1StringEncoding
+            || encoding == NSUTF16StringEncoding
+            || encoding == NSUTF16LittleEndianStringEncoding
+            || encoding == NSUTF16BigEndianStringEncoding
     );
+
+    // Handle UTF-16 encodings
+    if encoding == NSUTF16StringEncoding
+        || encoding == NSUTF16LittleEndianStringEncoding
+        || encoding == NSUTF16BigEndianStringEncoding
+    {
+        let string = to_rust_string(env, this);
+        let big_endian = encoding == NSUTF16BigEndianStringEncoding;
+        let mut bytes: Vec<u8> = Vec::new();
+        for ch in string.encode_utf16() {
+            if big_endian {
+                bytes.extend_from_slice(&ch.to_be_bytes());
+            } else {
+                bytes.extend_from_slice(&ch.to_le_bytes());
+            }
+        }
+        let length: NSUInteger = bytes.len().try_into().unwrap();
+        let ptr = env.mem.alloc(length);
+        env.mem.bytes_at_mut(ptr.cast(), length).copy_from_slice(&bytes);
+        return msg_class![env; NSData dataWithBytesNoCopy:(ptr.cast_void()) length:length];
+    }
 
     let string = to_rust_string(env, this);
     if encoding == NSASCIIStringEncoding || encoding == NSISOLatin1StringEncoding {
