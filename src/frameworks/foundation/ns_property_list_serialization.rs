@@ -57,7 +57,7 @@ pub const CLASSES: ClassExports = objc_classes! {
           mutabilityOption:(NSPropertyListMutabilityOptions)opt
                     format:(MutPtr<NSPropertyListFormat>)format
           errorDescription:(MutPtr<id>)error_string { // NSString **
-    assert_eq!(opt, NSPropertyListImmutable); // TODO
+    log_dbg!("propertyListFromData mutabilityOption:{} (TODO: handle mutable)", opt);
     let slice = ns_data::to_rust_slice(env, data);
 
     if let Ok(root) = Value::from_reader_xml(Cursor::new(slice)) {
