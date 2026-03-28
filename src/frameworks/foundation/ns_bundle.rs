@@ -354,6 +354,51 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, preferred_localizations)
 }
 
+- (id)pathsForResourcesOfType:(id)extension // NSString*
+                 inDirectory:(id)directory { // NSString*
+    let resource_path: id = msg![env; this resourcePath];
+    let search_dir: id = if directory != nil {
+        msg![env; resource_path stringByAppendingPathComponent:directory]
+    } else {
+        resource_path
+    };
+
+    let search_dir_str = ns_string::to_rust_string(env, search_dir).to_string();
+    let ext_filter = if extension != nil {
+        Some(ns_string::to_rust_string(env, extension).to_string())
+    } else {
+        None
+    };
+
+    let entries = match env.fs.enumerate(crate::fs::GuestPath::new(&search_dir_str)) {
+        Ok(e) => e,
+        Err(_) => return msg_class![env; NSArray array],
+    };
+
+    let mut result_paths: Vec<id> = Vec::new();
+    for entry in entries {
+        let filename = entry.as_str().to_string();
+        let matches = match &ext_filter {
+            None => true,
+            Some(ext) => {
+                if let Some(dot_pos) = filename.rfind('.') {
+                    &filename[dot_pos + 1..] == ext.as_str()
+                } else {
+                    false
+                }
+            }
+        };
+        if matches {
+            let full = format!("{}/{}", search_dir_str, filename);
+            let full_id = ns_string::from_rust_string(env, full);
+            result_paths.push(full_id);
+        }
+    }
+
+    let arr = super::ns_array::from_vec(env, result_paths);
+    autorelease(env, arr)
+}
+
 // TODO: constructors, more accessors
 
 @end
