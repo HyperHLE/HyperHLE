@@ -371,13 +371,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
 
     let entries = match env.fs.enumerate(crate::fs::GuestPath::new(&search_dir_str)) {
-        Ok(e) => e,
+        Ok(e) => e.map(|s| s.to_string()).collect::<Vec<String>>(),
         Err(_) => return msg_class![env; NSArray array],
     };
 
     let mut result_paths: Vec<id> = Vec::new();
-    for entry in entries {
-        let filename = entry.as_str().to_string();
+    for filename in entries {
         let matches = match &ext_filter {
             None => true,
             Some(ext) => {
