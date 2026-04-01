@@ -52,7 +52,13 @@ fn objc_msgSend_inner(
     }
 
     let orig_class = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
-    assert!(orig_class != nil);
+    
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: убираем панику и добавляем мягкий выход ---
+    if orig_class == nil {
+        log!("Warning: receiver {:?} has nil isa! Ignoring message \"{}\".", receiver, selector.as_str(&env.mem));
+        env.cpu.regs_mut()[0..2].fill(0);
+        return;
+    }
 
     // Traverse the chain of superclasses to find the method implementation.
 
@@ -472,3 +478,4 @@ pub fn autorelease(env: &mut Environment, object: id) -> id {
     }
     msg![env; object autorelease]
 }
+
