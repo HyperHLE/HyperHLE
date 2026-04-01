@@ -69,4 +69,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation UIScreenMode: UIScreen
+@end
+
 };
