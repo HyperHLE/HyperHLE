@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |  
           mkdir -p "$GITHUB_WORKSPACE"  
-          git clone https://github.com/j92580498-max/touchHLE "$GITHUB_WORKSPACE"  
+          git clone https://github.com/masterfanaedoodledash-cmd/touchHLE "$GITHUB_WORKSPACE"  
           cd "$GITHUB_WORKSPACE"  
           git fetch origin "$GITHUB_REF"  
           git checkout "$GITHUB_SHA"
