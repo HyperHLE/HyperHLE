@@ -65,10 +65,10 @@
 
 pub mod gles1_native;
 pub mod gles1_on_gl2;
+pub mod gles2_stubs;
 mod gles_generic;
 pub mod present;
 mod util;
-
 use touchHLE_gl_bindings::gl21compat as gl21compat_raw;
 pub use touchHLE_gl_bindings::gles11 as gles11_raw;
 
@@ -76,7 +76,6 @@ use gles1_native::GLES1NativeContext;
 use gles1_on_gl2::GLES1OnGL2Context;
 pub use gles_generic::GLESContext;
 pub use gles_generic::GLES;
-
 use crate::environment::Environment;
 
 /// Labels for [GLES] implementations and an abstraction for constructing them.

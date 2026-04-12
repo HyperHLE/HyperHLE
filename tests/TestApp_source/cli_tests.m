@@ -50,6 +50,10 @@ int test_AutoreleasePool(void);    // AutoReleasePoolTest.m
 int test_CGAffineTransform(void);  // CGAffineTransform.c
 int test_RespondsToSelector(void); // RespondsToSelector.m
 
+#ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
+int test_cpp_virtual_inheritance(void); // CppVirtualInheritance.cpp
+#endif
+
 // === Main code ===
 
 int test_CGGeometry() {
@@ -124,187 +128,408 @@ char *str_format(const char *format, ...) {
 }
 
 int test_vsnprintf() {
-  int res = 0;
   char *str;
 
   // Test %s
   str = str_format("%s", "test");
-  res += !!strcmp(str, "test");
+  if (strcmp(str, "test") != 0) {
+    free(str);
+    return -1;
+  }
   free(str);
   // Test %s NULL
   str = str_format("%s", NULL);
-  res += !!strcmp(str, "(null)");
+  if (strcmp(str, "(null)") != 0) {
+    free(str);
+    return -2;
+  }
   free(str);
   // Test % without a specifier
   str = str_format("abc%");
-  res += !!strcmp(str, "abc");
+  if (strcmp(str, "abc") != 0) {
+    free(str);
+    return -3;
+  }
   free(str);
   // Test %x
   str = str_format("%x", 2042);
-  res += !!strcmp(str, "7fa");
+  if (strcmp(str, "7fa") != 0) {
+    free(str);
+    return -4;
+  }
   free(str);
   str = str_format("0x%08x", 184638698);
-  res += !!strcmp(str, "0x0b015cea");
+  if (strcmp(str, "0x0b015cea") != 0) {
+    free(str);
+    return -5;
+  }
   free(str);
   // Test %d
   str = str_format("%d|%8d|%08d|%.d|%8.d|%.3d|%8.3d|%08.3d|%*d|%0*d", 5, 5, 5,
                    5, 5, 5, 5, 5, 8, 5, 8, 5);
-  res += !!strcmp(
-      str,
-      "5|       5|00000005|5|       5|005|     005|     005|       5|00000005");
+  if (strcmp(str, "5|       5|00000005|5|       5|005|     005|     005|       "
+                  "5|00000005") != 0) {
+    free(str);
+    return -6;
+  }
   free(str);
   // Test %d with alternative form
   str = str_format("%#.2d", 5);
-  res += !!strcmp(str, "05");
+  if (strcmp(str, "05") != 0) {
+    free(str);
+    return -7;
+  }
   free(str);
   // Test %f
   str = str_format("%f|%8f|%08f|%.f|%8.f|%.3f|%8.3f|%08.3f|%*f|%0*f", 10.12345,
                    10.12345, 10.12345, 10.12345, 10.12345, 10.12345, 10.12345,
                    10.12345, 8, 10.12345, 8, 10.12345);
-  res += !!strcmp(str, "10.123450|10.123450|10.123450|10|      10|10.123|  "
-                       "10.123|0010.123|10.123450|10.123450");
+  if (strcmp(str, "10.123450|10.123450|10.123450|10|      10|10.123|  "
+                  "10.123|0010.123|10.123450|10.123450") != 0) {
+    free(str);
+    return -8;
+  }
   free(str);
   str = str_format("%f|%8f|%08f|%.f|%8.f|%.3f|%8.3f|%08.3f|%*f|%0*f", -10.12345,
                    -10.12345, -10.12345, -10.12345, -10.12345, -10.12345,
                    -10.12345, -10.12345, 8, -10.12345, 8, -10.12345);
-  res += !!strcmp(str, "-10.123450|-10.123450|-10.123450|-10|     -10|-10.123| "
-                       "-10.123|-010.123|-10.123450|-10.123450");
+  if (strcmp(str, "-10.123450|-10.123450|-10.123450|-10|     -10|-10.123| "
+                  "-10.123|-010.123|-10.123450|-10.123450") != 0) {
+    free(str);
+    return -9;
+  }
   free(str);
   // Test %e
   str = str_format("%e|%8e|%08e|%.e|%8.e|%.3e|%8.3e|%08.3e|%*e|%0*e", 10.12345,
                    10.12345, 10.12345, 10.12345, 10.12345, 10.12345, 10.12345,
                    10.12345, 8, 10.12345, 8, 10.12345);
-  res += !!strcmp(
-      str, "1.012345e+01|1.012345e+01|1.012345e+01|1e+01|   "
-           "1e+01|1.012e+01|1.012e+01|1.012e+01|1.012345e+01|1.012345e+01");
+  if (strcmp(str,
+             "1.012345e+01|1.012345e+01|1.012345e+01|1e+01|   "
+             "1e+01|1.012e+01|1.012e+01|1.012e+01|1.012345e+01|1.012345e+01") !=
+      0) {
+    free(str);
+    return -10;
+  }
   free(str);
   str = str_format("%e|%8e|%08e|%.e|%8.e|%.3e|%8.3e|%08.3e|%*e|%0*e", -10.12345,
                    -10.12345, -10.12345, -10.12345, -10.12345, -10.12345,
                    -10.12345, -10.12345, 8, -10.12345, 8, -10.12345);
-  res += !!strcmp(
-      str,
-      "-1.012345e+01|-1.012345e+01|-1.012345e+01|-1e+01|  "
-      "-1e+01|-1.012e+01|-1.012e+01|-1.012e+01|-1.012345e+01|-1.012345e+01");
+  if (strcmp(str, "-1.012345e+01|-1.012345e+01|-1.012345e+01|-1e+01|  "
+                  "-1e+01|-1.012e+01|-1.012e+01|-1.012e+01|-1.012345e+01|-1."
+                  "012345e+01") != 0) {
+    free(str);
+    return -11;
+  }
   free(str);
   // Test %g
   str = str_format("%g|%8g|%08g|%.g|%8.g|%.3g|%8.3g|%08.3g|%*g|%0*g", 10.12345,
                    10.12345, 10.12345, 10.12345, 10.12345, 10.12345, 10.12345,
                    10.12345, 8, 10.12345, 8, 10.12345);
-  res += !!strcmp(str, "10.1235| 10.1235|010.1235|1e+01|   1e+01|10.1|    "
-                       "10.1|000010.1| 10.1235|010.1235");
+  if (strcmp(str, "10.1235| 10.1235|010.1235|1e+01|   1e+01|10.1|    "
+                  "10.1|000010.1| 10.1235|010.1235") != 0) {
+    free(str);
+    return -12;
+  }
   free(str);
   str = str_format("%g|%8g|%08g|%.g|%8.g|%.3g|%8.3g|%08.3g|%*g|%0*g", -10.12345,
                    -10.12345, -10.12345, -10.12345, -10.12345, -10.12345,
                    -10.12345, -10.12345, 8, -10.12345, 8, -10.12345);
-  res += !!strcmp(str, "-10.1235|-10.1235|-10.1235|-1e+01|  -1e+01|-10.1|   "
-                       "-10.1|-00010.1|-10.1235|-10.1235");
+  if (strcmp(str, "-10.1235|-10.1235|-10.1235|-1e+01|  -1e+01|-10.1|   "
+                  "-10.1|-00010.1|-10.1235|-10.1235") != 0) {
+    free(str);
+    return -13;
+  }
   free(str);
   str = str_format("%f|%8f|%08f|%.f|%8.f|%.3f|%8.3f|%08.3f|%*f|%0*f", -10.12345,
                    -10.12345, -10.12345, -10.12345, -10.12345, -10.12345,
                    -10.12345, -10.12345, 8, -10.12345, 8, -10.12345);
-  res += !!strcmp(str, "-10.123450|-10.123450|-10.123450|-10|     -10|-10.123| "
-                       "-10.123|-010.123|-10.123450|-10.123450");
+  if (strcmp(str, "-10.123450|-10.123450|-10.123450|-10|     -10|-10.123| "
+                  "-10.123|-010.123|-10.123450|-10.123450") != 0) {
+    free(str);
+    return -14;
+  }
   free(str);
   // Test %e
   str = str_format("%e|%8e|%08e|%.e|%8.e|%.3e|%8.3e|%08.3e|%*e|%0*e", 10.12345,
                    10.12345, 10.12345, 10.12345, 10.12345, 10.12345, 10.12345,
                    10.12345, 8, 10.12345, 8, 10.12345);
-  res += !!strcmp(
-      str, "1.012345e+01|1.012345e+01|1.012345e+01|1e+01|   "
-           "1e+01|1.012e+01|1.012e+01|1.012e+01|1.012345e+01|1.012345e+01");
+  if (strcmp(str,
+             "1.012345e+01|1.012345e+01|1.012345e+01|1e+01|   "
+             "1e+01|1.012e+01|1.012e+01|1.012e+01|1.012345e+01|1.012345e+01") !=
+      0) {
+    free(str);
+    return -15;
+  }
   free(str);
   str = str_format("%e|%8e|%08e|%.e|%8.e|%.3e|%8.3e|%08.3e|%*e|%0*e", -10.12345,
                    -10.12345, -10.12345, -10.12345, -10.12345, -10.12345,
                    -10.12345, -10.12345, 8, -10.12345, 8, -10.12345);
-  res += !!strcmp(
-      str,
-      "-1.012345e+01|-1.012345e+01|-1.012345e+01|-1e+01|  "
-      "-1e+01|-1.012e+01|-1.012e+01|-1.012e+01|-1.012345e+01|-1.012345e+01");
+  if (strcmp(str, "-1.012345e+01|-1.012345e+01|-1.012345e+01|-1e+01|  "
+                  "-1e+01|-1.012e+01|-1.012e+01|-1.012e+01|-1.012345e+01|-1."
+                  "012345e+01") != 0) {
+    free(str);
+    return -16;
+  }
   free(str);
   str = str_format("%e|%8e|%08e|%.e|%8.e|%.3e|%8.3e|%08.3e|%*e|%0*e", 0.0, 0.0,
                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 16, 0.0, 16, 0.0);
-  res += !!strcmp(
-      str,
-      "0.000000e+00|0.000000e+00|0.000000e+00|0e+00|   "
-      "0e+00|0.000e+00|0.000e+00|0.000e+00|    0.000000e+00|00000.000000e+00");
+  if (strcmp(str, "0.000000e+00|0.000000e+00|0.000000e+00|0e+00|   "
+                  "0e+00|0.000e+00|0.000e+00|0.000e+00|    "
+                  "0.000000e+00|00000.000000e+00") != 0) {
+    free(str);
+    return -17;
+  }
   free(str);
   // Test %g
   str = str_format("%g|%8g|%08g|%.g|%8.g|%.3g|%8.3g|%08.3g|%*g|%0*g", 10.12345,
                    10.12345, 10.12345, 10.12345, 10.12345, 10.12345, 10.12345,
                    10.12345, 8, 10.12345, 8, 10.12345);
-  res += !!strcmp(str, "10.1235| 10.1235|010.1235|1e+01|   1e+01|10.1|    "
-                       "10.1|000010.1| 10.1235|010.1235");
+  if (strcmp(str, "10.1235| 10.1235|010.1235|1e+01|   1e+01|10.1|    "
+                  "10.1|000010.1| 10.1235|010.1235") != 0) {
+    free(str);
+    return -18;
+  }
   free(str);
   str = str_format("%g|%8g|%08g|%.g|%8.g|%.3g|%8.3g|%08.3g|%*g|%0*g", -10.12345,
                    -10.12345, -10.12345, -10.12345, -10.12345, -10.12345,
                    -10.12345, -10.12345, 8, -10.12345, 8, -10.12345);
-  res += !!strcmp(str, "-10.1235|-10.1235|-10.1235|-1e+01|  -1e+01|-10.1|   "
-                       "-10.1|-00010.1|-10.1235|-10.1235");
+  if (strcmp(str, "-10.1235|-10.1235|-10.1235|-1e+01|  -1e+01|-10.1|   "
+                  "-10.1|-00010.1|-10.1235|-10.1235") != 0) {
+    free(str);
+    return -19;
+  }
   free(str);
   str = str_format("%g|%8g|%08g|%.g|%8.g|%.3g|%8.3g|%08.3g|%*g|%0*g", 0.0, 0.0,
                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 16, 0.0, 16, 0.0);
-  res += !!strcmp(
-      str, "0|       0|00000000|0|       0|0|       0|00000000|               "
-           "0|0000000000000000");
+  if (strcmp(
+          str,
+          "0|       0|00000000|0|       0|0|       0|00000000|               "
+          "0|0000000000000000") != 0) {
+    free(str);
+    return -20;
+  }
   free(str);
   // Test %g with trailing zeros
   str = str_format("%.14g", 1.0);
-  res += !!strcmp(str, "1");
+  if (strcmp(str, "1") != 0) {
+    free(str);
+    return -21;
+  }
   free(str);
   // Test %g with big number
   str = str_format("%.14g", 10000000000.0);
-  res += !!strcmp(str, "10000000000");
+  if (strcmp(str, "10000000000") != 0) {
+    free(str);
+    return -22;
+  }
   free(str);
   // Test %g with a precision argument
   str = str_format("%.*g", 4, 10.234);
-  res += !!strcmp(str, "10.23");
+  if (strcmp(str, "10.23") != 0) {
+    free(str);
+    return -23;
+  }
   free(str);
   // Test length modifiers
   str = str_format("%d %ld %lld %qd %u %lu %llu %qu", 10, 100, 4294967296,
                    4294967296, 10, 100, 4294967296, 4294967296);
-  res += !!strcmp(str,
-                  "10 100 4294967296 4294967296 10 100 4294967296 4294967296");
+  if (strcmp(str,
+             "10 100 4294967296 4294967296 10 100 4294967296 4294967296") !=
+      0) {
+    free(str);
+    return -24;
+  }
   free(str);
   // Test %.50s with a long string
   str = str_format("%.50s",
                    "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ");
-  res += !!strcmp(str, "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWX");
+  if (strcmp(str, "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWX") != 0) {
+    free(str);
+    return -25;
+  }
   free(str);
   // Test precision for %x
   str = str_format("%.8x-%.8x-%.2x", 10, 9999999, 9999999);
-  res += !!strcmp(str, "0000000a-0098967f-98967f");
+  if (strcmp(str, "0000000a-0098967f-98967f") != 0) {
+    free(str);
+    return -26;
+  }
   free(str);
   // Test unknown specifier skip
   str = str_format("%I");
-  res += !!strcmp(str, "I");
+  if (strcmp(str, "I") != 0) {
+    free(str);
+    return -27;
+  }
   free(str);
   // Test %s with padding
   const char *s = "Hello";
   str = str_format("[%10s]", s);
-  res += !!strcmp(str, "[     Hello]");
+  if (strcmp(str, "[     Hello]") != 0) {
+    free(str);
+    return -28;
+  }
   free(str);
   str = str_format("[%-10s]", s);
-  res += !!strcmp(str, "[Hello     ]");
+  if (strcmp(str, "[Hello     ]") != 0) {
+    free(str);
+    return -29;
+  }
   free(str);
   str = str_format("[%*s]", 10, s);
-  res += !!strcmp(str, "[     Hello]");
+  if (strcmp(str, "[     Hello]") != 0) {
+    free(str);
+    return -30;
+  }
   free(str);
   str = str_format("[%-*s]", 10, s);
-  res += !!strcmp(str, "[Hello     ]");
+  if (strcmp(str, "[Hello     ]") != 0) {
+    free(str);
+    return -31;
+  }
   free(str);
   // Test %p with padding
   str = str_format("%90p", &str);
-  res += (strlen(str) == 90) ? 0 : 1;
+  if (strlen(str) != 90) {
+    free(str);
+    return -32;
+  }
   free(str);
   // Test sign prepend
   str = str_format("%+08d", 31501);
-  res += !!strcmp(str, "+0031501");
+  if (strcmp(str, "+0031501") != 0) {
+    free(str);
+    return -33;
+  }
   free(str);
   str = str_format("%+08d", -31501);
-  res += !!strcmp(str, "-0031501");
+  if (strcmp(str, "-0031501") != 0) {
+    free(str);
+    return -34;
+  }
+  free(str);
+  // Test h length modifier (%hd, %hu, %hx, %ho)
+  str = str_format("%hd", 42);
+  if (strcmp(str, "42") != 0) {
+    free(str);
+    return -35;
+  }
+  free(str);
+  str = str_format("%hd", -42);
+  if (strcmp(str, "-42") != 0) {
+    free(str);
+    return -36;
+  }
+  free(str);
+  // Truncation: 32768 wraps to -32768 as signed short
+  str = str_format("%hd", 32768);
+  if (strcmp(str, "-32768") != 0) {
+    free(str);
+    return -37;
+  }
+  free(str);
+  // Truncation: 65535 is -1 as signed short
+  str = str_format("%hd", 65535);
+  if (strcmp(str, "-1") != 0) {
+    free(str);
+    return -38;
+  }
+  free(str);
+  str = str_format("%hu", 65535);
+  if (strcmp(str, "65535") != 0) {
+    free(str);
+    return -39;
+  }
+  free(str);
+  // Truncation: 65536 wraps to 0 as unsigned short
+  str = str_format("%hu", 65536);
+  if (strcmp(str, "0") != 0) {
+    free(str);
+    return -40;
+  }
+  free(str);
+  str = str_format("%hx", 0x1234);
+  if (strcmp(str, "1234") != 0) {
+    free(str);
+    return -41;
+  }
+  free(str);
+  // Truncation: upper bits dropped
+  str = str_format("%hx", 0x12345);
+  if (strcmp(str, "2345") != 0) {
+    free(str);
+    return -42;
+  }
+  free(str);
+  // Test hh length modifier (%hhd, %hhu, %hhx, %hho)
+  str = str_format("%hhd", 127);
+  if (strcmp(str, "127") != 0) {
+    free(str);
+    return -43;
+  }
+  free(str);
+  str = str_format("%hhd", -128);
+  if (strcmp(str, "-128") != 0) {
+    free(str);
+    return -44;
+  }
+  free(str);
+  // Truncation: 128 wraps to -128 as signed char
+  str = str_format("%hhd", 128);
+  if (strcmp(str, "-128") != 0) {
+    free(str);
+    return -45;
+  }
+  free(str);
+  // Truncation: 255 is -1 as signed char
+  str = str_format("%hhd", 255);
+  if (strcmp(str, "-1") != 0) {
+    free(str);
+    return -46;
+  }
+  free(str);
+  // Truncation: 256 wraps to 0
+  str = str_format("%hhd", 256);
+  if (strcmp(str, "0") != 0) {
+    free(str);
+    return -47;
+  }
+  free(str);
+  str = str_format("%hhu", 255);
+  if (strcmp(str, "255") != 0) {
+    free(str);
+    return -48;
+  }
+  free(str);
+  // Truncation: 256 wraps to 0 as unsigned char
+  str = str_format("%hhu", 256);
+  if (strcmp(str, "0") != 0) {
+    free(str);
+    return -49;
+  }
+  free(str);
+  // -1 as unsigned char is 255
+  str = str_format("%hhu", -1);
+  if (strcmp(str, "255") != 0) {
+    free(str);
+    return -50;
+  }
+  free(str);
+  str = str_format("%hhx", 0xAB);
+  if (strcmp(str, "ab") != 0) {
+    free(str);
+    return -51;
+  }
+  free(str);
+  // Truncation: upper bits dropped
+  str = str_format("%hhx", 0x1AB);
+  if (strcmp(str, "ab") != 0) {
+    free(str);
+    return -52;
+  }
   free(str);
 
-  return res;
+  return 0;
 }
 
 int test_sscanf() {
@@ -404,6 +629,50 @@ int test_sscanf() {
   if (!(matched == 8 && strcmp(str, "\"origin\"") == 0 && a == -1 && f1 == 0 &&
         fabs(f4 + 0.7071067095) < 1e-10 && f6 == 0))
     return -30;
+  // '%g' test cases
+  matched = sscanf("123", "%g", &f);
+  if (!(matched == 1 && f == 123.0f))
+    return -31;
+  matched = sscanf("1.23", "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23f) < 1e-5f))
+    return -32;
+  matched = sscanf("1.23e-4", "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23e-4f) < 1e-8f))
+    return -33;
+  matched = sscanf("1.23E4", "%g", &f);
+  if (!(matched == 1 && fabs(f - 12300.0f) < 1e-5f))
+    return -34;
+  matched = sscanf("+1.23", "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23f) < 1e-5f))
+    return -35;
+  matched = sscanf("-1.23", "%g", &f);
+  if (!(matched == 1 && fabs(f - -1.23f) < 1e-5f))
+    return -36;
+  matched = sscanf(".5", "%g", &f);
+  if (!(matched == 1 && fabs(f - 0.5f) < 1e-5f))
+    return -37;
+  matched = sscanf("-.5", "%g", &f);
+  if (!(matched == 1 && fabs(f - -0.5f) < 1e-5f))
+    return -38;
+  matched = sscanf("1e5", "%g", &f);
+  if (!(matched == 1 && fabs(f - 100000.0f) < 1e-5f))
+    return -39;
+  matched = sscanf("1.e5", "%g", &f);
+  if (!(matched == 1 && fabs(f - 100000.0f) < 1e-5f))
+    return -40;
+  matched = sscanf("  1.23", "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23f) < 1e-5f))
+    return -41;
+  matched = sscanf("+1.23e+4", "%g", &f);
+  if (!(matched == 1 && fabs(f - 12300.0f) < 1e-5f))
+    return -42;
+  matched = sscanf("-1.23e-4", "%g", &f);
+  if (!(matched == 1 && fabs(f - -0.000123f) < 1e-8f))
+    return -43;
+  matched = sscanf("123.", "%g", &f);
+  if (!(matched == 1 && f == 123.0f))
+    return -44;
+
   return 0;
 }
 
@@ -930,7 +1199,7 @@ void *child(void *arg) {
 
 void *child2(void *arg) {
   pthread_mutex_lock(&m);
-  while (done == 0) {
+  while (done2 == 0) {
     pthread_cond_wait(&c2, &m);
   }
   pthread_mutex_unlock(&m);
@@ -954,22 +1223,105 @@ int test_cond_var() {
   pthread_create(&p, NULL, child, NULL);
   thr_join();
 
+  if (done != 1)
+    return -1;
+
   // Should wake up all threads
+  int result;
   pthread_t p1, p2, p3;
-  pthread_cond_init(&c2, NULL);
-  pthread_create(&p1, NULL, child, NULL);
-  pthread_create(&p2, NULL, child, NULL);
-  pthread_create(&p3, NULL, child, NULL);
+  result = pthread_cond_init(&c2, NULL);
+  if (result != 0)
+    return -2;
+  pthread_create(&p1, NULL, child2, NULL);
+  pthread_create(&p2, NULL, child2, NULL);
+  pthread_create(&p3, NULL, child2, NULL);
   usleep(100);
-  pthread_mutex_lock(&m);
-  done = 1;
-  pthread_cond_broadcast(&c);
-  pthread_mutex_unlock(&m);
+  result = pthread_mutex_lock(&m);
+  if (result != 0)
+    return -3;
+  done2 = 1;
+  result = pthread_cond_broadcast(&c2);
+  if (result != 0)
+    return -4;
+  result = pthread_mutex_unlock(&m);
+  if (result != 0)
+    return -5;
   pthread_join(p1, NULL);
   pthread_join(p2, NULL);
   pthread_join(p3, NULL);
 
-  return done == 1 ? 0 : -1;
+  return 0;
+}
+
+pthread_mutex_t m_static = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t c_static = PTHREAD_COND_INITIALIZER,
+               c2_static = PTHREAD_COND_INITIALIZER;
+
+void thr_exit_static() {
+  pthread_mutex_lock(&m_static);
+  done = 1;
+  pthread_cond_signal(&c_static);
+  pthread_mutex_unlock(&m_static);
+}
+
+void *child_static(void *arg) {
+  thr_exit_static();
+  return NULL;
+}
+
+void *child2_static(void *arg) {
+  pthread_mutex_lock(&m_static);
+  while (done2 == 0) {
+    pthread_cond_wait(&c2_static, &m_static);
+  }
+  pthread_mutex_unlock(&m_static);
+  return NULL;
+}
+
+void thr_join_static() {
+  pthread_mutex_lock(&m_static);
+  while (done == 0) {
+    pthread_cond_wait(&c_static, &m_static);
+  }
+  pthread_mutex_unlock(&m_static);
+}
+
+int test_cond_var_static() {
+  pthread_t p;
+  done = 0;
+  done2 = 0;
+
+  // We test that statically allocated cond vars and mutexes work
+  // by using them without calling pthread_mutex_init and pthread_cond_init
+
+  pthread_create(&p, NULL, child_static, NULL);
+  thr_join_static();
+
+  if (done != 1)
+    return -1;
+
+  // Should wake up all threads
+  int result;
+  pthread_t p1, p2, p3;
+  pthread_create(&p1, NULL, child2_static, NULL);
+  pthread_create(&p2, NULL, child2_static, NULL);
+  pthread_create(&p3, NULL, child2_static, NULL);
+  usleep(100);
+  result = pthread_mutex_lock(&m_static);
+  if (result != 0)
+    return -2;
+  done2 = 1;
+  result = pthread_cond_broadcast(&c2_static);
+  if (result != 0)
+    return -3;
+  result = pthread_mutex_unlock(&m_static);
+  if (result != 0)
+    return -4;
+  pthread_join(p1, NULL);
+  pthread_join(p2, NULL);
+  pthread_join(p3, NULL);
+
+  return 0;
 }
 
 pthread_mutex_t normal_mutex;
@@ -1579,6 +1931,77 @@ int test_fscanf_new() {
   if (!(matched == 8 && strcmp(str, "\"origin\"") == 0 && a == -1 &&
         f1 == 0.0f && fabs(f4 + 0.7071067095f) < 1e-10f && f6 == 0.0f))
     return -30;
+  SKIP_LINE(file);
+
+  // '%g' test cases
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && f == 123.0f))
+    return -31;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23f) < 1e-5f))
+    return -32;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23e-4f) < 1e-8f))
+    return -33;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 12300.0f) < 1e-5f))
+    return -34;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23f) < 1e-5f))
+    return -35;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - -1.23f) < 1e-5f))
+    return -36;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 0.5f) < 1e-5f))
+    return -37;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - -0.5f) < 1e-5f))
+    return -38;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 100000.0f) < 1e-5f))
+    return -39;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 100000.0f) < 1e-5f))
+    return -40;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 1.23f) < 1e-5f))
+    return -41;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - 12300.0f) < 1e-5f))
+    return -42;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && fabs(f - -0.000123f) < 1e-8f))
+    return -43;
+  SKIP_LINE(file);
+
+  matched = fscanf(file, "%g", &f);
+  if (!(matched == 1 && f == 123.0f))
+    return -44;
 
   fclose(file);
   return 0;
@@ -3781,6 +4204,260 @@ int test_NSKeyedArchiver_NSKeyedUnarchiver() {
   return 0;
 }
 
+int test_NSNumber_stringValue() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  NSNumber *num;
+  NSString *result;
+  NSString *expected;
+
+  // Bool: YES -> "1"
+  num = [NSNumber numberWithBool:YES];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"1"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -1;
+  }
+
+  // Bool: NO -> "0"
+  num = [NSNumber numberWithBool:NO];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -2;
+  }
+
+  // Int: 0 -> "0"
+  num = [NSNumber numberWithInt:0];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -3;
+  }
+
+  // Int: 42 -> "42"
+  num = [NSNumber numberWithInt:42];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"42"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -4;
+  }
+
+  // Int: -100 -> "-100"
+  num = [NSNumber numberWithInt:-100];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"-100"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -5;
+  }
+
+  // Int: INT_MAX -> "2147483647"
+  num = [NSNumber numberWithInt:2147483647];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"2147483647"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -6;
+  }
+
+  // Int: INT_MIN -> "-2147483648"
+  num = [NSNumber numberWithInt:-2147483648];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"-2147483648"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -7;
+  }
+
+  // LongLong: 0 -> "0"
+  num = [NSNumber numberWithLongLong:0LL];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -8;
+  }
+
+  // LongLong: 9999999999 -> "9999999999"
+  num = [NSNumber numberWithLongLong:9999999999LL];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"9999999999"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -9;
+  }
+
+  // LongLong: -9999999999 -> "-9999999999"
+  num = [NSNumber numberWithLongLong:-9999999999LL];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"-9999999999"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -10;
+  }
+
+  // UnsignedInt: 0 -> "0"
+  num = [NSNumber numberWithUnsignedInt:0U];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -11;
+  }
+
+  // UnsignedLongLong: 0 -> "0"
+  num = [NSNumber numberWithUnsignedLongLong:0ULL];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -12;
+  }
+
+  // Float: 0.0 -> "0"
+  num = [NSNumber numberWithFloat:0.0f];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -13;
+  }
+
+  // Float: 1.5 -> "1.5"
+  num = [NSNumber numberWithFloat:1.5f];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"1.5"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -14;
+  }
+
+  // Float: -1.25 -> "-1.25"
+  num = [NSNumber numberWithFloat:-1.25f];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"-1.25"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -15;
+  }
+
+  // Double: 0.0 -> "0"
+  num = [NSNumber numberWithDouble:0.0];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -16;
+  }
+
+  // Double: 1.5 -> "1.5"
+  num = [NSNumber numberWithDouble:1.5];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"1.5"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -17;
+  }
+
+  // Double: -1.25 -> "-1.25"
+  num = [NSNumber numberWithDouble:-1.25];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"-1.25"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -18;
+  }
+
+  // Short: 0 -> "0"
+  num = [NSNumber numberWithShort:0];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -19;
+  }
+
+  // Short: 100 -> "100"
+  num = [NSNumber numberWithShort:100];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"100"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -20;
+  }
+
+  // Short: SHRT_MIN -> "-32768"
+  num = [NSNumber numberWithShort:-32768];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"-32768"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -21;
+  }
+
+  // Short: SHRT_MAX -> "32767"
+  num = [NSNumber numberWithShort:32767];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"32767"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -22;
+  }
+
+  // UnsignedShort: 0 -> "0"
+  num = [NSNumber numberWithUnsignedShort:0];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -23;
+  }
+
+  // Char: 0 -> "0"
+  num = [NSNumber numberWithChar:0];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"0"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -24;
+  }
+
+  // Char: 65 -> "65"
+  num = [NSNumber numberWithChar:65];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"65"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -25;
+  }
+
+  // Char: SCHAR_MIN -> "-128"
+  num = [NSNumber numberWithChar:-128];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"-128"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -26;
+  }
+
+  // Char: SCHAR_MAX -> "127"
+  num = [NSNumber numberWithChar:127];
+  result = [num stringValue];
+  expected = [NSString stringWithUTF8String:"127"];
+  if (![result isEqualToString:expected]) {
+    [pool drain];
+    return -27;
+  }
+
+  [pool drain];
+  return 0;
+}
+
 // clang-format off
 #define FUNC_DEF(func)                                                         \
   { &func, #func }
@@ -3795,6 +4472,7 @@ struct {
     FUNC_DEF(test_synchronized),
     FUNC_DEF(test_read_directory_as_fd),
     FUNC_DEF(test_pthread_get_stacksize_np),
+    FUNC_DEF(test_cpp_virtual_inheritance),
 #endif
     FUNC_DEF(test_qsort),
     FUNC_DEF(test_vsnprintf),
@@ -3829,6 +4507,7 @@ struct {
     FUNC_DEF(test_open),
     FUNC_DEF(test_close),
     FUNC_DEF(test_cond_var),
+    FUNC_DEF(test_cond_var_static),
     FUNC_DEF(test_pthread_mutex_normal),
     FUNC_DEF(test_pthread_mutex_recursive_trylock),
     FUNC_DEF(test_CFMutableDictionary_NullCallbacks),
@@ -3860,6 +4539,7 @@ struct {
     FUNC_DEF(test_RespondsToSelector),
     FUNC_DEF(test_NSKeyedArchiver_NSKeyedUnarchiver),
     FUNC_DEF(test_AutoreleasePool),
+    FUNC_DEF(test_NSNumber_stringValue),
 };
 // clang-format on
 

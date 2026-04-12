@@ -1,6 +1,7 @@
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * License, v. 2.0.
+ * If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Traits for application binary interface (ABI) translation, in particular
@@ -67,11 +68,9 @@ impl GuestFunction {
             "Begin call to guest function {:?} (no new stack frame)",
             self
         );
-
         let (old_pc, old_lr) = env
             .cpu
             .branch_with_link(self, env.dyld.return_to_host_routine());
-
         env.run_call();
 
         env.cpu.branch(old_pc);
@@ -263,11 +262,9 @@ macro_rules! impl_CallFromHost {
                 args: ($($P,)*),
             ) -> R {
                 log_dbg!("Begin call to guest function {:?}", self);
-
                 let (old_pc, old_lr) = env
                     .cpu
                     .branch_with_link(*self, env.dyld.return_to_host_routine());
-
                 // Create a new guest stack frame. This is redundant considering
                 // we are storing this data on the host stack, but this makes
                 // stack traces work nicely. :)
@@ -282,7 +279,6 @@ macro_rules! impl_CallFromHost {
                     env.mem.write(Ptr::from_bits(regs[Cpu::SP] + 4), old_lr);
                     (old_sp, old_fp)
                 };
-
                 assert!(R::SIZE_IN_MEM.is_none()); // pointer return TODO
                 let regs = env.cpu.regs_mut();
                 let _ = extend_stack_for_args(
@@ -353,7 +349,6 @@ fn read_next_arg<T: GuestArg>(
     // arbitrary limit. 16 is high enough for everything right now.
     let mut fake_regs = [0u32; 16];
     let fake_regs = &mut fake_regs[0..T::REG_COUNT];
-
     for fake_reg in fake_regs.iter_mut() {
         if *reg_offset < 4 {
             *fake_reg = regs[*reg_offset];
@@ -472,6 +467,7 @@ impl_GuestArg_with!(u16, u32);
 impl_GuestArg_with!(i16, u32);
 impl_GuestArg_with!(u8, u32);
 impl_GuestArg_with!(i8, u32);
+impl_GuestArg_with!(usize, u32); // <--- ДОБАВЛЕНО ДЛЯ РЕШЕНИЯ ОШИБКИ
 
 impl GuestArg for bool {
     const REG_COUNT: usize = 1;
@@ -615,7 +611,6 @@ macro_rules! impl_GuestRet_for_large_struct {
         impl $crate::abi::GuestRet for $for {
             const SIZE_IN_MEM: Option<$crate::mem::GuestUSize> =
                 Some($crate::mem::guest_size_of::<$for>());
-
             fn from_mem(ptr: $crate::mem::ConstVoidPtr, mem: &$crate::mem::Mem) -> Self {
                 let ptr = ptr.cast::<Self>();
                 mem.read(ptr)
@@ -654,6 +649,7 @@ impl_GuestRet_with!(u16, u32);
 impl_GuestRet_with!(i16, u32);
 impl_GuestRet_with!(u8, u32);
 impl_GuestRet_with!(i8, u32);
+impl_GuestRet_with!(usize, u32); // <--- ДОБАВЛЕНО ДЛЯ РЕШЕНИЯ ОШИБКИ
 
 impl GuestRet for bool {
     fn from_regs(regs: &[u32]) -> Self {
@@ -708,3 +704,4 @@ impl GuestRet for f64 {
         <u64 as GuestRet>::to_regs(self.to_bits(), regs)
     }
 }
+

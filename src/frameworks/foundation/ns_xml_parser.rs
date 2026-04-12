@@ -19,6 +19,7 @@ use quick_xml::reader::Reader;
 struct NSXMLParserHostObject {
     data: id,
     delegate: id,
+    error: id, // NSError*
 }
 impl HostObject for NSXMLParserHostObject {}
 
@@ -32,6 +33,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = Box::new(NSXMLParserHostObject {
         data: nil,
         delegate: nil,
+        error: nil,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -64,18 +66,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, should);
 }
 
+- (id)parserError {
+    env.objc.borrow::<NSXMLParserHostObject>(this).error
+}
+
 - (bool)parse {
     let data = env.objc.borrow::<NSXMLParserHostObject>(this).data;
-    
+
     if data == nil {
         log!("NSXMLParser: data is nil, cannot parse!");
+        let error = make_parse_error(env, 0, "Data is nil".to_string());
+        env.objc.borrow_mut::<NSXMLParserHostObject>(this).error = error;
         return false;
     }
 
     let bytes: ConstVoidPtr = msg![env; data bytes];
     let length: NSUInteger = msg![env; data length];
-    
+
     if length == 0 {
+        let error = make_parse_error(env, 0, "Data is empty".to_string());
+        env.objc.borrow_mut::<NSXMLParserHostObject>(this).error = error;
         return false;
     }
 
@@ -89,10 +99,23 @@ pub const CLASSES: ClassExports = objc_classes! {
             Ok(Event::Eof) => break,
             Ok(e) => events.push(e.into_owned()),
             Err(e) => {
-                log!("XML Parse Error at position {}: {:?}", 
-                     reader.error_position(), e);
+                let msg = format!("{:?}", e);
+                let pos = reader.error_position();
+                log!("XML Parse Error at position {}: {:?}", pos, e);
+                let error = make_parse_error(env, pos as i32, msg);
+                env.objc.borrow_mut::<NSXMLParserHostObject>(this).error = error;
+
+                // Notify delegate of error
+                let delegate = env.objc.borrow::<NSXMLParserHostObject>(this).delegate;
+                let _sel: SEL = env.objc.register_host_selector(
+                    "parser:parseErrorOccurred:".to_string(), &mut env.mem);
+                if delegate != nil && msg![env; delegate respondsToSelector:_sel] {
+                    let err = env.objc.borrow::<NSXMLParserHostObject>(this).error;
+                    () = msg![env; delegate parser:this parseErrorOccurred:err];
+                }
+
                 return false;
-            },
+            }
         }
     }
 
@@ -212,8 +235,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let &NSXMLParserHostObject { data, .. } = env.objc.borrow(this);
+    let &NSXMLParserHostObject { data, error, .. } = env.objc.borrow(this);
     release(env, data);
+    release(env, error);
     env.objc.dealloc_object(this, &mut env.mem);
 }
 
@@ -237,5 +261,28 @@ fn build_attributes_dict(env: &mut Environment, e: BytesStart) -> id {
         release(env, val);
     }
     autorelease(env, dict)
+}
+
+fn make_parse_error(env: &mut Environment, code: i32, message: String) -> id {
+    // NSError *error = [NSError errorWithDomain:NSXMLParserErrorDomain
+    //                                     code:code
+    //                                 userInfo:@{NSLocalizedDescriptionKey: message}]
+    let domain = from_rust_string(env, "NSXMLParserErrorDomain".to_string());
+    let domain = autorelease(env, domain);
+
+    let desc_key = from_rust_string(env, "NSLocalizedDescription".to_string());
+    let desc_key = autorelease(env, desc_key);
+    let desc_val = from_rust_string(env, message);
+    let desc_val = autorelease(env, desc_val);
+
+    let user_info: id = msg_class![env; NSMutableDictionary new];
+    let user_info = autorelease(env, user_info);
+    () = msg![env; user_info setObject:desc_val forKey:desc_key];
+
+    let error: id = msg_class![env; NSError errorWithDomain:domain
+                                                        code:code
+                                                    userInfo:user_info];
+    retain(env, error);
+    error
 }
 

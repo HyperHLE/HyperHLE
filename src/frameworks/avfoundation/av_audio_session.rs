@@ -1,0 +1,384 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+//! `AVAudioSession`.
+
+use crate::dyld::{ConstantExports, HostConstant};
+use crate::frameworks::foundation::{ns_string, NSInteger, NSUInteger};
+use crate::mem::MutPtr;
+use crate::objc::{
+    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports,
+    TrivialHostObject,
+};
+
+// MARK: - Category constants
+
+pub const AVAudioSessionCategoryAmbient:          &str = "AVAudioSessionCategoryAmbient";
+pub const AVAudioSessionCategorySoloAmbient:      &str = "AVAudioSessionCategorySoloAmbient";
+pub const AVAudioSessionCategoryPlayback:         &str = "AVAudioSessionCategoryPlayback";
+pub const AVAudioSessionCategoryRecord:           &str = "AVAudioSessionCategoryRecord";
+pub const AVAudioSessionCategoryPlayAndRecord:    &str = "AVAudioSessionCategoryPlayAndRecord";
+pub const AVAudioSessionCategoryAudioProcessing:  &str = "AVAudioSessionCategoryAudioProcessing";
+pub const AVAudioSessionCategoryMultiRoute:       &str = "AVAudioSessionCategoryMultiRoute";
+
+// MARK: - Mode constants
+
+pub const AVAudioSessionModeDefault:             &str = "AVAudioSessionModeDefault";
+pub const AVAudioSessionModeVoiceChat:           &str = "AVAudioSessionModeVoiceChat";
+pub const AVAudioSessionModeGameChat:            &str = "AVAudioSessionModeGameChat";
+pub const AVAudioSessionModeVideoRecording:      &str = "AVAudioSessionModeVideoRecording";
+pub const AVAudioSessionModeMeasurement:         &str = "AVAudioSessionModeMeasurement";
+pub const AVAudioSessionModeMoviePlayback:       &str = "AVAudioSessionModeMoviePlayback";
+pub const AVAudioSessionModeVideoChat:           &str = "AVAudioSessionModeVideoChat";
+pub const AVAudioSessionModeSpokenAudio:         &str = "AVAudioSessionModeSpokenAudio";
+
+// MARK: - Notification constants
+
+pub const AVAudioSessionInterruptionNotification:             &str = "AVAudioSessionInterruptionNotification";
+pub const AVAudioSessionRouteChangeNotification:              &str = "AVAudioSessionRouteChangeNotification";
+pub const AVAudioSessionMediaServicesWereLostNotification:    &str = "AVAudioSessionMediaServicesWereLostNotification";
+pub const AVAudioSessionMediaServicesWereResetNotification:   &str = "AVAudioSessionMediaServicesWereResetNotification";
+pub const AVAudioSessionSilenceSecondaryAudioHintNotification: &str = "AVAudioSessionSilenceSecondaryAudioHintNotification";
+
+// MARK: - UserInfo keys
+
+pub const AVAudioSessionInterruptionTypeKey:              &str = "AVAudioSessionInterruptionTypeKey";
+pub const AVAudioSessionInterruptionOptionKey:            &str = "AVAudioSessionInterruptionOptionKey";
+pub const AVAudioSessionRouteChangeReasonKey:             &str = "AVAudioSessionRouteChangeReasonKey";
+pub const AVAudioSessionRouteChangePreviousRouteKey:      &str = "AVAudioSessionRouteChangePreviousRouteKey";
+pub const AVAudioSessionSilenceSecondaryAudioHintTypeKey: &str = "AVAudioSessionSilenceSecondaryAudioHintTypeKey";
+
+// MARK: - Category option flags
+
+type AVAudioSessionCategoryOptions = NSUInteger;
+const AVAudioSessionCategoryOptionMixWithOthers:           AVAudioSessionCategoryOptions = 0x1;
+const AVAudioSessionCategoryOptionDuckOthers:              AVAudioSessionCategoryOptions = 0x2;
+const AVAudioSessionCategoryOptionAllowBluetooth:          AVAudioSessionCategoryOptions = 0x4;
+const AVAudioSessionCategoryOptionDefaultToSpeaker:        AVAudioSessionCategoryOptions = 0x8;
+const AVAudioSessionCategoryOptionInterruptSpokenAudioAndMixWithOthers: AVAudioSessionCategoryOptions = 0x11;
+const AVAudioSessionCategoryOptionAllowBluetoothA2DP:      AVAudioSessionCategoryOptions = 0x20;
+const AVAudioSessionCategoryOptionAllowAirPlay:            AVAudioSessionCategoryOptions = 0x40;
+
+// MARK: - Interruption type
+
+type AVAudioSessionInterruptionType = NSUInteger;
+const AVAudioSessionInterruptionTypeBegan: AVAudioSessionInterruptionType = 1;
+const AVAudioSessionInterruptionTypeEnded: AVAudioSessionInterruptionType = 0;
+
+// MARK: - Route change reason
+
+type AVAudioSessionRouteChangeReason = NSUInteger;
+const AVAudioSessionRouteChangeReasonUnknown:            AVAudioSessionRouteChangeReason = 0;
+const AVAudioSessionRouteChangeReasonNewDeviceAvailable: AVAudioSessionRouteChangeReason = 1;
+const AVAudioSessionRouteChangeReasonOldDeviceUnavailable: AVAudioSessionRouteChangeReason = 2;
+const AVAudioSessionRouteChangeReasonCategoryChange:     AVAudioSessionRouteChangeReason = 3;
+const AVAudioSessionRouteChangeReasonOverride:           AVAudioSessionRouteChangeReason = 4;
+const AVAudioSessionRouteChangeReasonWakeFromSleep:      AVAudioSessionRouteChangeReason = 6;
+const AVAudioSessionRouteChangeReasonNoSuitableRouteForCategory: AVAudioSessionRouteChangeReason = 7;
+const AVAudioSessionRouteChangeReasonRouteConfigurationChange: AVAudioSessionRouteChangeReason = 8;
+
+// MARK: - Port types
+
+pub const AVAudioSessionPortBuiltInSpeaker:   &str = "Speaker";
+pub const AVAudioSessionPortBuiltInReceiver:  &str = "Receiver";
+pub const AVAudioSessionPortBuiltInMic:       &str = "MicrophoneBuiltIn";
+pub const AVAudioSessionPortHeadphones:       &str = "Headphones";
+pub const AVAudioSessionPortBluetoothA2DP:    &str = "BluetoothA2DPOutput";
+pub const AVAudioSessionPortBluetoothLE:      &str = "BluetoothLEOutput";
+pub const AVAudioSessionPortBluetoothHFP:     &str = "BluetoothHFP";
+
+pub const CONSTANTS: ConstantExports = &[
+    // Categories
+    ("_AVAudioSessionCategoryAmbient",         HostConstant::NSString(AVAudioSessionCategoryAmbient)),
+    ("_AVAudioSessionCategorySoloAmbient",     HostConstant::NSString(AVAudioSessionCategorySoloAmbient)),
+    ("_AVAudioSessionCategoryPlayback",        HostConstant::NSString(AVAudioSessionCategoryPlayback)),
+    ("_AVAudioSessionCategoryRecord",          HostConstant::NSString(AVAudioSessionCategoryRecord)),
+    ("_AVAudioSessionCategoryPlayAndRecord",   HostConstant::NSString(AVAudioSessionCategoryPlayAndRecord)),
+    ("_AVAudioSessionCategoryAudioProcessing", HostConstant::NSString(AVAudioSessionCategoryAudioProcessing)),
+    ("_AVAudioSessionCategoryMultiRoute",      HostConstant::NSString(AVAudioSessionCategoryMultiRoute)),
+    // Modes
+    ("_AVAudioSessionModeDefault",             HostConstant::NSString(AVAudioSessionModeDefault)),
+    ("_AVAudioSessionModeVoiceChat",           HostConstant::NSString(AVAudioSessionModeVoiceChat)),
+    ("_AVAudioSessionModeGameChat",            HostConstant::NSString(AVAudioSessionModeGameChat)),
+    ("_AVAudioSessionModeVideoRecording",      HostConstant::NSString(AVAudioSessionModeVideoRecording)),
+    ("_AVAudioSessionModeMeasurement",         HostConstant::NSString(AVAudioSessionModeMeasurement)),
+    ("_AVAudioSessionModeMoviePlayback",       HostConstant::NSString(AVAudioSessionModeMoviePlayback)),
+    ("_AVAudioSessionModeVideoChat",           HostConstant::NSString(AVAudioSessionModeVideoChat)),
+    ("_AVAudioSessionModeSpokenAudio",         HostConstant::NSString(AVAudioSessionModeSpokenAudio)),
+    // Notifications
+    ("_AVAudioSessionInterruptionNotification",             HostConstant::NSString(AVAudioSessionInterruptionNotification)),
+    ("_AVAudioSessionRouteChangeNotification",              HostConstant::NSString(AVAudioSessionRouteChangeNotification)),
+    ("_AVAudioSessionMediaServicesWereLostNotification",    HostConstant::NSString(AVAudioSessionMediaServicesWereLostNotification)),
+    ("_AVAudioSessionMediaServicesWereResetNotification",   HostConstant::NSString(AVAudioSessionMediaServicesWereResetNotification)),
+    ("_AVAudioSessionSilenceSecondaryAudioHintNotification",HostConstant::NSString(AVAudioSessionSilenceSecondaryAudioHintNotification)),
+    // UserInfo keys
+    ("_AVAudioSessionInterruptionTypeKey",              HostConstant::NSString(AVAudioSessionInterruptionTypeKey)),
+    ("_AVAudioSessionInterruptionOptionKey",            HostConstant::NSString(AVAudioSessionInterruptionOptionKey)),
+    ("_AVAudioSessionRouteChangeReasonKey",             HostConstant::NSString(AVAudioSessionRouteChangeReasonKey)),
+    ("_AVAudioSessionRouteChangePreviousRouteKey",      HostConstant::NSString(AVAudioSessionRouteChangePreviousRouteKey)),
+    ("_AVAudioSessionSilenceSecondaryAudioHintTypeKey", HostConstant::NSString(AVAudioSessionSilenceSecondaryAudioHintTypeKey)),
+    // Port types
+    ("_AVAudioSessionPortBuiltInSpeaker",  HostConstant::NSString(AVAudioSessionPortBuiltInSpeaker)),
+    ("_AVAudioSessionPortBuiltInReceiver", HostConstant::NSString(AVAudioSessionPortBuiltInReceiver)),
+    ("_AVAudioSessionPortBuiltInMic",      HostConstant::NSString(AVAudioSessionPortBuiltInMic)),
+    ("_AVAudioSessionPortHeadphones",      HostConstant::NSString(AVAudioSessionPortHeadphones)),
+    ("_AVAudioSessionPortBluetoothA2DP",   HostConstant::NSString(AVAudioSessionPortBluetoothA2DP)),
+    ("_AVAudioSessionPortBluetoothLE",     HostConstant::NSString(AVAudioSessionPortBluetoothLE)),
+    ("_AVAudioSessionPortBluetoothHFP",    HostConstant::NSString(AVAudioSessionPortBluetoothHFP)),
+];
+
+#[derive(Default)]
+pub struct State {
+    shared_instance: Option<id>,
+}
+
+pub const CLASSES: ClassExports = objc_classes! {
+
+(env, this, _cmd);
+
+@implementation AVAudioSession: NSObject
+
++ (id)sharedInstance {
+    env.objc.alloc_static_object(
+        this,
+        Box::new(TrivialHostObject),
+        &mut env.mem,
+    )
+}
+
+
+// MARK: - Category
+
+- (id)category {
+    // Default category is SoloAmbient.
+    ns_string::get_static_str(env, AVAudioSessionCategorySoloAmbient)
+}
+
+- (bool)setCategory:(id)category error:(MutPtr<id>)_error {
+    let cat = ns_string::to_rust_string(env, category);
+    log!("AVAudioSession setCategory:{} — stubbed", cat);
+    true
+}
+
+- (bool)setCategory:(id)category
+        withOptions:(AVAudioSessionCategoryOptions)_options
+              error:(MutPtr<id>)_error {
+    let cat = ns_string::to_rust_string(env, category);
+    log!("AVAudioSession setCategory:{} withOptions: — stubbed", cat);
+    true
+}
+
+- (bool)setCategory:(id)category
+               mode:(id)mode
+            options:(AVAudioSessionCategoryOptions)_options
+              error:(MutPtr<id>)_error {
+    let cat  = ns_string::to_rust_string(env, category);
+    let mode = ns_string::to_rust_string(env, mode);
+    log!("AVAudioSession setCategory:{} mode:{} — stubbed", cat, mode);
+    true
+}
+
+- (AVAudioSessionCategoryOptions)categoryOptions {
+    0
+}
+
+// MARK: - Mode
+
+- (id)mode {
+    ns_string::get_static_str(env, AVAudioSessionModeDefault)
+}
+
+- (bool)setMode:(id)mode error:(MutPtr<id>)_error {
+    let m = ns_string::to_rust_string(env, mode);
+    log!("AVAudioSession setMode:{} — stubbed", m);
+    true
+}
+
+// MARK: - Activation
+
+- (bool)setActive:(bool)active error:(MutPtr<id>)_error {
+    log!("AVAudioSession setActive:{} — stubbed", active);
+    true
+}
+
+- (bool)setActive:(bool)active
+      withOptions:(NSUInteger)_options
+            error:(MutPtr<id>)_error {
+    log!("AVAudioSession setActive:{} withOptions: — stubbed", active);
+    true
+}
+
+// MARK: - Audio properties
+
+- (f64)sampleRate {
+    44100.0
+}
+
+- (bool)setPreferredSampleRate:(f64)rate error:(MutPtr<id>)_error {
+    log!("AVAudioSession setPreferredSampleRate:{} — stubbed", rate);
+    true
+}
+
+- (f64)preferredSampleRate {
+    44100.0
+}
+
+- (f64)outputLatency {
+    0.005 // 5ms — typical for built-in speaker
+}
+
+- (f64)inputLatency {
+    0.005
+}
+
+- (f64)IOBufferDuration {
+    0.005
+}
+
+- (bool)setPreferredIOBufferDuration:(f64)duration error:(MutPtr<id>)_error {
+    log!("AVAudioSession setPreferredIOBufferDuration:{} — stubbed", duration);
+    true
+}
+
+- (f64)preferredIOBufferDuration {
+    0.005
+}
+
+- (NSInteger)maximumInputNumberOfChannels {
+    0
+}
+
+- (NSInteger)maximumOutputNumberOfChannels {
+    2
+}
+
+- (f32)inputGain {
+    1.0
+}
+
+- (bool)isInputGainSettable {
+    false
+}
+
+- (bool)setInputGain:(f32)_gain error:(MutPtr<id>)_error {
+    false
+}
+
+- (f32)outputVolume {
+    1.0
+}
+
+// MARK: - Input / output availability
+
+- (bool)isInputAvailable {
+    false
+}
+
+- (bool)isOtherAudioPlaying {
+    false
+}
+
+- (bool)secondaryAudioShouldBeSilencedHint {
+    false
+}
+
+// MARK: - Route
+
+- (id)currentRoute { // AVAudioSessionRouteDescription*
+    // Return a stub route description.
+    let route: id = msg_class![env; AVAudioSessionRouteDescription new];
+    autorelease(env, route)
+}
+
+- (id)availableInputs { // NSArray<AVAudioSessionPortDescription*>*
+    msg_class![env; NSArray new]
+}
+
+- (bool)setPreferredInput:(id)_input error:(MutPtr<id>)_error {
+    false
+}
+
+- (id)preferredInput {
+    nil
+}
+
+// MARK: - Delegate (deprecated pre-iOS 6 API)
+
+- (id)delegate {
+    nil
+}
+
+- (())setDelegate:(id)_delegate {
+    log!("AVAudioSession setDelegate: — deprecated, stubbed");
+}
+
+// MARK: - Interruption observer (deprecated pre-iOS 6 API)
+
+- (bool)setActive:(bool)active
+            flags:(NSInteger)_flags
+            error:(MutPtr<id>)_error {
+    log!("AVAudioSession setActive:flags:error: — deprecated, stubbed");
+    true
+}
+
+@end
+
+// MARK: - AVAudioSessionRouteDescription stub
+
+@implementation AVAudioSessionRouteDescription: NSObject
+
+- (id)inputs {
+    msg_class![env; NSArray new]
+}
+
+- (id)outputs {
+    // Report built-in speaker as the sole output.
+    let port: id = msg_class![env; AVAudioSessionPortDescription new];
+    let arr: id  = msg_class![env; NSArray arrayWithObject:port];
+    release(env, port);
+    arr
+}
+
+@end
+
+// MARK: - AVAudioSessionPortDescription stub
+
+@implementation AVAudioSessionPortDescription: NSObject
+
+- (id)portType {
+    ns_string::get_static_str(env, AVAudioSessionPortBuiltInSpeaker)
+}
+
+- (id)portName {
+    ns_string::get_static_str(env, "Speaker")
+}
+
+- (id)UID {
+    ns_string::get_static_str(env, "Built-In Speaker")
+}
+
+- (id)channels { // NSArray<AVAudioSessionChannelDescription*>*
+    msg_class![env; NSArray new]
+}
+
+- (id)dataSources {
+    nil
+}
+
+- (id)selectedDataSource {
+    nil
+}
+
+- (id)preferredDataSource {
+    nil
+}
+
+- (bool)setPreferredDataSource:(id)_source error:(MutPtr<id>)_error {
+    false
+}
+
+@end
+
+};

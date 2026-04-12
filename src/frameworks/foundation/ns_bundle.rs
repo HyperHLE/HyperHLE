@@ -4,7 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! `NSBundle`.
-
 use super::{ns_string, NSUInteger};
 use crate::bundle::Bundle;
 use crate::frameworks::core_foundation::cf_bundle::{
@@ -20,36 +19,42 @@ use std::collections::{HashMap, HashSet};
 
 // Should be ISO 639-1 (or ISO 639-2) compliant
 // Legacy projects use language names while newer ones use language code lprojs
-// TODO: complete this list or use some crate for mapping
 const LANG_ID_TO_LANG_PROJ: &[(&str, &[&str])] = &[
-    ("da", &["Danish.lproj", "da.lproj"]),
-    ("nl", &["Dutch.lproj", "nl.lproj"]),
-    ("en", &["English.lproj", "en.lproj"]),
-    ("fi", &["Finnish.lproj", "fi.lproj"]),
-    ("fr", &["French.lproj", "fr.lproj"]),
-    ("de", &["German.lproj", "de.lproj"]),
-    ("it", &["Italian.lproj", "it.lproj"]),
-    ("ja", &["Japanese.lproj", "ja.lproj"]),
-    ("no", &["Norwegian.lproj", "no.lproj"]),
-    ("es", &["Spanish.lproj", "es.lproj"]),
-    ("sv", &["Swedish.lproj", "sv.lproj"]),
+    ("da", &["Danish.lproj",     "da.lproj"]),
+    ("nl", &["Dutch.lproj",      "nl.lproj"]),
+    ("en", &["English.lproj",    "en.lproj"]),
+    ("fi", &["Finnish.lproj",    "fi.lproj"]),
+    ("fr", &["French.lproj",     "fr.lproj"]),
+    ("de", &["German.lproj",     "de.lproj"]),
+    ("it", &["Italian.lproj",    "it.lproj"]),
+    ("ja", &["Japanese.lproj",   "ja.lproj"]),
+    ("ko", &["Korean.lproj",     "ko.lproj"]),
+    ("no", &["Norwegian.lproj",  "no.lproj"]),
+    ("pt", &["Portuguese.lproj", "pt.lproj"]),
+    ("ru", &["Russian.lproj",    "ru.lproj"]),
+    ("zh", &["Chinese.lproj",    "zh.lproj"]),
+    ("es", &["Spanish.lproj",    "es.lproj"]),
+    ("sv", &["Swedish.lproj",    "sv.lproj"]),
+    ("tr", &["Turkish.lproj",    "tr.lproj"]),
 ];
 
 #[derive(Default)]
 pub struct State {
     main_bundle: Option<id>,
-    localization_tables: HashMap<id, id>, // NSString* to NSDictionary*
+    // Keyed by bundle path String → NSBundle*
+    bundle_cache: HashMap<String, id>,
+    localization_tables: HashMap<id, id>, // NSString* → NSDictionary*
 }
 
 pub struct NSBundleHostObject {
     /// If this is [None], this is the main bundle's NSBundle instance and the
     /// [Bundle] is stored in [crate::Environment], not here.
     pub bundle: Option<Bundle>,
-    /// NSString with bundle path.
+    /// NSString* with bundle path.
     bundle_path: id,
-    /// NSString with bundle identifier.
+    /// NSString* with bundle identifier.
     bundle_identifier: id,
-    /// NSURL with bundle path. [None] if not created yet.
+    /// NSURL* with bundle path. [None] if not created yet.
     bundle_url: Option<id>,
     /// `NSDictionary*` for the `Info.plist` content. [None] if not created yet.
     info_dictionary: Option<id>,
@@ -62,6 +67,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSBundle: NSObject
 
+// =========================================================================
+// MARK: - Class methods / constructors
+// =========================================================================
+
 + (id)mainBundle {
     if let Some(bundle) = env.framework_state.foundation.ns_bundle.main_bundle {
         bundle
@@ -69,45 +78,46 @@ pub const CLASSES: ClassExports = objc_classes! {
         let new = msg_class![env; _touchHLE_NSBundle_Static alloc];
         env.framework_state.foundation.ns_bundle.main_bundle = Some(new);
         new
-   }
+    }
 }
 
 + (id)bundleForClass:(id)_aClass {
     // Return the main bundle. For single-bundle iPhone apps this is always
     // correct. A full implementation would look up which bundle contains the
-    // given class, but that is not needed for typical app binaries.
+    // given class.
     msg_class![env; NSBundle mainBundle]
 }
 
-+ (id)preferredLocalizationsFromArray:(id)localizations_array { // NSArray<NSString *> *
-    let preferredLocalizations = CFBundleCopyPreferredLocalizationsFromArray(env, localizations_array);
-    autorelease(env, preferredLocalizations)
++ (id)bundleWithPath:(id)path { // NSString*
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithPath:path];
+    autorelease(env, new)
 }
 
-- (())dealloc {
-    let &NSBundleHostObject {
-        bundle: _,
-        bundle_path: _, // FIXME?
-        bundle_identifier: _, // FIXME?
-        bundle_url,
-        info_dictionary,
-    } = env.objc.borrow(this);
-    if let Some(bundle_url) = bundle_url {
-        release(env, bundle_url);
-    }
-    if let Some(info_dictionary) = info_dictionary {
-        release(env, info_dictionary);
-    }
-    env.objc.dealloc_object(this, &mut env.mem)
++ (id)bundleWithURL:(id)url { // NSURL*
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithURL:url];
+    autorelease(env, new)
 }
 
-- (id)bundlePath {
-    env.objc.borrow::<NSBundleHostObject>(this).bundle_path
++ (id)bundleWithIdentifier:(id)identifier { // NSString*
+    if identifier == nil {
+        return nil;
+    }
+    // Check main bundle first.
+    let main: id = msg_class![env; NSBundle mainBundle];
+    let main_id: id = msg![env; main bundleIdentifier];
+    if main_id != nil {
+        let equal: bool = msg![env; main_id isEqualToString:identifier];
+        if equal {
+            return main;
+        }
+    }
+    log!("TODO: [NSBundle bundleWithIdentifier:] non-main bundle — returning nil");
+    nil
 }
-- (id)bundleIdentifier {
-    env.objc.borrow::<NSBundleHostObject>(this).bundle_identifier
-}
-- (id)bundleURL {
+
++ (id)bundleURL {
     if let Some(url) = env.objc.borrow::<NSBundleHostObject>(this).bundle_url {
         url
     } else {
@@ -119,29 +129,273 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (id)loadNibNamed:(id)name // NSString*
-             owner:(id)owner
-           options:(id)options { // NSDictionary<UINibOptionsKey, id> *
-    if options != nil {
-        let options_count: NSUInteger = msg![env; options count];
-        // TODO: support options
-        assert_eq!(options_count, 0);
++ (id)bundlePath {
+    env.objc.borrow::<NSBundleHostObject>(this).bundle_path
+}
+
++ (id)resourcePath {
+    msg![env; this bundlePath]
+}
+
++ (id)resourceURL {
+    msg![env; this bundleURL]
+}
+
++ (id)executablePath {
+    let exec_path_str = env.bundle.executable_path().as_str().to_string();
+    let exec_path = from_rust_string(env, exec_path_str);
+    autorelease(env, exec_path)
+}
+
++ (id)executableURL {
+    let exec_path: id = msg![env; this executablePath];
+    if exec_path == nil {
+        return nil;
+    }
+    let url: id = msg_class![env; NSURL alloc];
+    let url: id = msg![env; url initFileURLWithPath:exec_path];
+    autorelease(env, url)
+}
+
++ (id)pathForResource:(id)name          // NSString*
+               ofType:(id)extension     // NSString*
+          inDirectory:(id)directory {   // NSString*
+    // assert!(name != nil);
+
+    let path = path_for_resource_helper(env, this, name, nil, directory, extension);
+    if path != nil {
+        return path;
     }
 
-    let nib : id = msg_class![env; UINib nibWithNibName:name bundle:this];
+    // Try preferred languages in order.
+    let langs: id = msg_class![env; NSLocale preferredLanguages];
+    let lang_count: NSUInteger = msg![env; langs count];
+    let mut unknown_codes = HashSet::new();
+    for i in 0..lang_count {
+        let lang_code: id = msg![env; langs objectAtIndex:i];
+        let lang_code_str = ns_string::to_rust_string(env, lang_code);
+        if let Some(&(_, lprojs)) = LANG_ID_TO_LANG_PROJ
+            .iter()
+            .find(|&&(code, _)| code == lang_code_str)
+        {
+            for lproj in lprojs {
+                let lproj_ns: id = ns_string::get_static_str(env, lproj);
+                let localized_path =
+                    path_for_resource_helper(env, this, name, lproj_ns, directory, extension);
+                if localized_path != nil {
+                    return localized_path;
+                }
+            }
+        } else {
+            unknown_codes.insert(lang_code_str.into_owned());
+        }
+    }
+
+    if !unknown_codes.is_empty() {
+        log!(
+            "TODO: language codes {:?} aren't mapped to a language name, falling back to English",
+            unknown_codes
+        );
+    }
+
+    // Fallback to English.
+    for lproj in ["English.lproj", "en.lproj"] {
+        let lproj_ns: id = ns_string::get_static_str(env, lproj);
+        let path = path_for_resource_helper(env, this, name, lproj_ns, directory, extension);
+        if path != nil {
+            return path;
+        }
+    }
+    nil
+}
+
++ (id)allBundles {
+    // Return an array containing only the main bundle.
+    let main: id = msg_class![env; NSBundle mainBundle];
+    let arr: id = msg_class![env; NSMutableArray new];
+    let _: () = msg![env; arr addObject:main];
+    autorelease(env, arr)
+}
+
++ (id)allFrameworks {
+    // No dynamically loaded frameworks in touchHLE.
+    msg_class![env; NSArray array]
+}
+
++ (id)preferredLocalizationsFromArray:(id)localizations_array { // NSArray<NSString*>*
+    let preferred = CFBundleCopyPreferredLocalizationsFromArray(env, localizations_array);
+    autorelease(env, preferred)
+}
+
++ (id)preferredLocalizationsFromArray:(id)localizations_array
+                       forPreferences:(id)_locale_identifiers_array {
+    // Ignore the explicit preferences list and fall back to the system default.
+    let preferred = CFBundleCopyPreferredLocalizationsFromArray(env, localizations_array);
+    autorelease(env, preferred)
+}
+
+- (id)initWithPath:(id)path { // NSString*
+    if path == nil {
+        log_dbg!("NSBundle initWithPath: nil path provided");
+        release(env, this);
+        return nil;
+    }
+
+    let path_str = ns_string::to_rust_string(env, path).into_owned();
+
+    // 1. CACHE CHECK
+    if let Some(&cached) = env.framework_state.foundation.ns_bundle.bundle_cache.get(&path_str) {
+        release(env, this);
+        return retain(env, cached);
+    }
+
+    // 2. FILESYSTEM VALIDATION (Modified for KAMI RETRO)
+    let plist_file_path = format!("{}/Info.plist", path_str);
+    let plist_guest = crate::fs::GuestPath::new(&plist_file_path);
+    
+    let mut dict: id = nil;
+    let mut bundle_identifier: id = nil;
+
+    if env.fs.read(plist_guest).is_ok() {
+        // Normal Path: Info.plist exists
+        let plist_path_ns = ns_string::from_rust_string(env, plist_file_path);
+        dict = msg_class![env; NSDictionary alloc];
+        dict = msg![env; dict initWithContentsOfFile:plist_path_ns];
+        release(env, plist_path_ns);
+
+        if dict != nil {
+            let id_key = ns_string::get_static_str(env, "CFBundleIdentifier");
+            let val: id = msg![env; dict objectForKey:id_key];
+            if val != nil { bundle_identifier = retain(env, val); }
+        }
+    }
+
+    // 3. STUB FALLBACK (Essential for "Full" Support)
+    // If no plist or dict was found, we still create the host object.
+    // This prevents "SUPER HACK! Faking borrow for missing object" warnings.
+    if bundle_identifier == nil {
+        bundle_identifier = ns_string::get_static_str(env, "com.gamevil.kamiretro.stub");
+    }
+
+    let bundle_path_ns = ns_string::from_rust_string(env, path_str.clone());
+    
+    // 4. HOST OBJECT INITIALIZATION
+    *env.objc.borrow_mut::<NSBundleHostObject>(this) = NSBundleHostObject {
+        bundle: None,
+        bundle_path: bundle_path_ns,
+        bundle_identifier,
+        bundle_url: None,
+        info_dictionary: if dict != nil { Some(dict) } else { None },
+    };
+
+    // 5. CACHE INSERTION
+    env.framework_state
+        .foundation
+        .ns_bundle
+        .bundle_cache
+        .insert(path_str, this);
+
+    this
+}
+
+- (id)initWithURL:(id)url { // NSURL*
+    if url == nil {
+        release(env, this);
+        return nil;
+    }
+    let path: id = msg![env; url path];
+    msg![env; this initWithPath:path]
+}
+
+// =========================================================================
+// MARK: - Dealloc
+// =========================================================================
+
+- (())dealloc {
+    // Release ALL owned NSString/NSURL/NSDictionary fields.
+    // bundle_path and bundle_identifier are always owned (+1) for non-static
+    // bundles; bundle_url and info_dictionary are optional.
+    let host = env.objc.borrow::<NSBundleHostObject>(this);
+    let bundle_path       = host.bundle_path;
+    let bundle_identifier = host.bundle_identifier;
+    let bundle_url        = host.bundle_url;
+    let info_dictionary   = host.info_dictionary;
+    drop(host);
+
+    release(env, bundle_path);
+    release(env, bundle_identifier);
+    if let Some(url)  = bundle_url       { release(env, url);  }
+    if let Some(dict) = info_dictionary  { release(env, dict); }
+    env.objc.dealloc_object(this, &mut env.mem)
+}
+
+// =========================================================================
+// MARK: - Identity
+// =========================================================================
+
+- (id)bundlePath {
+    env.objc.borrow::<NSBundleHostObject>(this).bundle_path
+}
+
+- (id)bundleIdentifier {
+    env.objc.borrow::<NSBundleHostObject>(this).bundle_identifier
+}
+
+- (id)bundleURL {
+    if let Some(url) = env.objc.borrow::<NSBundleHostObject>(this).bundle_url {
+        return url;
+    }
+    let bundle_path: id = msg![env; this bundlePath];
+    let new: id = msg_class![env; NSURL alloc];
+    let new: id = msg![env; new initFileURLWithPath:bundle_path];
+    env.objc.borrow_mut::<NSBundleHostObject>(this).bundle_url = Some(new);
+    new
+}
+
+// =========================================================================
+// MARK: - Load state
+// =========================================================================
+
+- (bool)isLoaded { true }
+
+- (bool)load {
+    log!("TODO: [NSBundle load] — returning YES (stub)");
+    true
+}
+
+- (bool)unload {
+    log!("TODO: [NSBundle unload] — returning NO");
+    false
+}
+
+- (bool)preflightAndReturnError:(id)_error { true }  // NSError**
+
+- (bool)loadAndReturnError:(id)_error { // NSError**
+    log!("TODO: [NSBundle loadAndReturnError:] — returning YES (stub)");
+    true
+}
+
+// =========================================================================
+// MARK: - NIB loading
+// =========================================================================
+
+- (id)loadNibNamed:(id)name
+             owner:(id)owner
+           options:(id)options {
+    if options != nil {
+        let options_count: NSUInteger = msg![env; options count];
+        assert_eq!(options_count, 0);
+    }
+    let nib: id = msg_class![env; UINib nibWithNibName:name bundle:this];
     msg![env; nib instantiateWithOwner:owner options:nil]
 }
 
-- (id)resourcePath {
-    // This seems to be the same as the bundle path. The iPhone OS bundle
-    // structure is a lot flatter than the macOS one.
-    msg![env; this bundlePath]
-}
-- (id)resourceURL {
-    // This seems to be the same as the bundle path. The iPhone OS bundle
-    // structure is a lot flatter than the macOS one.
-    msg![env; this bundleURL]
-}
+// =========================================================================
+// MARK: - Paths and URLs
+// =========================================================================
+
+- (id)resourcePath  { msg![env; this bundlePath] }
+- (id)resourceURL   { msg![env; this bundleURL]  }
 
 - (id)executablePath {
     let exec_path_str = env.bundle.executable_path().as_str().to_string();
@@ -149,137 +403,281 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, exec_path)
 }
 
-- (id)pathForResource:(id)name // NSString*
-               ofType:(id)extension // NSString*
-          inDirectory:(id)directory { // NSString*
-    assert!(name != nil); // TODO
+- (id)executableURL {
+    let exec_path: id = msg![env; this executablePath];
+    if exec_path == nil { return nil; }
+    let url: id = msg_class![env; NSURL alloc];
+    let url: id = msg![env; url initFileURLWithPath:exec_path];
+    autorelease(env, url)
+}
 
-    // TODO: cache result of lookups
+- (id)privateFrameworksPath {
+    let base: id = msg![env; this bundlePath];
+    let comp: id = ns_string::get_static_str(env, "Frameworks");
+    let path: id = msg![env; base stringByAppendingPathComponent:comp];
+    autorelease(env, path)
+}
 
+- (id)privateFrameworksURL {
+    let path: id = msg![env; this privateFrameworksPath];
+    let url: id = msg_class![env; NSURL alloc];
+    let url: id = msg![env; url initFileURLWithPath:path];
+    autorelease(env, url)
+}
+
+- (id)sharedFrameworksPath {
+    let base: id = msg![env; this bundlePath];
+    let comp: id = ns_string::get_static_str(env, "SharedFrameworks");
+    let path: id = msg![env; base stringByAppendingPathComponent:comp];
+    autorelease(env, path)
+}
+
+- (id)sharedFrameworksURL {
+    let path: id = msg![env; this sharedFrameworksPath];
+    let url: id = msg_class![env; NSURL alloc];
+    let url: id = msg![env; url initFileURLWithPath:path];
+    autorelease(env, url)
+}
+
+- (id)builtInPlugInsPath {
+    let base: id = msg![env; this bundlePath];
+    let comp: id = ns_string::get_static_str(env, "PlugIns");
+    let path: id = msg![env; base stringByAppendingPathComponent:comp];
+    autorelease(env, path)
+}
+
+- (id)builtInPlugInsURL {
+    let path: id = msg![env; this builtInPlugInsPath];
+    let url: id = msg_class![env; NSURL alloc];
+    let url: id = msg![env; url initFileURLWithPath:path];
+    autorelease(env, url)
+}
+
+- (id)sharedSupportPath {
+    let base: id = msg![env; this bundlePath];
+    let comp: id = ns_string::get_static_str(env, "SharedSupport");
+    let path: id = msg![env; base stringByAppendingPathComponent:comp];
+    autorelease(env, path)
+}
+
+- (id)sharedSupportURL {
+    let path: id = msg![env; this sharedSupportPath];
+    let url: id = msg_class![env; NSURL alloc];
+    let url: id = msg![env; url initFileURLWithPath:path];
+    autorelease(env, url)
+}
+
+- (id)appStoreReceiptURL {
+    log!("TODO: [NSBundle appStoreReceiptURL] — returning nil");
+    nil
+}
+
+// =========================================================================
+// MARK: - Resource lookup
+// =========================================================================
+
+- (id)pathsForResourcesOfType:(id)ext       // NSString*
+                  inDirectory:(id)subpath { // NSString*
+    let ext_str = if ext != nil {
+        Some(ns_string::to_rust_string(env, ext))
+    } else {
+        None
+    };
+    let subpath_str = if subpath != nil {
+        ns_string::to_rust_string(env, subpath)
+    } else {
+        std::borrow::Cow::Borrowed("")
+    };
+    let bundle_path: id = msg![env; this bundlePath];
+    let base_path = ns_string::to_rust_string(env, bundle_path);
+    let mut search_dir_str = base_path.into_owned();
+    if !subpath_str.is_empty() {
+        search_dir_str.push('/');
+        search_dir_str.push_str(&subpath_str);
+    }
+    let search_dir = crate::fs::GuestPath::new(&search_dir_str);
+    // Collect matching filenames into plain Rust Strings BEFORE calling any
+    // env-mutating functions (from_rust_string).  The iterator holds an
+    // immutable borrow on env.fs for its entire lifetime, which would conflict
+    // with the mutable borrow required by from_rust_string.
+    let matched_names: Vec<String> = match env.fs.enumerate(search_dir) {
+        Ok(iterator) => iterator
+            .filter(|entry| match &ext_str {
+                Some(extension) => entry.ends_with(extension.as_ref()),
+                None => true,
+            })
+            .map(|entry| format!("{}/{}", search_dir_str, entry))
+            .collect(),
+        Err(_) => {
+            log!(
+                "Warning: pathsForResourcesOfType:inDirectory: could not read directory {:?}",
+                search_dir_str
+            );
+            Vec::new()
+        }
+    };
+    // Iterator and its fs borrow are now fully dropped — safe to call env mutators.
+    let mut result_paths: Vec<id> = Vec::with_capacity(matched_names.len());
+    for full_path in matched_names {
+        result_paths.push(ns_string::from_rust_string(env, full_path));
+    }
+    let array: id = crate::frameworks::foundation::ns_array::from_vec(env, result_paths);
+    autorelease(env, array)
+}
+
+- (id)pathsForResourcesOfType:(id)ext          // NSString*
+                  inDirectory:(id)subpath      // NSString*
+              forLocalization:(id)localization { // NSString*
+    let effective_subpath: id = if localization != nil {
+        let lproj_suffix: id = ns_string::get_static_str(env, ".lproj");
+        let lproj_dir: id = msg![env; localization stringByAppendingString:lproj_suffix];
+        if subpath != nil {
+            msg![env; lproj_dir stringByAppendingPathComponent:subpath]
+        } else {
+            lproj_dir
+        }
+    } else {
+        subpath
+    };
+    msg![env; this pathsForResourcesOfType:ext inDirectory:effective_subpath]
+}
+
+- (id)URLsForResourcesWithExtension:(id)ext       // NSString*
+                       subdirectory:(id)subpath { // NSString*
+    let paths: id = msg![env; this pathsForResourcesOfType:ext inDirectory:subpath];
+    let count: NSUInteger = msg![env; paths count];
+    let result: id = msg_class![env; NSMutableArray new];
+    let mut i: NSUInteger = 0;
+    while i < count {
+        let path: id = msg![env; paths objectAtIndex:i];
+        let url: id = msg_class![env; NSURL alloc];
+        let url: id = msg![env; url initFileURLWithPath:path];
+        let _: () = msg![env; result addObject:url];
+        release(env, url);
+        i += 1;
+    }
+    autorelease(env, result)
+}
+
+- (id)pathForResource:(id)name          // NSString*
+               ofType:(id)extension     // NSString*
+          inDirectory:(id)directory {   // NSString*
     let path = path_for_resource_helper(env, this, name, nil, directory, extension);
     if path != nil {
-        return path
+        return path;
     }
-
-    // Try preferred languages in order of preference
-    // TODO: Support both Region-specific and Language-specific
-    // localized resources
+    // Try preferred languages in order.
     let langs: id = msg_class![env; NSLocale preferredLanguages];
     let lang_count: NSUInteger = msg![env; langs count];
     let mut unknown_codes = HashSet::new();
     for i in 0..lang_count {
         let lang_code: id = msg![env; langs objectAtIndex:i];
-        let lang_code = ns_string::to_rust_string(env, lang_code); // TODO: avoid copy
-        if let Some(&(_, lprojs)) = LANG_ID_TO_LANG_PROJ.iter().find(|&&(code, _)| code == lang_code) {
+        let lang_code_str = ns_string::to_rust_string(env, lang_code);
+        if let Some(&(_, lprojs)) = LANG_ID_TO_LANG_PROJ
+            .iter()
+            .find(|&&(code, _)| code == lang_code_str)
+        {
             for lproj in lprojs {
-                let lproj: id = ns_string::get_static_str(env, lproj);
-                let localized_path = path_for_resource_helper(env, this, name, lproj, directory, extension);
+                let lproj_ns: id = ns_string::get_static_str(env, lproj);
+                let localized_path =
+                    path_for_resource_helper(env, this, name, lproj_ns, directory, extension);
                 if localized_path != nil {
                     return localized_path;
                 }
             }
         } else {
-            unknown_codes.insert(lang_code);
+            unknown_codes.insert(lang_code_str.into_owned());
         }
     }
-
-    // TODO: Support look up for device specific resources, e.g. ~iphone
-
-    // As a last resort, fallback to English
-    // TODO: fallback to a development language (CFBundleDevelopmentRegion from
-    // Info.plist)
     if !unknown_codes.is_empty() {
-        log!("TODO: language codes {:?} aren't mapped to a language name, falling back to English", unknown_codes);
+        log!(
+            "TODO: language codes {:?} aren't mapped to a language name, falling back to English",
+            unknown_codes
+        );
     }
-
+    // Fallback to English.
     for lproj in ["English.lproj", "en.lproj"] {
-        let lproj: id = ns_string::get_static_str(env, lproj);
-        let path = path_for_resource_helper(env, this, name, lproj, directory, extension);
+        let lproj_ns: id = ns_string::get_static_str(env, lproj);
+        let path = path_for_resource_helper(env, this, name, lproj_ns, directory, extension);
         if path != nil {
             return path;
         }
     }
     nil
 }
-- (id)pathForResource:(id)name // NSString*
+
+- (id)pathForResource:(id)name        // NSString*
                ofType:(id)extension { // NSString*
     msg![env; this pathForResource:name ofType:extension inDirectory:nil]
 }
-- (id)URLForResource:(id)name // NSString*
-       withExtension:(id)extension // NSString *
-        subdirectory:(id)subpath { // NSString *
+
+- (id)pathForResource:(id)name           // NSString*
+               ofType:(id)extension      // NSString*
+          inDirectory:(id)directory      // NSString*
+      forLocalization:(id)localization { // NSString*
+    if localization != nil {
+        let lproj_suffix: id = ns_string::get_static_str(env, ".lproj");
+        let lproj_dir: id = msg![env; localization stringByAppendingString:lproj_suffix];
+        let path = path_for_resource_helper(env, this, name, lproj_dir, directory, extension);
+        if path != nil {
+            return path;
+        }
+    }
+    msg![env; this pathForResource:name ofType:extension inDirectory:directory]
+}
+
+- (id)URLForResource:(id)name          // NSString*
+       withExtension:(id)extension     // NSString*
+        subdirectory:(id)subpath {     // NSString*
     let path_string: id = msg![env; this pathForResource:name
                                                  ofType:extension
                                             inDirectory:subpath];
-    if path_string == nil {
-        return nil;
-    }
-    let path_url: id = msg_class![env; NSURL alloc];
-    let path_url: id = msg![env; path_url initFileURLWithPath:path_string];
-    autorelease(env, path_url)
+    if path_string == nil { return nil; }
+    let url: id = msg_class![env; NSURL alloc];
+    let url: id = msg![env; url initFileURLWithPath:path_string];
+    autorelease(env, url)
 }
-- (id)URLForResource:(id)name // NSString*
-       withExtension:(id)extension { // NSString *
+
+- (id)URLForResource:(id)name          // NSString*
+       withExtension:(id)extension {   // NSString*
     msg![env; this URLForResource:name withExtension:extension subdirectory:nil]
 }
 
-- (id)localizedStringForKey:(id)key
-                      value:(id)value
-                      table:(id)tableName {
-    log_dbg!("localizedStringForKey key:'{}' value:'{}' table:'{}'",
-            if key == nil { std::borrow::Cow::from("(null)") } else { ns_string::to_rust_string(env, key) },
-            if value == nil { std::borrow::Cow::from("(null)") } else { ns_string::to_rust_string(env, value) },
-            if tableName == nil { std::borrow::Cow::from("(null)") } else { ns_string::to_rust_string(env, tableName) }
-    );
-    let empty_str: id = ns_string::get_static_str(env, "");
-    if key == nil {
-        if value == nil {
-            return empty_str;
+- (id)URLForResource:(id)name          // NSString*
+       withExtension:(id)extension     // NSString*
+        subdirectory:(id)subpath       // NSString*
+        localization:(id)localization { // NSString*
+    if localization != nil {
+        let lproj_suffix: id = ns_string::get_static_str(env, ".lproj");
+        let lproj_dir: id = msg![env; localization stringByAppendingString:lproj_suffix];
+        let effective_subpath: id = if subpath != nil {
+            msg![env; lproj_dir stringByAppendingPathComponent:subpath]
+        } else {
+            lproj_dir
+        };
+        let path: id = msg![env; this pathForResource:name
+                                             ofType:extension
+                                        inDirectory:effective_subpath];
+        if path != nil {
+            let url: id = msg_class![env; NSURL alloc];
+            let url: id = msg![env; url initFileURLWithPath:path];
+            return autorelease(env, url);
         }
-        return value;
     }
-    let name = if tableName == nil {
-        ns_string::get_static_str(env, "Localizable")
-    } else {
-        tableName
-    };
-    // TODO: support arbitrary bundles, not only main one
-    assert_eq!(this, env.framework_state.foundation.ns_bundle.main_bundle.unwrap());
-    let dict = if let Some(&table_dict) = env.framework_state.foundation.ns_bundle.localization_tables.get(&name) {
-        table_dict
-    } else {
-        let extension = ns_string::get_static_str(env, "strings");
-        let dict_url: id = msg![env; this URLForResource:name withExtension:extension];
-        let dict: id = msg_class![env; NSDictionary dictionaryWithContentsOfURL:dict_url];
-        assert!(dict != nil);
-        retain(env, name);
-        retain(env, dict);
-        env.framework_state.foundation.ns_bundle.localization_tables.insert(name, dict);
-        dict
-    };
-    let res: id = msg![env; dict objectForKey:key];
-    if res == nil {
-        if value == nil || value == empty_str {
-            return key;
-        }
-        return value;
-    }
-    log_dbg!("localizedStringForKey res => {:?}", ns_string::to_rust_string(env, res));
-    res
+    msg![env; this URLForResource:name withExtension:extension subdirectory:subpath]
 }
 
+// =========================================================================
+// MARK: - Info dictionary
+// =========================================================================
+
 - (id)infoDictionary {
-    let &NSBundleHostObject {
-        bundle_path,
-        info_dictionary,
-        ..
-    } = env.objc.borrow(this);
-    if let Some(dict) = info_dictionary {
+    if let Some(dict) = env.objc.borrow::<NSBundleHostObject>(this).info_dictionary {
         return dict;
     }
-
-    let plist_path = ns_string::get_static_str(env, "Info.plist");
-    let plist_path: id = msg![env; bundle_path stringByAppendingPathComponent:plist_path];
+    let bundle_path = env.objc.borrow::<NSBundleHostObject>(this).bundle_path;
+    let plist_comp = ns_string::get_static_str(env, "Info.plist");
+    let plist_path: id = msg![env; bundle_path stringByAppendingPathComponent:plist_comp];
     let dict: id = msg_class![env; NSDictionary alloc];
     let dict: id = msg![env; dict initWithContentsOfFile:plist_path];
     env.objc.borrow_mut::<NSBundleHostObject>(this).info_dictionary = Some(dict);
@@ -287,9 +685,104 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)objectForInfoDictionaryKey:(id)key {
-    let info_dict = msg![env; this infoDictionary];
-    // TODO: return the localized value of a key when one is available
+    let info_dict: id = msg![env; this infoDictionary];
     msg![env; info_dict objectForKey:key]
+}
+
+- (id)localizedInfoDictionary {
+    log!("TODO: [NSBundle localizedInfoDictionary] — returning plain infoDictionary");
+    msg![env; this infoDictionary]
+}
+
+// =========================================================================
+// MARK: - Localization
+// =========================================================================
+
+- (id)localizedStringForKey:(id)key
+                      value:(id)value
+                      table:(id)tableName {
+    // 1. Debug logging (essential for tracking what the game is looking for)
+    log_dbg!(
+        "localizedStringForKey key:'{}' table:'{}'",
+        if key == nil { "nil".into() } else { ns_string::to_rust_string(env, key) },
+        if tableName == nil { "Localizable".into() } else { ns_string::to_rust_string(env, tableName) }
+    );
+
+    let empty_str: id = ns_string::get_static_str(env, "");
+
+    // 2. Early exit for nil keys
+    if key == nil {
+        return if value == nil { empty_str } else { value };
+    }
+
+    // 3. Determine the table name
+    let name = if tableName == nil || tableName == nil {
+        ns_string::get_static_str(env, "Localizable")
+    } else {
+        tableName
+    };
+
+    // 4. Bundle Check
+    // KAMI RETRO often uses sub-bundles for localizations. 
+    // We should allow table lookup on ANY bundle that has a path.
+    let host = env.objc.borrow::<NSBundleHostObject>(this);
+    let is_valid_bundle = host.bundle_path != nil;
+    drop(host);
+
+    if !is_valid_bundle {
+        return if value != nil && value != empty_str { value } else { key };
+    }
+
+    // 5. Localization Table Lookup & Caching
+    // We cache dictionaries per-bundle/per-table to prevent repeated IO
+    let dict = if let Some(&table_dict) = env
+        .framework_state
+        .foundation
+        .ns_bundle
+        .localization_tables
+        .get(&name)
+    {
+        table_dict
+    } else {
+        let extension = ns_string::get_static_str(env, "strings");
+        
+        // Attempt to find the [Table].strings file
+        let dict_url: id = msg![env; this URLForResource:name withExtension:extension];
+        
+        if dict_url == nil {
+            // Log that a translation table is missing (common in many Gamevil ports)
+            log_dbg!("Localization table '{}.strings' not found, using fallback", 
+                ns_string::to_rust_string(env, name));
+            return if value == nil || value == empty_str { key } else { value };
+        }
+
+        // Load the strings file into a dictionary
+        let dict: id = msg_class![env; NSDictionary dictionaryWithContentsOfURL:dict_url];
+        
+        if dict == nil {
+            return if value == nil || value == empty_str { key } else { value };
+        }
+
+        // Store in cache to avoid re-loading from disk
+        retain(env, name);
+        retain(env, dict);
+        env.framework_state
+            .foundation
+            .ns_bundle
+            .localization_tables
+            .insert(name, dict);
+        dict
+    };
+
+    // 6. Final String Extraction
+    let res: id = msg![env; dict objectForKey:key];
+    
+    if res == nil {
+        // Return the 'value' if provided, otherwise the 'key' itself
+        return if value == nil || value == empty_str { key } else { value };
+    }
+
+    res
 }
 
 - (id)localizations {
@@ -299,18 +792,53 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)preferredLocalizations {
     let loc_array = CFBundleCopyBundleLocalizations(env, this);
-
-    let preferred_localizations = CFBundleCopyPreferredLocalizationsFromArray(env, loc_array);
-    autorelease(env, preferred_localizations)
+    let preferred = CFBundleCopyPreferredLocalizationsFromArray(env, loc_array);
+    autorelease(env, preferred)
 }
 
-// TODO: constructors, more accessors
+- (id)developmentLocalization {
+    // Read CFBundleDevelopmentRegion from Info.plist; fall back to "en".
+    let key: id = ns_string::get_static_str(env, "CFBundleDevelopmentRegion");
+    let val: id = msg![env; this objectForInfoDictionaryKey:key];
+    if val != nil { val } else { ns_string::get_static_str(env, "en") }
+}
+
+- (id)localizedStringForKey:(id)key
+                      value:(id)value
+                      table:(id)tableName
+               localization:(id)_localization {
+    // Ignore the explicit localization hint and use the system preference.
+    msg![env; this localizedStringForKey:key value:value table:tableName]
+}
+
+// =========================================================================
+// MARK: - Class lookup
+// =========================================================================
+
+- (id)classNamed:(id)class_name { // NSString*
+    if class_name == nil { return nil; }
+    let name_str = ns_string::to_rust_string(env, class_name);
+    log_dbg!("[NSBundle classNamed:{}]", name_str);
+    let class = env.objc.get_known_class(&name_str, &mut env.mem);
+    if class == nil {
+        log!("Warning: [NSBundle classNamed:{}] — class not found", name_str);
+    }
+    class
+}
+
+- (id)principalClass {
+    let key: id = ns_string::get_static_str(env, "NSPrincipalClass");
+    let val: id = msg![env; this objectForInfoDictionaryKey:key];
+    if val == nil { return nil; }
+    msg![env; this classNamed:val]
+}
 
 @end
 
-// Private static implementation of NSBundle, used for the main bundle
-// allocation. This is needed because some apps (e.g. Ovenbreak)
-// attempts to release it.
+// =========================================================================
+// MARK: - _touchHLE_NSBundle_Static (main bundle — never released)
+// =========================================================================
+
 @implementation _touchHLE_NSBundle_Static: NSBundle
 
 + (id)allocWithZone:(NSZonePtr)_zone {
@@ -325,35 +853,60 @@ pub const CLASSES: ClassExports = objc_classes! {
         bundle_url: None,
         info_dictionary: None,
     };
-    env.objc.alloc_object(
-        this,
-        Box::new(host_object),
-        &mut env.mem
-    )
+    env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
 }
 
-- (id) retain { this }
-- (()) release {}
-- (id) autorelease { this }
+// Main bundle is a singleton — ignore retain/release/autorelease.
+- (id)retain      { this }
+- (())release     {}
+- (id)autorelease { this }
 
 @end
 
 };
 
+// =========================================================================
+// MARK: - path_for_resource_helper
+// =========================================================================
+
 fn path_for_resource_helper(
     env: &mut Environment,
     bundle: id,
     name: id,
-    lproj: id,
-    directory: id,
+    lproj: id,      // Ожидается кодом ниже
+    directory: id,  // Ожидается кодом ниже
     extension: id,
 ) -> id {
+    if name == nil {
+        // В реальной iOS метод pathForResource:ofType: при name == nil 
+        // обязан возвращать nil.
+        log!("path_for_resource_helper: name is nil, returning nil");
+        return nil;
+    }
+    
     let mut path: id = msg![env; bundle resourcePath];
     if lproj != nil {
         path = msg![env; path stringByAppendingPathComponent:lproj];
     }
     if directory != nil {
         path = msg![env; path stringByAppendingPathComponent:directory];
+    }
+    // SexyAppBase games (e.g. PvZ 1.1) call
+    // [NSBundle.mainBundle pathForResource:@"" ofType:nil] with an empty name.
+    // On real iOS this returns the executable path (a file *inside* the .app),
+    // so the caller can strip the last component with GetFileDir() and obtain
+    // the .app directory (e.g. ".../PvZ.app/"). Returning bundlePath here
+    // would make GetFileDir() strip one level too many.
+    if name == nil {
+        let exec_path = env.bundle.executable_path().as_str().to_string();
+        log!("path_for_resource_helper: nil name -> returning exec path: {}", exec_path);
+        return ns_string::from_rust_string(env, exec_path);
+    }
+    let name_str = ns_string::to_rust_string(env, name);
+    if name_str.is_empty() {
+        let exec_path = env.bundle.executable_path().as_str().to_string();
+        log!("path_for_resource_helper: empty name -> returning exec path: {}", exec_path);
+        return ns_string::from_rust_string(env, exec_path);
     }
     path = msg![env; path stringByAppendingPathComponent:name];
     if extension != nil {
@@ -363,6 +916,26 @@ fn path_for_resource_helper(
     let file_exists: bool = msg![env; file_manager fileExistsAtPath:path];
     if file_exists {
         return path;
+    }
+    // Case-insensitive fallback: scan the parent directory.
+    let path_str = ns_string::to_rust_string(env, path);
+    let rust_path = std::path::Path::new(path_str.as_ref());
+    if let (Some(parent), Some(file_name)) = (rust_path.parent(), rust_path.file_name()) {
+        let parent_str  = parent.to_str().unwrap_or("");
+        let target_name = file_name.to_str().unwrap_or("").to_lowercase();
+        let parent_guest = crate::fs::GuestPath::new(parent_str);
+        // Collect all entries first so env.fs borrow is dropped before we call
+        // from_rust_string (which needs a mutable borrow on env).
+        let found: Option<String> = env.fs.enumerate(parent_guest)
+            .ok()
+            .and_then(|mut entries| {
+                entries
+                    .find(|e| e.to_lowercase() == target_name)
+                    .map(|e| format!("{}/{}", parent_str, e))
+            });
+        if let Some(full) = found {
+            return ns_string::from_rust_string(env, full);
+        }
     }
     nil
 }

@@ -7,12 +7,13 @@
 
 use super::ui_device::*;
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
+use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str};
 use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSUInteger};
 use crate::mem::MutPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
-    NSZonePtr,
+    NSZonePtr, SEL,
 };
 use crate::window::DeviceOrientation;
 use crate::{todo_objc_setter, Environment};
@@ -46,6 +47,11 @@ pub const UIInterfaceOrientationLandscapeRight: UIInterfaceOrientation =
 type UIRemoteNotificationType = NSUInteger;
 type UIStatusBarAnimation = NSInteger;
 type UIStatusBarStyle = NSInteger;
+pub type UIApplicationState = NSInteger;
+pub const UIApplicationStateActive:     UIApplicationState = 0;
+pub const UIApplicationStateInactive:   UIApplicationState = 1;
+pub const UIApplicationStateBackground: UIApplicationState = 2;
+
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -64,6 +70,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)sharedApplication {
     env.framework_state.uikit.ui_application.shared_application.unwrap_or(nil)
+}
+
+- (())setNetworkActivityIndicatorVisible:(bool)visible {
+    // touchHLE doesn't render the iOS status bar, so we just stub this
+    // and ignore the request to show/hide the spinner.
+    log_dbg!("Stubbed setNetworkActivityIndicatorVisible: {}", visible);
+}
+
+- (bool)isNetworkActivityIndicatorVisible {
+    // Always report that it's hidden.
+    false
 }
 
 // This should only be called by UIApplicationMain
@@ -152,6 +169,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.on_parent_stack_in_coroutine(|window, _| window.set_screen_saver_enabled(!disabled))
 }
 
+- (bool)canOpenURL:(id)_url { // NSURL
+    log!("TODO: stubbed canOpenURL:");
+    false
+}
+
 - (bool)openURL:(id)url { // NSURL
     let ns_string = msg![env; url absoluteString];
     let url_string = ns_string::to_rust_string(env, ns_string);
@@ -173,6 +195,129 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 -(())endIgnoringInteractionEvents {
     log!("TODO: ignoring endIgnoringInteractionEvents");
+}
+
+- (())sendEvent:(id)event { // UIEvent*
+    log_dbg!("UIApplication sendEvent: forwarding to key window");
+    let window: id = msg![env; this keyWindow];
+    if window != nil {
+        msg![env; window sendEvent:event]
+    }
+}
+
+- (bool)sendAction:(SEL)action
+                to:(id)target
+              from:(id)sender
+          forEvent:(id)event { // UIEvent*
+    if target != nil {
+        let responds: bool = msg![env; target respondsToSelector:action];
+        if responds {
+            () = msg![env; target performSelector:action withObject:sender];
+            return true;
+        }
+        return false;
+    }
+    // Walk responder chain if target is nil.
+    let mut responder: id = sender;
+    while responder != nil {
+        let responds: bool = msg![env; responder respondsToSelector:action];
+        if responds {
+            () = msg![env; responder performSelector:action withObject:sender];
+            return true;
+        }
+        responder = msg![env; responder nextResponder];
+    }
+    false
+}
+
+- (())beginBackgroundTaskWithExpirationHandler:(id)_handler {
+    log!("UIApplication beginBackgroundTaskWithExpirationHandler: stubbed");
+}
+
+- (())endBackgroundTask:(NSUInteger)_task {
+    log!("UIApplication endBackgroundTask: stubbed");
+}
+
+- (NSUInteger)backgroundTimeRemaining {
+    // Report effectively infinite time remaining.
+    NSUInteger::MAX
+}
+
+- (UIApplicationState)applicationState {
+    // Always report active.
+    UIApplicationStateActive
+}
+
+- (bool)isProtectedDataAvailable {
+    true
+}
+
+- (())setMinimumBackgroundFetchInterval:(f64)_interval {
+    log!("UIApplication setMinimumBackgroundFetchInterval: stubbed");
+}
+
+- (())registerForRemoteNotifications {
+    log!("UIApplication registerForRemoteNotifications: stubbed");
+}
+
+- (())unregisterForRemoteNotifications {
+    log!("UIApplication unregisterForRemoteNotifications: stubbed");
+}
+
+- (bool)isRegisteredForRemoteNotifications {
+    false
+}
+
+- (())registerUserNotificationSettings:(id)_settings {
+    log!("UIApplication registerUserNotificationSettings: stubbed");
+}
+
+- (id)currentUserNotificationSettings {
+    nil
+}
+
+- (())cancelAllLocalNotifications {
+    log!("UIApplication cancelAllLocalNotifications: stubbed");
+}
+
+- (())cancelLocalNotification:(id)_notification {
+    log!("UIApplication cancelLocalNotification: stubbed");
+}
+
+- (())scheduleLocalNotification:(id)_notification {
+    log!("UIApplication scheduleLocalNotification: stubbed");
+}
+
+- (id)scheduledLocalNotifications {
+    msg_class![env; NSArray new]
+}
+
+- (())setScheduledLocalNotifications:(id)_notifications {
+    log!("UIApplication setScheduledLocalNotifications: stubbed");
+}
+
+- (bool)supportsShakeToEdit {
+    false
+}
+
+- (())setSupportsShakeToEdit:(bool)_value {
+    // Stub.
+}
+
+- (())clearKeychainIfNecessary {
+    // Stub.
+}
+
+- (CGRect)statusBarFrame {
+    // Report a zero-height status bar since we don't render one.
+    CGRect {
+        origin: crate::frameworks::core_graphics::CGPoint { x: 0.0, y: 0.0 },
+        size: crate::frameworks::core_graphics::CGSize { width: 320.0, height: 0.0 },
+    }
+}
+
+- (())presentLocalNotificationNow:(id)_notification {
+    log!("UIApplication presentLocalNotificationNow: stubbed");
 }
 
 - (id)keyWindow {

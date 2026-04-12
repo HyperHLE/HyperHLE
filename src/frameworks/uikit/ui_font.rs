@@ -11,7 +11,7 @@ use crate::frameworks::core_graphics::cg_bitmap_context::CGBitmapContextDrawer;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::to_rust_string;
 use crate::frameworks::foundation::NSInteger;
-use crate::objc::{autorelease, id, objc_classes, ClassExports, HostObject};
+use crate::objc::{autorelease, id, msg, objc_classes, ClassExports, HostObject};
 use crate::Environment;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -95,6 +95,27 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation UIFont: NSObject
 
+// ДОБАВЛЕНО: Стандартные размеры системных шрифтов (честные значения iOS)
++ (CGFloat)systemFontSize {
+    14.0
+}
+
++ (CGFloat)smallSystemFontSize {
+    12.0
+}
+
++ (CGFloat)familyNames {
+    15.0
+}
+
++ (CGFloat)labelFontSize {
+    17.0
+}
+
++ (CGFloat)buttonFontSize {
+    18.0
+}
+
 + (id)systemFontOfSize:(CGFloat)size {
     let host_object = UIFontHostObject {
         size,
@@ -152,6 +173,31 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = env.objc.borrow::<UIFontHostObject>(this);
     let font = env.framework_state.uikit.ui_font.get_font_by_kind(host_object.kind);
     font.line_gap(host_object.size)
+}
+
+- (CGFloat)lineHeight {
+    // This is calculated based on the documentation:
+    // https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/FontHandling/FontHandling.html
+    let ascender: CGFloat = msg![env; this ascender];
+    let descender: CGFloat = msg![env; this descender];
+    let leading: CGFloat = msg![env; this leading];
+    assert!(descender <= 0.0);
+    ascender + leading - descender
+}
+
+- (id)fontWithSize:(CGFloat)size {
+    // Узнаем семейство (kind) текущего шрифта
+    let kind = env.objc.borrow::<UIFontHostObject>(this).kind;
+    // Создаем внутреннюю структуру для нового шрифта с нужным размером
+    let host_object = UIFontHostObject {
+        size,
+        kind,
+    };
+    // Получаем указатель на класс UIFont безопасным встроенным методом эмулятора
+    let class_ptr = env.objc.get_known_class("UIFont", &mut env.mem);
+    // Выделяем память под новый объект и отдаем его игре
+    let new_font = env.objc.alloc_object(class_ptr, Box::new(host_object), &mut env.mem);
+    autorelease(env, new_font)
 }
 
 @end
@@ -212,18 +258,33 @@ pub fn size_with_font(
     constrained: Option<(CGSize, UILineBreakMode)>,
 ) -> CGSize {
     let host_object = env.objc.borrow::<UIFontHostObject>(font);
-
     let font = get_font(
         &mut env.framework_state.uikit.ui_font,
         host_object.kind,
         text,
     );
-
     let wrap = constrained.map(|(size, ui_mode)| (size.width, convert_line_break_mode(ui_mode)));
 
     let (width, height) = font.calculate_text_size(host_object.size, text, wrap);
-
     CGSize { width, height }
+}
+
+/// Determine how the text lines will be rendered given a constraint
+pub fn break_lines_with_font<'a>(
+    env: &mut Environment,
+    font: id,
+    text: &'a str,
+    constrained: Option<(CGSize, UILineBreakMode)>,
+) -> Vec<(f32, &'a str)> {
+    let host_object = env.objc.borrow::<UIFontHostObject>(font);
+    let font = get_font(
+        &mut env.framework_state.uikit.ui_font,
+        host_object.kind,
+        text,
+    );
+    let wrap = constrained.map(|(size, ui_mode)| (size.width, convert_line_break_mode(ui_mode)));
+
+    font.break_lines(host_object.size, text, wrap)
 }
 
 #[inline(always)]
@@ -289,7 +350,6 @@ pub fn draw_at_point(
     width_and_line_break_mode: Option<(CGFloat, UILineBreakMode)>,
 ) -> CGSize {
     let context = UIGraphicsGetCurrentContext(env);
-
     let host_object = env.objc.borrow::<UIFontHostObject>(font);
 
     let font = get_font(
@@ -297,16 +357,13 @@ pub fn draw_at_point(
         host_object.kind,
         text,
     );
-
     let width_and_line_break_mode =
         width_and_line_break_mode.map(|(width, ui_mode)| (width, convert_line_break_mode(ui_mode)));
     let clip_x = width_and_line_break_mode.map(|(width, _)| point.x..(point.x + width));
     let (width, height) =
         font.calculate_text_size(host_object.size, text, width_and_line_break_mode);
-
     let mut drawer = CGBitmapContextDrawer::new(&env.objc, &mut env.mem, context);
     let fill_color = drawer.rgb_fill_color();
-
     font.draw(
         host_object.size,
         text,
@@ -323,7 +380,6 @@ pub fn draw_at_point(
             )
         },
     );
-
     CGSize { width, height }
 }
 
@@ -337,27 +393,22 @@ pub fn draw_in_rect(
     alignment: UITextAlignment,
 ) -> CGSize {
     let context = UIGraphicsGetCurrentContext(env);
-
     let text_size = size_with_font(env, font, text, Some((rect.size, line_break_mode)));
 
     let host_object = env.objc.borrow::<UIFontHostObject>(font);
-
     let font = get_font(
         &mut env.framework_state.uikit.ui_font,
         host_object.kind,
         text,
     );
-
     let mut drawer = CGBitmapContextDrawer::new(&env.objc, &mut env.mem, context);
     let fill_color = drawer.rgb_fill_color();
-
     let (origin_x_offset, alignment) = match alignment {
         UITextAlignmentLeft => (0.0, TextAlignment::Left),
         UITextAlignmentCenter => (rect.size.width / 2.0, TextAlignment::Center),
         UITextAlignmentRight => (rect.size.width, TextAlignment::Right),
         _ => unimplemented!(),
     };
-
     font.draw(
         host_object.size,
         text,
@@ -374,7 +425,6 @@ pub fn draw_in_rect(
             )
         },
     );
-
     text_size
 }
 
@@ -444,3 +494,4 @@ fn get_equivalent_font(system_font: &str) -> Option<FontKind> {
         _ => None,
     }
 }
+

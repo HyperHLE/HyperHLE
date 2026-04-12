@@ -30,7 +30,7 @@ mod properties;
 mod selectors;
 mod synchronization;
 
-pub use classes::{objc_classes, Class, ClassExports, ClassTemplate};
+pub use classes::{objc_classes, objc_getClass, object_getClassName, object_getClass, objc_setProperty_nonatomic, objc_retainAutoreleasedReturnValue, objc_autoreleasePoolPush, objc_exception_throw, objc_begin_catch, objc_end_catch, class_getSuperclass, class_getInstanceSize, class_getInstanceMethod, method_getImplementation, method_setImplementation, method_getTypeEncoding, Class, ClassExports, ClassTemplate};
 pub use messages::{
     autorelease, msg, msg_class, msg_send, msg_send_no_type_checking, msg_send_super2, msg_super,
     objc_super, release, retain,
@@ -46,7 +46,7 @@ use crate::mem::ConstVoidPtr;
 use crate::Environment;
 use classes::{ClassHostObject, FakeClass, UnimplementedClass};
 use messages::{
-    objc_msgSend, objc_msgSendSuper2, objc_msgSend_stret, MsgSendSignature, MsgSendSuperSignature,
+    objc_msgSend, objc_msgSendSuper2, objc_msgSend_stret, objc_msgSendSuper2_stret, MsgSendSignature, MsgSendSuperSignature,
 };
 use methods::method_list_t;
 use objects::{objc_object, HostObjectEntry};
@@ -94,6 +94,15 @@ impl ObjC {
             message_type_info: None,
         }
     }
+
+    /// Returns the name of a selector, panicking if it is unknown.
+    pub fn get_selector_name(&self, sel: SEL) -> &str {
+        self.selectors
+            .iter()
+            .find(|(_k, v)| **v == sel)
+            .map(|(k, _v)| k.as_str())
+            .expect("get_selector_name: unknown selector")
+    }
 }
 
 pub const DYLIB: HostDylib = HostDylib {
@@ -130,6 +139,7 @@ fn _Block_object_dispose(_env: &mut Environment, object: ConstVoidPtr, flags: i3
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSend(_, _)),
     export_c_func!(objc_msgSend_stret(_, _, _)),
+    export_c_func!(objc_msgSendSuper2_stret(_, _)),
     export_c_func!(objc_msgSendSuper2(_, _)),
     export_c_func!(objc_getProperty(_, _, _, _)),
     export_c_func!(objc_setProperty(_, _, _, _, _, _)),
@@ -137,5 +147,20 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_sync_enter(_)),
     export_c_func!(objc_sync_exit(_)),
     export_c_func!(sel_registerName(_)),
+    export_c_func!(objc_getClass(_)),
+    export_c_func!(object_getClassName(_)),
+    export_c_func!(object_getClass(_)),
+    export_c_func!(objc_retainAutoreleasedReturnValue(_)),
+    export_c_func!(objc_autoreleasePoolPush(_)),
+    export_c_func!(objc_setProperty_nonatomic(_)),
+    export_c_func!(objc_exception_throw(_)),
+    export_c_func!(objc_begin_catch(_)),
+    export_c_func!(objc_end_catch(_)),
+    export_c_func!(class_getSuperclass(_)),
+    export_c_func!(class_getInstanceSize(_, _)),
+    export_c_func!(class_getInstanceMethod(_, _)),
+    export_c_func!(method_getImplementation(_, _)),
+    export_c_func!(method_setImplementation(_, _)),
+    export_c_func!(method_getTypeEncoding(_, _)),
     export_c_func!(_Block_object_dispose(_, _)),
 ];

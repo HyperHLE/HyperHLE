@@ -12,7 +12,11 @@
 use crate::{msg, Environment};
 use std::time::Instant;
 
+use crate::dyld::HostConstant;
+use crate::mem::{MutPtr, ConstVoidPtr};
+
 pub mod ui_accelerometer;
+pub mod ui_action_sheet;
 pub mod ui_activity_indicator_view;
 pub mod ui_application;
 pub mod ui_color;
@@ -23,18 +27,39 @@ pub mod ui_geometry;
 pub mod ui_graphics;
 pub mod ui_image;
 pub mod ui_image_picker_controller;
+pub mod ui_keyboard;
+pub mod ui_navigation_bar;
 pub mod ui_nib;
+pub mod ui_pasteboard;
+pub mod ui_popover_controller;
 pub mod ui_responder;
 pub mod ui_screen;
+pub mod ui_screen_mode;
+pub mod ui_split_view_controller;
+pub mod ui_tab_bar_item;
+pub mod ui_tab_bar_controller;
 pub mod ui_touch;
 pub mod ui_view;
 pub mod ui_view_controller;
+
+fn ui_background_task_invalid(env: &mut Environment) -> ConstVoidPtr {
+    // UIBackgroundTaskInvalid == NSUIntegerMax == 0xFFFF_FFFF
+    let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
+    env.mem.write(ptr, 0xFFFF_FFFFu32);
+    ptr.cast().cast_const()
+}
+
+pub const CONSTANTS: &[(&str, HostConstant)] = &[
+    ("_UIBackgroundTaskInvalid", HostConstant::Custom(ui_background_task_invalid)),
+    ("_UIScreenDidConnectNotification", HostConstant::NSString("UIScreenDidConnectNotification")),
+];
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/UIKit.framework/UIKit",
     aliases: &[],
     class_exports: &[
         ui_accelerometer::CLASSES,
+        ui_action_sheet::CLASSES,
         ui_activity_indicator_view::CLASSES,
         ui_application::CLASSES,
         ui_color::CLASSES,
@@ -43,13 +68,22 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_font::CLASSES,
         ui_image::CLASSES,
         ui_image_picker_controller::CLASSES,
+        ui_keyboard::CLASSES,
+        ui_navigation_bar::CLASSES,
         ui_nib::CLASSES,
+        ui_pasteboard::CLASSES,
+        ui_popover_controller::CLASSES,
         ui_responder::CLASSES,
+        ui_screen_mode::CLASSES,
         ui_screen::CLASSES,
+        ui_split_view_controller::CLASSES,
+        ui_tab_bar_item::CLASSES,
+        ui_tab_bar_controller::CLASSES,
         ui_touch::CLASSES,
         ui_view::CLASSES,
         ui_view::ui_alert_view::CLASSES,
         ui_view::ui_control::CLASSES,
+        ui_view::ui_control::ui_bar_button_item::CLASSES,
         ui_view::ui_control::ui_button::CLASSES,
         ui_view::ui_control::ui_segmented_control::CLASSES,
         ui_view::ui_control::ui_slider::CLASSES,
@@ -57,10 +91,12 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_view::ui_control::ui_switch::CLASSES,
         ui_view::ui_image_view::CLASSES,
         ui_view::ui_label::CLASSES,
+        ui_view::ui_page_control::CLASSES,
         ui_view::ui_picker_view::CLASSES,
         ui_view::ui_scroll_view::CLASSES,
         ui_view::ui_scroll_view::ui_text_view::CLASSES,
         ui_view::ui_table_view::CLASSES,
+        ui_view::ui_toolbar::CLASSES,
         ui_view::ui_web_view::CLASSES,
         ui_view::ui_window::CLASSES,
         ui_view_controller::CLASSES,
@@ -69,13 +105,16 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     constant_exports: &[
         ui_application::CONSTANTS,
         ui_device::CONSTANTS,
+        ui_keyboard::CONSTANTS,
         ui_view::ui_control::ui_text_field::CONSTANTS,
         ui_view::ui_window::CONSTANTS,
+        CONSTANTS,
     ],
     function_exports: &[
         ui_application::FUNCTIONS,
         ui_geometry::FUNCTIONS,
         ui_graphics::FUNCTIONS,
+        ui_image::FUNCTIONS,
     ],
 };
 
@@ -86,6 +125,7 @@ pub struct State {
     ui_color: ui_color::State,
     ui_device: ui_device::State,
     ui_font: ui_font::State,
+    ui_geometry: ui_geometry::State,
     ui_graphics: ui_graphics::State,
     ui_image: ui_image::State,
     ui_screen: ui_screen::State,
@@ -151,6 +191,7 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 let responder = env.framework_state.uikit.ui_responder.first_responder;
                 let class = msg![env; responder class];
                 let ui_text_field_class = env.objc.get_known_class("UITextField", &mut env.mem);
+
                 if !responder.is_null() && env.objc.class_is_subclass_of(class, ui_text_field_class)
                 {
                     match text_event {

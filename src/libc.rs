@@ -4,13 +4,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Our implementations of various things that Apple's libSystem would provide.
+//!
 //! On other platforms these are part of the "libc", so let's call it that.
 //!
 //! Useful resources:
+//!
 //! - Apple's [iOS Manual Pages](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/) (contains what would be `man` pages if iOS had a command line)
 
 mod generic_char;
-
 pub mod arpa;
 pub mod clocale;
 pub mod crypto;
@@ -19,6 +20,7 @@ pub mod cxxabi;
 pub mod dirent;
 pub mod dlfcn;
 pub mod dns_sd;
+pub mod fnmatch;
 pub mod errno;
 pub mod ifaddrs;
 pub mod keymgr;
@@ -58,12 +60,14 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         dirent::FUNCTIONS,
         dlfcn::FUNCTIONS,
         dns_sd::FUNCTIONS,
+        fnmatch::FUNCTIONS,
         errno::FUNCTIONS,
         ifaddrs::FUNCTIONS,
         keymgr::FUNCTIONS,
         libkern::os_atomic::FUNCTIONS,
         mach::arm::task::FUNCTIONS,
         mach::arm::thread_act::FUNCTIONS,
+        libkern::task::FUNCTIONS,
         mach::host::FUNCTIONS,
         mach::init::FUNCTIONS,
         mach::mach_port::FUNCTIONS,
@@ -113,6 +117,7 @@ pub struct State {
     dirent: dirent::State,
     keymgr: keymgr::State,
     math: math::State,
+    netdb: netdb::State,
     posix_io: posix_io::State,
     pub pthread: pthread::State,
     pub semaphore: semaphore::State,

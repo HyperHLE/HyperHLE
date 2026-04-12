@@ -282,7 +282,8 @@ fn substitute_classes(
         || name.starts_with("FB")
         || name.starts_with("Flurry")
         || name.starts_with("OpenFeint")
-        || name.starts_with("Tapjoy"))
+        || name.starts_with("Tapjoy")
+        || name.starts_with("UA"))
     {
         return None;
     }
@@ -666,4 +667,418 @@ impl ObjC {
             None
         }
     }
+}
+
+pub fn objc_getClass(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class {
+    if name.is_null() {
+        return nil;
+    }
+    
+    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
+    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
+    let name_str = match env.mem.cstr_at_utf8(name) {
+        Ok(s) => s.to_string(),
+        Err(_) => return nil,
+    };
+
+    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
+    // Обратите внимание на амперсанд & перед name_str
+    if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
+        return class;
+    }
+
+    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
+    if ObjC::find_template(&name_str).is_some() {
+        return env.objc.link_class(&name_str, false, &mut env.mem);
+    }
+
+    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
+    nil
+}
+
+pub fn objc_begin_catch(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class {
+    if name.is_null() {
+        return nil;
+    }
+    
+    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
+    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
+    let name_str = match env.mem.cstr_at_utf8(name) {
+        Ok(s) => s.to_string(),
+        Err(_) => return nil,
+    };
+
+    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
+    // Обратите внимание на амперсанд & перед name_str
+    if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
+        return class;
+    }
+
+    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
+    if ObjC::find_template(&name_str).is_some() {
+        return env.objc.link_class(&name_str, false, &mut env.mem);
+    }
+
+    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
+    nil
+}
+
+pub fn objc_end_catch(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class {
+    if name.is_null() {
+        return nil;
+    }
+    
+    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
+    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
+    let name_str = match env.mem.cstr_at_utf8(name) {
+        Ok(s) => s.to_string(),
+        Err(_) => return nil,
+    };
+
+    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
+    // Обратите внимание на амперсанд & перед name_str
+    if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
+        return class;
+    }
+
+    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
+    if ObjC::find_template(&name_str).is_some() {
+        return env.objc.link_class(&name_str, false, &mut env.mem);
+    }
+
+    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
+    nil
+}
+
+pub fn objc_exception_throw(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class {
+    if name.is_null() {
+        return nil;
+    }
+    
+    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
+    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
+    let name_str = match env.mem.cstr_at_utf8(name) {
+        Ok(s) => s.to_string(),
+        Err(_) => return nil,
+    };
+
+    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
+    // Обратите внимание на амперсанд & перед name_str
+    if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
+        return class;
+    }
+
+    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
+    if ObjC::find_template(&name_str).is_some() {
+        return env.objc.link_class(&name_str, false, &mut env.mem);
+    }
+
+    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
+    nil
+}
+
+pub fn object_getClassName(env: &mut crate::Environment, obj: id) -> Class {
+    if obj.is_null() {
+        return nil;
+    }
+    
+    // В Objective-C любой объект в памяти (id) начинается с указателя isa.
+    // Приводим указатель, читаем из памяти гостя структуру objc_object 
+    // и просто возвращаем её поле isa.
+    let objc_obj: objc_object = env.mem.read(obj.cast());
+    objc_obj.isa
+}
+
+pub fn object_getClass(env: &mut crate::Environment, obj: id) -> Class {
+    if obj.is_null() {
+        return nil;
+    }
+    
+    // В Objective-C любой объект в памяти (id) начинается с указателя isa.
+    // Приводим указатель, читаем из памяти гостя структуру objc_object 
+    // и просто возвращаем её поле isa.
+    let objc_obj: objc_object = env.mem.read(obj.cast());
+    objc_obj.isa
+}
+
+pub fn objc_retainAutoreleasedReturnValue(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class {
+    if name.is_null() {
+        return nil;
+    }
+    
+    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
+    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
+    let name_str = match env.mem.cstr_at_utf8(name) {
+        Ok(s) => s.to_string(),
+        Err(_) => return nil,
+    };
+
+    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
+    // Обратите внимание на амперсанд & перед name_str
+    if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
+        return class;
+    }
+
+    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
+    if ObjC::find_template(&name_str).is_some() {
+        return env.objc.link_class(&name_str, false, &mut env.mem);
+    }
+
+    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
+    nil
+}
+
+pub fn objc_autoreleasePoolPush(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class {
+    if name.is_null() {
+        return nil;
+    }
+    
+    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
+    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
+    let name_str = match env.mem.cstr_at_utf8(name) {
+        Ok(s) => s.to_string(),
+        Err(_) => return nil,
+    };
+
+    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
+    // Обратите внимание на амперсанд & перед name_str
+    if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
+        return class;
+    }
+
+    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
+    if ObjC::find_template(&name_str).is_some() {
+        return env.objc.link_class(&name_str, false, &mut env.mem);
+    }
+
+    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
+    nil
+}
+
+pub fn objc_setProperty_nonatomic(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class {
+    if name.is_null() {
+        return nil;
+    }
+    
+    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
+    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
+    let name_str = match env.mem.cstr_at_utf8(name) {
+        Ok(s) => s.to_string(),
+        Err(_) => return nil,
+    };
+
+    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
+    // Обратите внимание на амперсанд & перед name_str
+    if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
+        return class;
+    }
+
+    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
+    if ObjC::find_template(&name_str).is_some() {
+        return env.objc.link_class(&name_str, false, &mut env.mem);
+    }
+
+    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
+    nil
+}
+
+pub fn class_getSuperclass(env: &mut crate::Environment, cls: Class) -> Class {
+    // По спецификации Objective-C, если передать nil, возвращается nil.
+    if cls.is_null() {
+        return nil;
+    }
+    
+    // В touchHLE уже есть внутренняя функция для получения суперкласса, 
+    // просто проксируем вызов в неё:
+    env.objc.get_superclass(cls)
+}
+
+pub fn class_getInstanceSize(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
+    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
+    if cls.is_null() {
+        return ConstVoidPtr::null();
+    }
+
+    let mut curr = cls;
+    while !curr.is_null() {
+        // Достаём хост-объект класса, чтобы получить доступ к списку методов
+        if let Some(host_obj) = env.objc.get_host_object(curr) {
+            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
+                // Если селектор зарегистрирован в данном классе
+                if class_obj.methods.contains_key(&name) {
+                    // Возвращаем non-null указатель. 
+                    // В реальном iOS/macOS это указатель на структуру `method_t`.
+                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
+                    // и не выделяет под них память в гостевом пространстве, 
+                    // возврат указателя на сам класс — это безопасный способ дать 
+                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
+                    return curr.cast_const().cast();
+                }
+            }
+        }
+        
+        // Поднимаемся вверх по иерархии к суперклассу
+        let next = env.objc.get_superclass(curr);
+        
+        // Защита от бесконечного цикла, если иерархия зациклена
+        if next == curr {
+            break;
+        }
+        curr = next;
+    }
+
+    // Если прошли всю цепочку и ничего не нашли, метод не существует
+    ConstVoidPtr::null()
+}
+
+pub fn class_getInstanceMethod(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
+    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
+    if cls.is_null() {
+        return ConstVoidPtr::null();
+    }
+
+    let mut curr = cls;
+    while !curr.is_null() {
+        // Достаём хост-объект класса, чтобы получить доступ к списку методов
+        if let Some(host_obj) = env.objc.get_host_object(curr) {
+            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
+                // Если селектор зарегистрирован в данном классе
+                if class_obj.methods.contains_key(&name) {
+                    // Возвращаем non-null указатель. 
+                    // В реальном iOS/macOS это указатель на структуру `method_t`.
+                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
+                    // и не выделяет под них память в гостевом пространстве, 
+                    // возврат указателя на сам класс — это безопасный способ дать 
+                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
+                    return curr.cast_const().cast();
+                }
+            }
+        }
+        
+        // Поднимаемся вверх по иерархии к суперклассу
+        let next = env.objc.get_superclass(curr);
+        
+        // Защита от бесконечного цикла, если иерархия зациклена
+        if next == curr {
+            break;
+        }
+        curr = next;
+    }
+
+    // Если прошли всю цепочку и ничего не нашли, метод не существует
+    ConstVoidPtr::null()
+}
+
+pub fn method_getImplementation(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
+    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
+    if cls.is_null() {
+        return ConstVoidPtr::null();
+    }
+
+    let mut curr = cls;
+    while !curr.is_null() {
+        // Достаём хост-объект класса, чтобы получить доступ к списку методов
+        if let Some(host_obj) = env.objc.get_host_object(curr) {
+            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
+                // Если селектор зарегистрирован в данном классе
+                if class_obj.methods.contains_key(&name) {
+                    // Возвращаем non-null указатель. 
+                    // В реальном iOS/macOS это указатель на структуру `method_t`.
+                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
+                    // и не выделяет под них память в гостевом пространстве, 
+                    // возврат указателя на сам класс — это безопасный способ дать 
+                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
+                    return curr.cast_const().cast();
+                }
+            }
+        }
+        
+        // Поднимаемся вверх по иерархии к суперклассу
+        let next = env.objc.get_superclass(curr);
+        
+        // Защита от бесконечного цикла, если иерархия зациклена
+        if next == curr {
+            break;
+        }
+        curr = next;
+    }
+
+    // Если прошли всю цепочку и ничего не нашли, метод не существует
+    ConstVoidPtr::null()
+}
+
+pub fn method_setImplementation(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
+    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
+    if cls.is_null() {
+        return ConstVoidPtr::null();
+    }
+
+    let mut curr = cls;
+    while !curr.is_null() {
+        // Достаём хост-объект класса, чтобы получить доступ к списку методов
+        if let Some(host_obj) = env.objc.get_host_object(curr) {
+            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
+                // Если селектор зарегистрирован в данном классе
+                if class_obj.methods.contains_key(&name) {
+                    // Возвращаем non-null указатель. 
+                    // В реальном iOS/macOS это указатель на структуру `method_t`.
+                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
+                    // и не выделяет под них память в гостевом пространстве, 
+                    // возврат указателя на сам класс — это безопасный способ дать 
+                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
+                    return curr.cast_const().cast();
+                }
+            }
+        }
+        
+        // Поднимаемся вверх по иерархии к суперклассу
+        let next = env.objc.get_superclass(curr);
+        
+        // Защита от бесконечного цикла, если иерархия зациклена
+        if next == curr {
+            break;
+        }
+        curr = next;
+    }
+
+    // Если прошли всю цепочку и ничего не нашли, метод не существует
+    ConstVoidPtr::null()
+}
+
+pub fn method_getTypeEncoding(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
+    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
+    if cls.is_null() {
+        return ConstVoidPtr::null();
+    }
+
+    let mut curr = cls;
+    while !curr.is_null() {
+        // Достаём хост-объект класса, чтобы получить доступ к списку методов
+        if let Some(host_obj) = env.objc.get_host_object(curr) {
+            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
+                // Если селектор зарегистрирован в данном классе
+                if class_obj.methods.contains_key(&name) {
+                    // Возвращаем non-null указатель. 
+                    // В реальном iOS/macOS это указатель на структуру `method_t`.
+                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
+                    // и не выделяет под них память в гостевом пространстве, 
+                    // возврат указателя на сам класс — это безопасный способ дать 
+                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
+                    return curr.cast_const().cast();
+                }
+            }
+        }
+        
+        // Поднимаемся вверх по иерархии к суперклассу
+        let next = env.objc.get_superclass(curr);
+        
+        // Защита от бесконечного цикла, если иерархия зациклена
+        if next == curr {
+            break;
+        }
+        curr = next;
+    }
+
+    // Если прошли всю цепочку и ничего не нашли, метод не существует
+    ConstVoidPtr::null()
 }

@@ -1,6 +1,7 @@
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * License, v. 2.0.
+ * If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! `UIView`.
@@ -12,9 +13,11 @@ pub mod ui_alert_view;
 pub mod ui_control;
 pub mod ui_image_view;
 pub mod ui_label;
+pub mod ui_page_control;
 pub mod ui_picker_view;
 pub mod ui_scroll_view;
 pub mod ui_table_view;
+pub mod ui_toolbar;
 pub mod ui_web_view;
 pub mod ui_window;
 
@@ -52,6 +55,9 @@ pub(super) struct UIViewHostObject {
     clears_context_before_drawing: bool,
     user_interaction_enabled: bool,
     multiple_touch_enabled: bool,
+    delegate: id, // <--- ДОБАВЬ ЭТУ СТРОКУ
+    animation_interval: f64,
+    is_animating: bool,
 }
 impl HostObject for UIViewHostObject {}
 impl Default for UIViewHostObject {
@@ -65,6 +71,9 @@ impl Default for UIViewHostObject {
             clears_context_before_drawing: true,
             user_interaction_enabled: true,
             multiple_touch_enabled: false,
+            delegate: nil, // <--- ДОБАВЬ ЭТУ СТРОКУ
+            animation_interval: 1.0 / 60.0,
+            is_animating: false,
         }
     }
 }
@@ -91,7 +100,6 @@ fn init_common(env: &mut Environment, this: id) -> id {
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
-
 @implementation UIView: UIResponder
 
 + (id)allocWithZone:(NSZonePtr)_zone {
@@ -137,6 +145,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("TODO: [UIView setAnimationBeginsFromCurrentState:{}]", from);
 }
 
++ (())setAnimationRepeatAutoreverses:(bool)repeatAutoreverses {
+    log!("TODO: [UIView setAnimationRepeatAutoreverses:{}]", repeatAutoreverses);
+}
+
++ (())setAnimationRepeatCount:(f32)repeatCount {
+    log!("TODO: [UIView setAnimationRepeatCount:{}]", repeatCount);
+}
+
++ (())setAnimationDelay:(f32)delay {
+    log!("TODO: [UIView setAnimationDelay:{}]", delay);
+}
+
++ (())setAnimationsEnabled:(f32)enabled {
+    log!("TODO: [UIView setAnimationsEnabled:{}]", enabled);
+}
+
 + (())setAnimationTransition:(NSInteger)transition forView:(id)view cache:(bool)cache {
     log!("TODO: [UIView setAnimationTransition:{} forView:{:?} cache:{}]", transition, view, cache);
 }
@@ -155,7 +179,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithCoder:(id)coder {
     let this = init_common(env, this);
-
+    
     let key_ns_string = get_static_str(env, "UIBounds");
     let bounds: CGRect = msg![env; coder decodeCGRectForKey:key_ns_string];
 
@@ -164,7 +188,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let key_ns_string = get_static_str(env, "UIHidden");
     let hidden: bool = msg![env; coder decodeBoolForKey:key_ns_string];
-
+    
     let key_ns_string = get_static_str(env, "UIOpaque");
     let opaque: bool = msg![env; coder decodeBoolForKey:key_ns_string];
 
@@ -173,7 +197,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let key_ns_string = get_static_str(env, "UITag");
     let tag: NSInteger = msg![env; coder decodeIntegerForKey:key_ns_string];
-
+    
     let key_ns_string = get_static_str(env, "UIMultipleTouchEnabled");
     let multi_touch_enabled: bool = msg![env; coder decodeBoolForKey:key_ns_string];
 
@@ -181,14 +205,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     let subviews: id = msg![env; coder decodeObjectForKey:key_ns_string];
     let subview_count: NSUInteger = msg![env; subviews count];
 
-    () = msg![env; this setBounds:bounds];
-    () = msg![env; this setCenter:center];
+    // ФИКС ДЛЯ MINECRAFT: Если фрейм нулевой, берем экран
+    if bounds.size.width == 0.0 || bounds.size.height == 0.0 {
+        let screen: id = msg_class![env; UIScreen mainScreen];
+        let screen_bounds: CGRect = msg![env; screen bounds];
+        () = msg![env; this setBounds:screen_bounds];
+        
+        let new_center = CGPoint { 
+            x: screen_bounds.size.width / 2.0, 
+            y: screen_bounds.size.height / 2.0 
+        };
+        () = msg![env; this setCenter:new_center];
+    } else {
+        () = msg![env; this setBounds:bounds];
+        () = msg![env; this setCenter:center];
+    }
+
     () = msg![env; this setHidden:hidden];
     () = msg![env; this setOpaque:opaque];
     () = msg![env; this setBackgroundColor:bg_color];
     () = msg![env; this setTag:tag];
     () = msg![env; this setMultipleTouchEnabled:multi_touch_enabled];
-
+    
     for i in 0..subview_count {
         let subview: id = msg![env; subviews objectAtIndex:i];
         () = msg![env; this addSubview:subview];
@@ -196,7 +234,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     this
 }
-
+    
 - (NSInteger)tag {
     env.objc.borrow::<UIViewHostObject>(this).tag
 }
@@ -204,6 +242,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIViewHostObject>(this).tag = tag;
 }
 
+- (f64)animationInterval {
+    env.objc.borrow::<UIViewHostObject>(this).animation_interval
+}
+
+- (())setAnimationInterval:(f64)interval {
+    env.objc.borrow_mut::<UIViewHostObject>(this).animation_interval = interval;
+}
+    
+- (id)delegate {
+    env.objc.borrow::<UIViewHostObject>(this).delegate
+}
+- (())setDelegate:(id)delegate {
+    env.objc.borrow_mut::<UIViewHostObject>(this).delegate = delegate;
+}
+    
 - (id)viewWithTag:(NSInteger)tag {
     let &UIViewHostObject { ref subviews, tag: view_tag, .. } = env.objc.borrow(this);
     if view_tag == tag { return this; }
@@ -220,6 +273,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIViewHostObject>(this).user_interaction_enabled = enabled;
 }
 
+- (bool)isAnimating {
+    env.objc.borrow::<UIViewHostObject>(this).is_animating
+}
+
+- (())startAnimation {
+    let mut host = env.objc.borrow_mut::<UIViewHostObject>(this);
+    if !host.is_animating {
+        host.is_animating = true;
+        // Примечание: В оригинальном коде iOS здесь создается NSTimer, который 
+        // дергает метод drawView. В эмуляторе цикл рендеринга OpenGL часто 
+        // работает на уровне самого эмулятора, поэтому честного переключения 
+        // внутреннего state (is_animating) достаточно для корректной работы логики игры.
+    }
+}
+
+- (())stopAnimation {
+    let mut host = env.objc.borrow_mut::<UIViewHostObject>(this);
+    if host.is_animating {
+        host.is_animating = false;
+    }
+}
+    
 - (bool)isMultipleTouchEnabled {
     env.objc.borrow::<UIViewHostObject>(this).multiple_touch_enabled
 }
@@ -262,13 +337,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         retain(env, view);
         () = msg![env; view removeFromSuperview];
-        let subview_obj = env.objc.borrow_mut::<UIViewHostObject>(view);
-        subview_obj.superview = this;
-        let subview_layer = subview_obj.layer;
-        let this_obj = env.objc.borrow_mut::<UIViewHostObject>(this);
-        this_obj.subviews.push(view);
-        let this_layer = this_obj.layer;
+        // Разбиваем работу с памятью на блоки, чтобы избежать паники при вызове msg!
+        let subview_layer = {
+            let subview_obj = env.objc.borrow_mut::<UIViewHostObject>(view);
+            subview_obj.superview = this;
+            subview_obj.layer
+        };
+        let this_layer = {
+            let this_obj = env.objc.borrow_mut::<UIViewHostObject>(this);
+            this_obj.subviews.push(view);
+            this_obj.layer
+        };
+        
         () = msg![env; this_layer addSublayer:subview_layer];
+        // Заставляем вьюшку пересчитать свои размеры и инициализироваться
+        () = msg![env; view layoutSubviews];
+        () = msg![env; this setNeedsLayout];
     }
 }
 
@@ -323,15 +407,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     let &mut UIViewHostObject { ref mut superview, layer: this_layer, .. } = env.objc.borrow_mut(this);
     let superview = std::mem::take(superview);
     if superview == nil { return; }
-    () = msg![env; this_layer removeFromSuperlayer];
+    let _: () = msg![env; this_layer removeFromSuperlayer];
     let UIViewHostObject { ref mut subviews, .. } = env.objc.borrow_mut(superview);
-    let idx = subviews.iter().position(|&subview| subview == this).unwrap();
-    subviews.remove(idx);
-    release(env, this);
+    if let Some(idx) = subviews.iter().position(|&subview| subview == this) {
+        subviews.remove(idx);
+        release(env, this);
+    } else {
+        log_dbg!(
+            "Warning: [UIView removeFromSuperview] {:?} not found in superview's subviews — already removed?",
+            this
+        );
+    }
 }
 
 - (())dealloc {
-    let UIViewHostObject { layer, superview, subviews, .. } = std::mem::take(env.objc.borrow_mut(this));
+    let UIViewHostObject { layer, superview: _, subviews, .. } = std::mem::take(env.objc.borrow_mut(this));
     release(env, layer);
     for subview in subviews {
         env.objc.borrow_mut::<UIViewHostObject>(subview).superview = nil;
@@ -359,6 +449,57 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, clips);
 }
 
+// --- ДОБАВЛЕННЫЙ ХАК ДЛЯ FBLoginButton ---
+- (())setStyle:(u32)_style {
+    // Заглушка, чтобы эмулятор не падал при настройке фейковых элементов (например, FBLoginButton)
+}
+// -----------------------------------------
+
+// --- ДОБАВЛЕННЫЙ ХАК ДЛЯ EAGLView ---
+- (id)context {
+    nil // Возвращаем пустоту, так как настоящего контекста у обычного UIView нет
+}
+
+- (())setContext:(id)_context {
+    // Ничего не делаем, просто игнорируем попытку игры передать нам контекст
+}
+// ------------------------------------
+
+// =========================================================================
+// MARK: - OpenGL ES / EAGLView lifecycle stubs
+// These are called by apps that subclass UIView as an EAGLView.
+// =========================================================================
+
+- (())resume {
+    log_dbg!("UIView resume {:?}", this);
+    let mut host = env.objc.borrow_mut::<UIViewHostObject>(this);
+    host.is_animating = true;
+}
+
+- (())flushBuffer {
+    // Called by some EAGLView implementations after rendering a frame to
+    // present the renderbuffer. The actual present is handled by EAGLContext
+    // presentRenderBuffer: — this is just a hook some apps call before that.
+    log_dbg!("UIView flushBuffer {:?}", this);
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    // Forward to the layer's display if it has content to present.
+    let _: () = msg![env; layer display];
+}
+
+- (())setupView {
+    // Called by EAGLView subclasses to set up the OpenGL ES state
+    // (viewport, projection matrix, etc.) before rendering begins.
+    // The actual GL setup is done by the app's own override; the base
+    // UIView implementation is a no-op.
+    log_dbg!("UIView setupView {:?}", this);
+}
+
+- (())endDrawing {
+    // Called by some EAGLView implementations at the end of a render pass.
+    // No-op at the UIView level — the app's override does the real work.
+    log_dbg!("UIView endDrawing {:?}", this);
+}
+
 - (bool)isOpaque {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     msg![env; layer isOpaque]
@@ -377,6 +518,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer setOpacity:alpha]
 }
 
+- (CGFloat)contentScaleFactor {
+    1.0
+}
+
+- (())setContentScaleFactor:(CGFloat)scale {
+    // Заглушка, чтобы не крашилось
+}
+    
 - (id)backgroundColor {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     let cg_color: CGColorRef = msg![env; layer backgroundColor];
@@ -407,8 +556,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer bounds]
 }
 - (())setBounds:(CGRect)bounds {
+    // Получаем текущие размеры ДО изменения
+    let old_bounds: CGRect = msg![env; this bounds];
+    
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    msg![env; layer setBounds:bounds]
+    () = msg![env; layer setBounds:bounds];
+    // Если размер изменился — обязательно триггерим layoutSubviews
+    if old_bounds.size.width != bounds.size.width || old_bounds.size.height != bounds.size.height {
+        () = msg![env; this layoutSubviews];
+    }
 }
 - (CGPoint)center {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
@@ -418,13 +574,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     msg![env; layer setPosition:center]
 }
+
+- (())setNeedsLayout {
+    () = msg![env; this layoutSubviews];
+}
+
 - (CGRect)frame {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     msg![env; layer frame]
 }
 - (())setFrame:(CGRect)frame {
+    // Получаем текущие размеры ДО изменения
+    let old_frame: CGRect = msg![env; this frame];
+    
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    msg![env; layer setFrame:frame]
+    () = msg![env; layer setFrame:frame];
+    () = msg![env; this setNeedsLayout];
+    // Если размер изменился — обязательно триггерим layoutSubviews
+    if old_frame.size.width != frame.size.width || old_frame.size.height != frame.size.height {
+        () = msg![env; this layoutSubviews];
+    }
 }
 - (CGAffineTransform)transform {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
@@ -557,4 +726,3 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
-

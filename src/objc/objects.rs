@@ -10,9 +10,6 @@ use crate::mem::{guest_size_of, GuestUSize, Mem, MutPtr, Ptr, SafeRead};
 use std::any::Any;
 use std::num::NonZeroU32;
 
-// Статическая заглушка для предотвращения крашей при borrow(nil)
-static DUMMY_HOST_OBJECT: TrivialHostObject = TrivialHostObject;
-
 #[repr(C, packed)]
 pub struct objc_object {
     pub(super) isa: Class,
@@ -81,7 +78,6 @@ impl HostObject for TrivialHostObject {}
 impl super::ObjC {
     pub fn read_isa(object: id, mem: &Mem) -> Class {
         if object == nil {
-            // Если объект nil, у него нет isa. Возвращаем 0, чтобы избежать краша при чтении памяти.
             return Ptr::null();
         }
         mem.read(object).isa
@@ -114,7 +110,6 @@ impl super::ObjC {
         host_object: Box<dyn AnyHostObject>,
         mem: &mut Mem,
     ) -> id {
-        // Безопасный вызов borrow: если класса нет, используем минимальный размер
         let instance_size = self.get_host_object(isa)
             .and_then(|h| h.as_any().downcast_ref::<ClassHostObject>())
             .map(|c| c.instance_size)
@@ -160,7 +155,6 @@ impl super::ObjC {
     }
 
     pub fn borrow<T: AnyHostObject + 'static>(&self, object: id) -> &T {
-        // Если объект не найден, пытаемся вернуть заглушку вместо паники
         if let Some(entry) = self.objects.get(&object) {
             let mut host_object: &(dyn AnyHostObject + 'static) = &*entry.host_object;
             loop {
@@ -174,21 +168,17 @@ impl super::ObjC {
             }
         }
 
-        // Если мы здесь, значит объект nil или не того типа. 
-        // Вместо panic! пытаемся вернуть T из заглушки, если это возможно.
-        if let Some(res) = DUMMY_HOST_OBJECT.as_any().downcast_ref::<T>() {
-            return res;
+        // SUPER HACK: Вместо паники создаем "мираж" объекта в памяти
+        log!("Warning: SUPER HACK! Faking borrow for missing object {:?} of type {}", object, std::any::type_name::<T>());
+        unsafe {
+            static mut DUMMY_BUF: [u64; 256] = [0; 256];
+            & *(&DUMMY_BUF as *const _ as *const T)
         }
-
-        // Последний рубеж: если даже заглушка не подходит по типу, 
-        // мы вынуждены упасть, но теперь это случится гораздо реже.
-        panic!("Fatal error: lost object {:?} of type {:?}", object, std::any::type_name::<T>());
     }
 
     pub fn borrow_mut<T: AnyHostObject + 'static>(&mut self, object: id) -> &mut T {
         if let Some(entry) = self.objects.get_mut(&object) {
             type Aho = dyn AnyHostObject + 'static;
-            // Ужасный хак с unsafe, чтобы обойти ограничения borrow checker в Rust для эмулятора
             let mut host_object: &mut Aho = &mut *entry.host_object;
             loop {
                 let current_ptr = host_object as *mut Aho;
@@ -196,7 +186,6 @@ impl super::ObjC {
                     return res;
                 }
                 
-                // Проверка на наличие суперкласса
                 let has_super = unsafe { &*current_ptr }.as_superclass().is_some();
                 if has_super {
                     host_object = unsafe { &mut *current_ptr }.as_superclass_mut().unwrap();
@@ -206,7 +195,12 @@ impl super::ObjC {
             }
         }
         
-        panic!("Fatal error: cannot borrow_mut object {:?}", object);
+        // SUPER HACK: Возвращаем кусок нулей под видом нужного объекта
+        log!("Warning: SUPER HACK! Faking borrow_mut for missing object {:?} of type {}", object, std::any::type_name::<T>());
+        unsafe {
+            static mut DUMMY_BUF: [u64; 256] = [0; 256];
+            &mut *(&mut DUMMY_BUF as *mut _ as *mut T)
+        }
     }
 
     pub fn get_refcount(&mut self, object: id) -> NonZeroU32 {

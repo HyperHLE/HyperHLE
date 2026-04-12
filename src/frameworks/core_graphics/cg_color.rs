@@ -13,7 +13,7 @@ use crate::frameworks::core_graphics::cg_color_space::{
     kCGColorSpaceGenericRGB, CGColorSpaceHostObject, CGColorSpaceRef,
 };
 use crate::frameworks::core_graphics::CGFloat;
-use crate::mem::MutPtr;
+use crate::mem::{ConstPtr, MutPtr};
 use crate::objc::{objc_classes, ClassExports, HostObject, ObjC};
 use crate::Environment;
 
@@ -124,12 +124,112 @@ fn CGColorEqualToColor(env: &mut Environment, a: CGColorRef, b: CGColorRef) -> b
     to_rgba(&env.objc, a) == to_rgba(&env.objc, b)
 }
 
+fn CGColorCreateGenericGray(
+    env: &mut Environment,
+    gray: CGFloat,
+    alpha: CGFloat,
+) -> CGColorRef {
+    // Expand grey to RGB.
+    from_rgba(env, (gray, gray, gray, alpha))
+}
+
+fn CGColorCreateGenericCMYK(
+    env: &mut Environment,
+    cyan: CGFloat,
+    magenta: CGFloat,
+    yellow: CGFloat,
+    black: CGFloat,
+    alpha: CGFloat,
+) -> CGColorRef {
+    // Convert CMYK → RGB.
+    let r = (1.0 - cyan)    * (1.0 - black);
+    let g = (1.0 - magenta) * (1.0 - black);
+    let b = (1.0 - yellow)  * (1.0 - black);
+    from_rgba(env, (r, g, b, alpha))
+}
+
+fn CGColorCreateCopy(env: &mut Environment, color: CGColorRef) -> CGColorRef {
+    if color.is_null() {
+        return color;
+    }
+    let &CGColorHostObject { r, g, b, a, .. } = env.objc.borrow(color);
+    from_rgba(env, (r, g, b, a))
+}
+
+fn CGColorCreateCopyWithAlpha(
+    env: &mut Environment,
+    color: CGColorRef,
+    alpha: CGFloat,
+) -> CGColorRef {
+    if color.is_null() {
+        return color;
+    }
+    let &CGColorHostObject { r, g, b, .. } = env.objc.borrow(color);
+    from_rgba(env, (r, g, b, alpha))
+}
+
+// MARK: - Accessors
+
+fn CGColorGetAlpha(env: &mut Environment, color: CGColorRef) -> CGFloat {
+    if color.is_null() {
+        return 0.0;
+    }
+    env.objc.borrow::<CGColorHostObject>(color).a
+}
+
+fn CGColorGetColorSpace(env: &mut Environment, color: CGColorRef) -> CGColorSpaceRef {
+    if color.is_null() {
+        return crate::objc::nil;
+    }
+    // Return a retained colour space matching the stored name.
+    // We only support GenericRGB right now.
+    crate::frameworks::core_graphics::cg_color_space::CGColorSpaceCreateDeviceRGB(env)
+}
+
+/// Returns a pointer directly into guest memory where the four RGBA floats
+/// of this colour live. Real CG stores these inline; we allocate a small
+/// guest buffer on demand and write current values into it.
+pub fn CGColorGetComponents(env: &mut Environment, color: CGColorRef) -> ConstPtr<CGFloat> {
+    if color.is_null() {
+        return ConstPtr::null();
+    }
+    let &CGColorHostObject { r, g, b, a, .. } = env.objc.borrow(color);
+    // Allocate a 4-float guest buffer each call (simple, no lifetime issues).
+    let buf: MutPtr<CGFloat> = env.mem.alloc(4 * 4).cast(); // 4 × sizeof(f32)
+    env.mem.write(buf,     r);
+    env.mem.write(buf + 1, g);
+    env.mem.write(buf + 2, b);
+    env.mem.write(buf + 3, a);
+    buf.cast_const()
+}
+
+fn CGColorGetNumberOfComponents(_env: &mut Environment, color: CGColorRef) -> crate::frameworks::foundation::NSUInteger {
+    if color.is_null() {
+        return 0;
+    }
+    // GenericRGB always has 4 components (r, g, b, alpha).
+    4
+}
+
+fn CGColorIsValid(_env: &mut Environment, color: CGColorRef) -> bool {
+    !color.is_null()
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGColorRetain(_)),
     export_c_func!(CGColorRelease(_)),
     export_c_func!(CGColorCreate(_, _)),
     export_c_func!(CGColorCreateGenericRGB(_, _, _, _)),
+    export_c_func!(CGColorCreateGenericGray(_, _)),
+    export_c_func!(CGColorCreateGenericCMYK(_, _, _, _, _)),
+    export_c_func!(CGColorCreateCopyWithAlpha(_, _)),
+    export_c_func!(CGColorCreateCopy(_)),
     export_c_func!(CGColorEqualToColor(_, _)),
+    export_c_func!(CGColorGetAlpha(_)),
+    export_c_func!(CGColorGetColorSpace(_)),
+    export_c_func!(CGColorGetComponents(_)),
+    export_c_func!(CGColorGetNumberOfComponents(_)),
+    export_c_func!(CGColorIsValid(_)),
 ];
 
 /// Shortcut for use by `UIColor`: directly construct a `CGColor` instance from
@@ -160,3 +260,4 @@ pub fn to_rgba(objc: &ObjC, color: CGColorRef) -> (CGFloat, CGFloat, CGFloat, CG
     assert_eq!(color_space_name, kCGColorSpaceGenericRGB);
     (r, g, b, a)
 }
+

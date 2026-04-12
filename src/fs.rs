@@ -632,21 +632,28 @@ impl Fs {
             }
         }
 
+        let library_node = match &host_path_directories[1] {
+            Some(host_path) => FsNode::from_host_dir(host_path, true),
+            None => FsNode::dir(),
+        };
+
         let root = FsNode::dir()
             .with_child(
                 "var",
                 FsNode::dir().with_child(
                     "mobile",
-                    FsNode::dir().with_child(
-                        "Applications",
-                        FsNode::dir().with_child(
-                            FAKE_UUID,
-                            FsNode::Directory {
-                                children: app_dir_children,
-                                writeable: None,
-                            },
-                        ),
-                    ),
+                    FsNode::dir()
+                        .with_child(
+                            "Applications",
+                            FsNode::dir().with_child(
+                                FAKE_UUID,
+                                FsNode::Directory {
+                                    children: app_dir_children,
+                                    writeable: None,
+                                },
+                            ),
+                        )
+                        .with_child("Library", library_node),
                 ),
             )
             .with_child("usr", FsNode::dir().with_child("lib", usr_lib));
@@ -1258,3 +1265,4 @@ impl Fs {
         Ok(())
     }
 }
+

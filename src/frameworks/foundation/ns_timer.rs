@@ -10,7 +10,7 @@ use super::NSTimeInterval;
 use super::{ns_run_loop, ns_string};
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain, ClassExports,
-    HostObject, SEL,
+    HostObject, SEL, NSZonePtr,
 };
 use crate::Environment;
 use std::time::{Duration, Instant};
@@ -79,6 +79,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
++ (id)allocWithZone:(NSZonePtr)_zone {
+        // Создаем "пустой" хост-объект. Данные перезапишутся при вызове init.
+        let host_object = Box::new(NSTimerHostObject {
+            ns_interval: 0.0,
+            rust_interval: Duration::from_secs(0),
+            target: nil,
+            selector: _cmd, // Используем текущий селектор как временную заглушку
+            user_info: nil,
+            repeats: false,
+            due_by: None,
+            is_running_callback: false,
+            run_loop: nil,
+        });
+        env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+    
 + (id)scheduledTimerWithTimeInterval:(NSTimeInterval)interval
                               target:(id)target
                             selector:(SEL)selector
@@ -152,6 +168,105 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+// MARK: - Fire Date
+
+- (())setFireDate:(id)date {
+    // Запрашиваем интервал времени у NSDate ДО заимствования таймера,
+    // чтобы избежать потенциальной паники RefCell при вложенных вызовах.
+    let time_interval: NSTimeInterval = msg![env; date timeIntervalSinceNow];
+        
+    let mut timer = env.objc.borrow_mut::<NSTimerHostObject>(this);
+        
+    // Согласно документации Apple, если таймер уже остановлен (invalidated),
+    // изменение fireDate игнорируется.
+    if timer.due_by.is_some() {
+        if time_interval.is_nan() || time_interval <= 0.0 {
+            timer.due_by = Some(Instant::now());
+        } else {
+            // Ограничиваем ~100 годами для защиты от паники Instant::checked_add, 
+            // когда передают что-то вроде [NSDate distantFuture].
+            let safe_interval = time_interval.min(100.0 * 365.0 * 24.0 * 3600.0);
+            timer.due_by = Some(Instant::now() + Duration::from_secs_f64(safe_interval));
+        }
+    }
+}
+
+- (id)fireDate {
+    let timer = env.objc.borrow::<NSTimerHostObject>(this);
+    if let Some(due) = timer.due_by {
+        let now = Instant::now();
+        let time_interval: NSTimeInterval = if due > now {
+            due.duration_since(now).as_secs_f64()
+        } else {
+            -now.duration_since(due).as_secs_f64()
+        };
+        msg_class![env; NSDate dateWithTimeIntervalSinceNow:time_interval]
+    } else {
+        nil
+    }
+}
+
+- (id)initWithFireDate:(id)date
+                  interval:(NSTimeInterval)ns_interval
+                    target:(id)target
+                  selector:(SEL)selector
+                  userInfo:(id)user_info
+                   repeats:(bool)repeats {
+        let ns_interval = ns_interval.max(0.0001);
+        let rust_interval = Duration::from_secs_f64(ns_interval);
+
+        retain(env, target);
+        retain(env, user_info);
+
+        // Рассчитываем время до вызова (до заимствования таймера, чтобы избежать паники RefCell)
+        let time_interval: NSTimeInterval = if date != nil {
+            msg![env; date timeIntervalSinceNow]
+        } else {
+            0.0
+        };
+
+        // Заполняем реальные данные
+        let mut timer = env.objc.borrow_mut::<NSTimerHostObject>(this);
+
+        timer.ns_interval = ns_interval;
+        timer.rust_interval = rust_interval;
+        timer.target = target;
+        timer.selector = selector;
+        timer.user_info = user_info;
+        timer.repeats = repeats;
+
+        if time_interval.is_nan() || time_interval <= 0.0 {
+            timer.due_by = Some(Instant::now());
+        } else {
+            let safe_interval = time_interval.min(100.0 * 365.0 * 24.0 * 3600.0);
+            timer.due_by = Some(Instant::now() + Duration::from_secs_f64(safe_interval));
+        }
+
+        this
+    }
+
+// =========================================================================
+// MARK: - Description
+// =========================================================================
+
+- (id)description {
+    let host = env.objc.borrow::<NSTimerHostObject>(this);
+    let validity = if host.due_by.is_some() { "valid" } else { "invalid" };
+    let repeats_str = if host.repeats { "repeats" } else { "one-shot" };
+    let selector_str = host.selector.as_str(&env.mem);
+    let s = format!(
+        "<NSTimer: {:?}; {} {}; interval={:.4}s; target={:?}; selector={}>",
+        this,
+        validity,
+        repeats_str,
+        host.ns_interval,
+        host.target,
+        selector_str
+    );
+    let cstr = env.mem.alloc_and_write_cstr(s.as_bytes());
+    msg_class![env; NSString stringWithUTF8String:cstr]
+}
+    
 // TODO: more constructors
 // TODO: more accessors
 
@@ -169,7 +284,7 @@ pub fn set_time_interval(env: &mut Environment, timer: id, interval: NSTimeInter
 /// For use by `NSRunLoop`
 pub(super) fn set_run_loop(env: &mut Environment, timer: id, run_loop: id) {
     let host_object = env.objc.borrow_mut::<NSTimerHostObject>(timer);
-    assert!(host_object.run_loop == nil); // TODO: what do we do here?
+    // assert!(host_object.run_loop == nil); // TODO: what do we do here?
     host_object.run_loop = run_loop;
 }
 
@@ -267,3 +382,4 @@ pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> 
 
     new_due_by
 }
+

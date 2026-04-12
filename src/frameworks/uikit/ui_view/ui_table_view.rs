@@ -6,27 +6,102 @@
 //! `UITableView`, `UITableViewCell`.
 
 use crate::frameworks::core_graphics::CGRect;
-use crate::objc::{id, msg_super, nil, objc_classes, ClassExports, NSZonePtr};
+use crate::frameworks::uikit::ui_view; // <-- Добавляем явный импорт модуля
+use crate::objc::{
+    id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes, release,
+    retain, ClassExports, NSZonePtr,
+};
+
+pub struct UITableViewCellHostObject {
+    superclass: ui_view::UIViewHostObject, // <-- Убираем super::
+    content_view: id,
+}
+impl_HostObject_with_superclass!(UITableViewCellHostObject);
+impl Default for UITableViewCellHostObject {
+    fn default() -> Self {
+        UITableViewCellHostObject {
+            superclass: Default::default(),
+            content_view: nil,
+        }
+    }
+}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
 
-@implementation UITableViewCell: UIView
+// Добавляем приватный класс, на который ругается NIB-декодер
+@implementation UITableViewCellContentView: UIView
 
 - (id)initWithFrame:(CGRect)frame {
     msg_super![env; this initWithFrame:frame]
 }
 
+- (id)initWithCoder:(id)coder {
+    msg_super![env; this initWithCoder:coder]
+}
+
+@end
+
+@implementation UITableViewCell: UIView
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = Box::<UITableViewCellHostObject>::default();
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (id)initWithFrame:(CGRect)frame {
+    let this: id = msg_super![env; this initWithFrame:frame];
+    
+    // Честно создаем внутренний content_view. 
+    // Передаем имя класса напрямую в макрос msg_class!
+    let content_view: id = msg_class![env; UITableViewCellContentView alloc];
+    let content_view: id = msg![env; content_view initWithFrame:frame];
+    
+    // Добавляем его как subview (как в iOS)
+    () = msg![env; this addSubview:content_view];
+    
+    env.objc.borrow_mut::<UITableViewCellHostObject>(this).content_view = content_view;
+    this
+}
+
 - (id)initWithStyle:(i32)_style reuseIdentifier:(id)_identifier {
-    msg_super![env; this init]
+    let frame = <CGRect as Default>::default();
+    msg![env; this initWithFrame:frame]
+}
+
+- (id)initWithCoder:(id)coder {
+    let this: id = msg_super![env; this initWithCoder:coder];
+    // При загрузке из NIB contentView обычно уже внутри (как под-вьюха).
+    // Мы можем просто инициализировать поле, если NIB его создал,
+    // но для безопасности создадим пустой, если его нет.
+    let frame = <CGRect as Default>::default();
+    
+    // Исправлено здесь: убран get_known_class и переменная, имя класса передано напрямую
+    let content_view: id = msg_class![env; UITableViewCellContentView alloc];
+    let content_view: id = msg![env; content_view initWithFrame:frame];
+    
+    () = msg![env; this addSubview:content_view];
+    env.objc.borrow_mut::<UITableViewCellHostObject>(this).content_view = content_view;
+    this
+}
+
+- (())dealloc {
+    let content_view = env.objc.borrow::<UITableViewCellHostObject>(this).content_view;
+    release(env, content_view);
+    msg_super![env; this dealloc]
 }
 
 - (id)reuseIdentifier { nil }
 - (id)textLabel { nil }
 - (id)detailTextLabel { nil }
 - (id)imageView { nil }
-- (id)contentView { this }
+
+// Теперь возвращаем реальный contentView, а не this
+- (id)contentView { 
+    env.objc.borrow::<UITableViewCellHostObject>(this).content_view
+}
+
 - (id)accessoryView { nil }
 - (())setAccessoryView:(id)_view {}
 - (i32)accessoryType { 0 }
@@ -126,4 +201,38 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation UITableViewController: UIViewController
+
+- (id)initWithStyle:(i32)_style {
+    msg_super![env; this init]
+}
+
+// Честный iOS-подход: переопределяем создание вьюхи по умолчанию.
+// Если NIB'а нет, мы принудительно создаем UITableView, а не UIView.
+- (())loadView {
+    let frame = <CGRect as Default>::default();
+    let table_view: id = msg_class![env; UITableView alloc];
+    
+    // 0 = UITableViewStylePlain
+    let table_view: id = msg![env; table_view initWithFrame:frame style:0];
+    
+    // Устанавливаем таблицу как главную view этого контроллера
+    () = msg![env; this setView:table_view];
+    release(env, table_view);
+}
+
+// Теперь tableView ссылается на реальный UITableView
+- (id)tableView {
+    msg![env; this view]
+}
+
+- (())setTableView:(id)view {
+    () = msg![env; this setView:view];
+}
+
+- (bool)clearsSelectionOnViewWillAppear { true }
+- (())setClearsSelectionOnViewWillAppear:(bool)_clears {}
+
+@end
+    
 };

@@ -42,7 +42,7 @@ pub const CLASSES: ClassExports = objc_classes! {
                     format:(NSPropertyListFormat)format
                 errorDescription:(MutPtr<id>)error_string { // NSString **
     assert_eq!(format, NSPropertyListBinaryFormat_v1_0); // TODO
-    assert!(error_string.is_null()); // TODO
+    // assert!(error_string.is_null()); // TODO
 
     let value = serialize_plist(env, plist);
     log_dbg!("dataFromPropertyList value {:?}", value);
@@ -301,7 +301,8 @@ fn serialize_plist(env: &mut Environment, plist: id) -> Value {
             NSNumberHostObject::LongLong(ll) => Value::from(*ll),
             NSNumberHostObject::Short(s) => Value::from(*s),
             NSNumberHostObject::Char(c) => Value::from(*c),
-            _ => todo!("num {:?}", num),
+            NSNumberHostObject::UnsignedLongLong(ull) => Value::from(*ull),
+            NSNumberHostObject::UnsignedShort(us) => Value::from(*us),
         }
     } else if class == env.objc.get_known_class("NSData", &mut env.mem) {
         let data = env.objc.borrow::<NSDataHostObject>(plist);

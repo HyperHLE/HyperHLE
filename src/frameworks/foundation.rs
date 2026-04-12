@@ -11,25 +11,35 @@
 //! Being aware of this concept will make common types like `NSArray` and
 //! `NSString` easier to understand.
 
-use crate::dyld::{export_c_func, FunctionExports};
+use crate::dyld::{export_c_func, FunctionExports, HostConstant, ConstantExports};
+use crate::frameworks::foundation::ns_string::CFStringGetCharactersPtr;
 use crate::objc::id;
 use crate::Environment;
+use crate::mem::{ConstPtr, MutPtr};
 
 pub mod _nib_archive_decoder;
+pub mod ab_people_picker_navigation_controller;
 pub mod ns_array;
+pub mod ns_assertion_handler;
 pub mod ns_autorelease_pool;
 pub mod ns_bundle;
+pub mod ns_calendar;
 pub mod ns_character_set;
 pub mod ns_coder;
+pub mod ns_condition;
 pub mod ns_data;
 pub mod ns_date;
+pub mod ns_date_components;
 pub mod ns_date_formatter;
+pub mod ns_decimal_number;
 pub mod ns_dictionary;
 pub mod ns_enumerator;
 pub mod ns_error;
 pub mod ns_exception;
 pub mod ns_file_handle;
 pub mod ns_file_manager;
+pub mod ns_input_stream;
+pub mod ns_invocation;
 pub mod ns_keyed_archiver;
 pub mod ns_keyed_unarchiver;
 pub mod ns_locale;
@@ -38,17 +48,23 @@ pub mod ns_log;
 pub mod ns_notification;
 pub mod ns_notification_center;
 pub mod ns_null;
+pub mod ns_number_formatter;
 pub mod ns_objc_runtime;
 pub mod ns_object;
+pub mod ns_operation;
+pub mod ns_persistent_store_coordinator;
+pub mod ns_predicate;
 pub mod ns_process_info;
 pub mod ns_property_list_serialization;
 pub mod ns_run_loop;
 pub mod ns_scanner;
 pub mod ns_set;
+pub mod ns_sort_descriptor;
 pub mod ns_string;
 pub mod ns_thread;
 pub mod ns_time_zone;
 pub mod ns_timer;
+pub mod ns_ubiquitous_key_value_store;
 pub mod ns_url;
 pub mod ns_url_connection;
 pub mod ns_url_request;
@@ -56,24 +72,217 @@ pub mod ns_user_defaults;
 pub mod ns_value;
 pub mod ns_xml_parser;
 
+pub fn NSGetSizeAndAlignment(
+    env: &mut Environment,
+    type_ptr: ConstPtr<u8>,
+    size_out: MutPtr<NSUInteger>,
+    align_out: MutPtr<NSUInteger>,
+) -> ConstPtr<u8> {
+    let (next_ptr, size, align) = parse_objc_type(env, type_ptr);
+    
+    if !size_out.is_null() {
+        env.mem.write(size_out, size as NSUInteger);
+    }
+    if !align_out.is_null() {
+        env.mem.write(align_out, align as NSUInteger);
+    }
+    
+    next_ptr
+}
+
+fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8>, u32, u32) {
+    // Пропускаем модификаторы типа (const, in, out, inout, bycopy, byref, oneway)
+    loop {
+        let c = env.mem.read(ptr) as char;
+        match c {
+            'r' | 'n' | 'N' | 'o' | 'O' | 'R' | 'V' => {
+                ptr = ptr + 1;
+            }
+            _ => break,
+        }
+    }
+
+    let c = env.mem.read(ptr) as char;
+    ptr = ptr + 1;
+
+    match c {
+        // Базовые типы
+        'c' | 'C' | 'B' => (ptr, 1, 1),
+        's' | 'S' => (ptr, 2, 2),
+        'i' | 'I' | 'l' | 'L' | 'f' | 'W' => (ptr, 4, 4),
+        'q' | 'Q' | 'd' => (ptr, 8, 8),
+        'v' => (ptr, 0, 1), // void
+        
+        // Указатели, объекты (id), классы (Class), селекторы (SEL), неизвестные указатели (?)
+        '*' | '@' | '#' | ':' | '?' => (ptr, 4, 4),
+        
+        // Указатель на другой тип: размер всегда 4, но нужно "проглотить" тип, на который он указывает
+        '^' => {
+            let (next_ptr, _, _) = parse_objc_type(env, ptr);
+            (next_ptr, 4, 4)
+        }
+        
+        // Массивы: [len+type]
+        '[' => {
+            let mut len = 0;
+            loop {
+                let c = env.mem.read(ptr) as char;
+                if c.is_ascii_digit() {
+                    len = len * 10 + c.to_digit(10).unwrap();
+                    ptr = ptr + 1;
+                } else {
+                    break;
+                }
+            }
+            let (mut next_ptr, elem_size, elem_align) = parse_objc_type(env, ptr);
+            if env.mem.read(next_ptr) as char == ']' {
+                next_ptr = next_ptr + 1;
+            }
+            (next_ptr, len * elem_size, elem_align)
+        }
+        
+        // Структуры: {name=types}
+        '{' => {
+            loop {
+                let c = env.mem.read(ptr) as char;
+                ptr = ptr + 1;
+                if c == '=' || c == '}' {
+                    if c == '}' { return (ptr, 0, 1); } // Opaque
+                    break;
+                }
+            }
+            let mut total_size = 0;
+            let mut max_align = 1;
+            loop {
+                let c = env.mem.read(ptr) as char;
+                if c == '}' {
+                    ptr = ptr + 1;
+                    break;
+                }
+                if c == '\0' { break; }
+                
+                // Пропускаем имена полей (например: "x"f)
+                if c == '"' {
+                    ptr = ptr + 1;
+                    loop {
+                        let nc = env.mem.read(ptr) as char;
+                        ptr = ptr + 1;
+                        if nc == '"' { break; }
+                    }
+                } else {
+                    let (next_ptr, elem_size, elem_align) = parse_objc_type(env, ptr);
+                    ptr = next_ptr;
+                    
+                    if elem_align > 0 {
+                        let rem = total_size % elem_align;
+                        if rem != 0 {
+                            total_size += elem_align - rem;
+                        }
+                        if elem_align > max_align {
+                            max_align = elem_align;
+                        }
+                    }
+                    total_size += elem_size;
+                }
+            }
+            if max_align > 0 {
+                let rem = total_size % max_align;
+                if rem != 0 {
+                    total_size += max_align - rem;
+                }
+            }
+            (ptr, total_size, max_align)
+        }
+        
+        // Объединения: (name=types)
+        '(' => {
+            loop {
+                let c = env.mem.read(ptr) as char;
+                ptr = ptr + 1;
+                if c == '=' || c == ')' {
+                    if c == ')' { return (ptr, 0, 1); }
+                    break;
+                }
+            }
+            let mut max_size = 0;
+            let mut max_align = 1;
+            loop {
+                let c = env.mem.read(ptr) as char;
+                if c == ')' {
+                    ptr = ptr + 1;
+                    break;
+                }
+                if c == '\0' { break; }
+                
+                if c == '"' {
+                    ptr = ptr + 1;
+                    loop {
+                        let nc = env.mem.read(ptr) as char;
+                        ptr = ptr + 1;
+                        if nc == '"' { break; }
+                    }
+                } else {
+                    let (next_ptr, elem_size, elem_align) = parse_objc_type(env, ptr);
+                    ptr = next_ptr;
+                    if elem_size > max_size { max_size = elem_size; }
+                    if elem_align > max_align { max_align = elem_align; }
+                }
+            }
+            (ptr, max_size, max_align)
+        }
+        
+        // Битовые поля: bNUM
+        'b' => {
+            let mut bits = 0;
+            loop {
+                let c = env.mem.read(ptr) as char;
+                if c.is_ascii_digit() {
+                    bits = bits * 10 + c.to_digit(10).unwrap();
+                    ptr = ptr + 1;
+                } else {
+                    break;
+                }
+            }
+            let bytes = (bits + 7) / 8;
+            (ptr, bytes, 1)
+        }
+        
+        _ => (ptr, 0, 1),
+    }
+                }
+                
+pub const STUB_CONSTANTS: ConstantExports = &[
+    ("_NSLocalizedFailureReasonErrorKey", HostConstant::NSString("NSLocalizedFailureReasonErrorKey")),
+    ("_NSURLErrorDomain", HostConstant::NSString("NSURLErrorDomain")),
+];
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/Foundation.framework/Foundation",
     aliases: &[],
     class_exports: &[
         _nib_archive_decoder::CLASSES,
+        ab_people_picker_navigation_controller::CLASSES,
         ns_array::CLASSES,
+        ns_assertion_handler::CLASSES,
         ns_autorelease_pool::CLASSES,
         ns_bundle::CLASSES,
+        ns_calendar::CLASSES,
         ns_character_set::CLASSES,
         ns_coder::CLASSES,
+        ns_condition::CLASSES,
         ns_data::CLASSES,
         ns_date::CLASSES,
+        ns_date_components::CLASSES,
         ns_date_formatter::CLASSES,
+        ns_decimal_number::CLASSES,
         ns_dictionary::CLASSES,
         ns_enumerator::CLASSES,
         ns_error::CLASSES,
+        ns_exception::CLASSES,
         ns_file_handle::CLASSES,
         ns_file_manager::CLASSES,
+        ns_input_stream::CLASSES,
+        ns_invocation::CLASSES,
         ns_keyed_archiver::CLASSES,
         ns_keyed_unarchiver::CLASSES,
         ns_locale::CLASSES,
@@ -81,16 +290,22 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_notification::CLASSES,
         ns_notification_center::CLASSES,
         ns_null::CLASSES,
+        ns_number_formatter::CLASSES,
         ns_object::CLASSES,
+        ns_operation::CLASSES,
+        ns_persistent_store_coordinator::CLASSES,
+        ns_predicate::CLASSES,
         ns_process_info::CLASSES,
         ns_property_list_serialization::CLASSES,
         ns_run_loop::CLASSES,
         ns_scanner::CLASSES,
         ns_set::CLASSES,
+        ns_sort_descriptor::CLASSES,
         ns_string::CLASSES,
         ns_thread::CLASSES,
         ns_timer::CLASSES,
         ns_time_zone::CLASSES,
+        ns_ubiquitous_key_value_store::CLASSES,
         ns_url::CLASSES,
         ns_url_connection::CLASSES,
         ns_url_request::CLASSES,
@@ -99,12 +314,14 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_xml_parser::CLASSES,
     ],
     constant_exports: &[
+        ns_calendar::CONSTANTS,
         ns_error::CONSTANTS,
         ns_exception::CONSTANTS,
         ns_file_manager::CONSTANTS,
         ns_keyed_unarchiver::CONSTANTS,
         ns_locale::CONSTANTS,
         ns_run_loop::CONSTANTS,
+        STUB_CONSTANTS,
     ],
     function_exports: &[
         FUNCTIONS,
@@ -119,6 +336,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
 pub struct State {
     ns_autorelease_pool: ns_autorelease_pool::State,
     ns_bundle: ns_bundle::State,
+    ns_calendar: ns_calendar::State,
     ns_file_manager: ns_file_manager::State,
     ns_locale: ns_locale::State,
     ns_notification_center: ns_notification_center::State,
@@ -127,6 +345,7 @@ pub struct State {
     ns_run_loop: ns_run_loop::State,
     ns_string: ns_string::State,
     ns_thread: ns_thread::State,
+    pub ns_ubiquitous_key_value_store: ns_ubiquitous_key_value_store::State,
     ns_user_defaults: ns_user_defaults::State,
 }
 
@@ -183,12 +402,14 @@ pub type unichar = u16;
 fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     use std::hash::Hasher;
 
-    // Rust documentation says DefaultHasher::new() should always return the
-    // same instance, so this should give consistent hashes.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     hashable.hash(&mut hasher);
     let hash_u64: u64 = hasher.finish();
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
 }
 
-const FUNCTIONS: FunctionExports = &[export_c_func!(NSStringFromRange(_))];
+const FUNCTIONS: FunctionExports = &[
+    export_c_func!(NSStringFromRange(_)),
+    export_c_func!(NSGetSizeAndAlignment(_, _, _)),
+    export_c_func!(CFStringGetCharactersPtr(_)),
+];

@@ -47,6 +47,27 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, set)
 }
 
++ (id)setWithArray:(id)array {
+    let count: NSUInteger = msg![env; array count];
+    let new: id = msg![env; this alloc];
+    let mut dict = <DictionaryHostObject as Default>::default();
+
+    for i in 0..count {
+        let object: id = msg![env; array objectAtIndex:i];
+        let null: id = msg_class![env; NSNull null];
+        dict.insert(env, object, null, /* copy_key: */ false);
+    }
+    env.objc.borrow_mut::<SetHostObject>(new).dict = dict;
+    autorelease(env, new)
+}
+
++ (id)setWithSet:(id)object {
+    // assert!(object != nil);
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithObject:object];
+    autorelease(env, new)
+}
+
 + (id)setWithObject:(id)object {
     assert!(object != nil);
     let new: id = msg![env; this alloc];
@@ -94,6 +115,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     // to have the normal behaviour. Unimplemented: call superclass alloc then.
     assert!(this == env.objc.get_known_class("NSMutableSet", &mut env.mem));
     msg_class![env; _touchHLE_NSMutableSet allocWithZone:zone]
+}
+
++ (id)setWithCapacity:(NSUInteger)numItems {
+    assert!(this == env.objc.get_known_class("NSMutableSet", &mut env.mem));
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithCapacity:numItems];
+    autorelease(env, new)
 }
 
 + (id)setWithObjects:(id)first_obj, ...args {
@@ -197,6 +225,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
+// NSCopying implementation
+- (id)copyWithZone:(NSZonePtr)_zone {
+    retain(env, this)
+}
+
+// NSCopying implementation
+- (id)mutableCopyWithZone:(NSZonePtr)_zone {
+    retain(env, this)
+}
+
+- (id)initWithCapacity:(NSUInteger)_numItems {
+    // We ignore the requested capacity as Rust's internal data structures handle resizing automatically.
+    env.objc.borrow_mut::<SetHostObject>(this).dict = Default::default();
+    this
+}
+
 - (id)initWithObject:(id)object {
     let null: id = msg_class![env; NSNull null];
 
@@ -222,6 +266,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (NSUInteger)count {
     env.objc.borrow_mut::<SetHostObject>(this).dict.count
+}
+
+- (())bodyType {
+
+}
+
+- (())b2body {
+
 }
 
 - (id)anyObject {

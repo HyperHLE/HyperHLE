@@ -3,10 +3,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+//!
 //! `UINib` and loading of nib files.
 //!
 //! Resources:
 //! - Apple's [Resource Programming Guide](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/LoadingResources/CocoaNibs/CocoaNibs.html) is very helpful.
+//!
 //! - GitHub user 0xced's [reverse-engineering of UIClassSwapper](https://gist.github.com/0xced/45daf79b62ad6a20be1c).
 
 use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
@@ -87,35 +89,45 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
-- (id)instantiateWithOwner:(id)owner
-                   options:(id)options { // NSDictionary *
-    assert!(owner != nil);
-    // TODO
-    assert!(options == nil); // TODO
+    - (id)instantiateWithOwner:(id)owner
+                       options:(id)options { // NSDictionary *
+        assert!(owner != nil);
+        // TODO
+        assert!(options == nil);
+        // TODO
 
-    let bundle = env.objc.borrow::<UINibHostObject>(this).bundle;
-    let nib_name = env.objc.borrow::<UINibHostObject>(this).nib_name;
-    let type_: id = get_static_str(env, "nib");
-    let path: id  = msg![env; bundle pathForResource:nib_name ofType:type_];
-    assert!(path != nil);
-    assert!(msg![env; path isAbsolutePath]);
-    let nib_path = to_rust_string(env, path).to_string();
+        let bundle = env.objc.borrow::<UINibHostObject>(this).bundle;
+        let nib_name = env.objc.borrow::<UINibHostObject>(this).nib_name;
+        let type_: id = get_static_str(env, "nib");
+        let path: id  = msg![env; bundle pathForResource:nib_name ofType:type_];
+        // Убираем жесткий assert!(path != nil) и assert!(msg![env; path isAbsolutePath])
+        if path == nil {
+            log!("Warning: UINib instantiateWithOwner: nib file {:?} not found", to_rust_string(env, nib_name));
+            return nil;
+        }
+        
+        let nib_path = to_rust_string(env, path).to_string();
+        assert!(env.objc.borrow::<UINibHostObject>(this).file_owner == nil);
+        env.objc.borrow_mut::<UINibHostObject>(this).file_owner = owner;
+        
+        // Заменяем .unwrap() на безопасную обработку Result
+        let top_level_objects = if let Ok(unarchiver) = load_nib_file(env, this, GuestPathBuf::from(nib_path)) {
+            let top_level_objects_key = get_static_str(env, "UINibTopLevelObjectsKey");
+            let objects = msg![env; unarchiver decodeObjectForKey:top_level_objects_key];
+            release(env, unarchiver);
+            objects
+        } else {
+            nil
+        };
+        env.objc.borrow_mut::<UINibHostObject>(this).file_owner = nil;
 
-    assert!(env.objc.borrow::<UINibHostObject>(this).file_owner == nil);
-    env.objc.borrow_mut::<UINibHostObject>(this).file_owner = owner;
-    let unarchiver = load_nib_file(env, this, GuestPathBuf::from(nib_path)).unwrap();
-    let top_level_objects_key = get_static_str(env, "UINibTopLevelObjectsKey");
-    let top_level_objects = msg![env; unarchiver decodeObjectForKey:top_level_objects_key];
-    release(env, unarchiver);
-    env.objc.borrow_mut::<UINibHostObject>(this).file_owner = nil;
-
-    top_level_objects
-}
+        top_level_objects
+    }
 
 @end
 
-// An undocumented type that nib files reference by name. NSKeyedUnarchiver will
-// find and instantiate this class.
+// An undocumented type that nib files reference by name.
+// NSKeyedUnarchiver will find and instantiate this class.
 @implementation UIProxyObject: NSObject
 
 // NSCoding implementation
@@ -149,14 +161,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else if id == "IBFirstResponder" {
         // Временная заглушка для IBFirstResponder
         log!("touchHLE: Bypassing IBFirstResponder replacement with dummy NSObject");
-        
         let ns_object_class = env.objc.get_known_class("NSObject", &mut env.mem);
         let dummy: id = msg![env; ns_object_class alloc];
         let dummy_init: id = msg![env; dummy init];
-        
         // Освобождаем оригинальную заглушку proxy, так как мы ее заменяем
-        release(env, this); 
-        
+        release(env, this);
         dummy_init
     } else {
         log!("TODO: UIProxyObject replacement for {}, instance {:?} left unreplaced", id, this);
@@ -167,10 +176,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 // Another undocumented type used by nib files.
-// This one seems to be used to
-// instantiate types that don't implement NSCoding (i.e. don't respond to
-// initWithCoder:).
-// See the link at the top of this file.
+// This one seems to be used to instantiate types that don't implement NSCoding 
+// (i.e. don't respond to initWithCoder:).
 @implementation UIClassSwapper: NSObject
 
 // NSCoding implementation
@@ -184,7 +191,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     let orig_nss: id = msg![env; coder decodeObjectForKey:orig_key];
     let orig = to_rust_string(env, orig_nss);
 
-    let class = env.objc.get_known_class(&name, &mut env.mem);
+    // --- НАЧАЛО ХАКА ---
+    log!("[DEBUG NIB] UIClassSwapper грузит класс: {} (оригинал: {})", name, orig);
+    let mut safe_name = name.clone();
+    
+    // Подмена проблемных View
+    // EAGLView подменять нельзя, иначе не будет работать 3D графика!
+    let problematic_views = ["FBLoginButton"];
+    if problematic_views.iter().any(|&c| safe_name == c) {
+        log!("[DEBUG NIB] ВНИМАНИЕ: Подменяем кастомный класс {} на базовый UIView", safe_name);
+        safe_name = "UIView".into();
+    }
+    // --- КОНЕЦ ХАКА ---
+
+    let class = env.objc.get_known_class(&safe_name, &mut env.mem);
     let object: id = msg![env; class alloc];
     let object: id = if orig == "UICustomObject" {
         msg![env; object init]
@@ -245,22 +265,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 // Another undocumented type referenced by nib files by name.
-// Example taken from a nib file:
-// 298 => {
-//   "$classes" => [
-//     0 => "UIRuntimeEventConnection"
-//     1 => "UIRuntimeConnection"
-//     2 => "NSObject"
-//   ]
-//   "$classname" => "UIRuntimeEventConnection"
-// }
-// 299 => {
-//   "$class" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 298}
-//   "UIDestination" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 7}
-//   "UIEventMask" => 64
-//   "UILabel" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 300}
-//   "UISource" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 178}
-// }
 @implementation UIRuntimeEventConnection: UIRuntimeConnection
 
 + (id)alloc {
@@ -303,21 +307,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 // Another undocumented type referenced by nib files by name.
-// Example taken from a nib file:
-// 29 => {
-//   "$classes" => [
-//     0 => "UIRuntimeOutletConnection"
-//     1 => "UIRuntimeConnection"
-//     2 => "NSObject"
-//   ]
-//   "$classname" => "UIRuntimeOutletConnection"
-// }
-// 30 => {
-//   "$class" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 29}
-//   "UIDestination" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 11}
-//   "UILabel" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 31}
-//   "UISource" => <CFKeyedArchiverUID ... [0x1de8cba20]>{value = 7}
-// }
 @implementation UIRuntimeOutletConnection: UIRuntimeConnection
 
 - (())connect {
@@ -340,7 +329,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// The unarchiver should later be manually [release]d
 fn load_nib_file(env: &mut Environment, ui_nib: id, path: GuestPathBuf) -> Result<id, ()> {
     let path = ns_string::from_rust_string(env, path.as_str().to_string());
-    assert!(msg![env; path isAbsolutePath]);
+    //assert!(msg![env; path isAbsolutePath]);
     let ns_data: id = msg_class![env; NSData dataWithContentsOfFile:path];
     if ns_data == nil {
         // Apparently it's permitted to specify the nib file key in the
@@ -373,6 +362,15 @@ fn load_nib_file(env: &mut Environment, ui_nib: id, path: GuestPathBuf) -> Resul
     // ensures everything else is deserialized.
     let objects_key = get_static_str(env, "UINibObjectsKey");
     let objects: id = msg![env; unarchiver decodeObjectForKey:objects_key];
+    // --- ХАК ДЛЯ ПРЕДОТВРАЩЕНИЯ ВЫЛЕТОВ ПРИ КАСАНИИ ---
+    // Удерживаем все объекты NIB-файла в памяти. Это предотвратит их случайное
+    // удаление (Use-After-Free), из-за которого эмулятор падает при попытке
+    // передать касание в исчезнувший UIWindow или UIViewController.
+    if objects != nil {
+        retain(env, objects);
+    }
+    // --------------------------------------------------
+    
     // Connect all the outlets with UIRuntimeOutletConnection
     let conns_key = get_static_str(env, "UINibConnectionsKey");
     let conns: id = msg![env; unarchiver decodeObjectForKey:conns_key];
@@ -403,3 +401,4 @@ fn load_nib_file(env: &mut Environment, ui_nib: id, path: GuestPathBuf) -> Resul
 
     Ok(unarchiver)
 }
+

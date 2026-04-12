@@ -14,7 +14,7 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
 use crate::frameworks::foundation::ns_string;
 use crate::image::Image;
-use crate::mem::{ConstPtr, GuestUSize};
+use crate::mem::{ConstPtr, GuestUSize, MutPtr};
 use crate::objc::{autorelease, nil, objc_classes, ClassExports, HostObject, ObjC};
 use crate::Environment;
 
@@ -199,19 +199,121 @@ fn CGImageGetBitsPerComponent(_: &mut Environment, image: CGImageRef) -> GuestUS
     8
 }
 
+/// Copy of an existing CGImage — just clone the underlying Image.
+fn CGImageCreateCopy(env: &mut Environment, image: CGImageRef) -> CGImageRef {
+    if image.is_null() { return nil; }
+    let new_image = env.objc.borrow::<CGImageHostObject>(image).image.clone();
+    from_image(env, new_image)
+}
+
+/// Crop to a sub-rectangle. CGRect is in pixels (no coordinate transform here).
+fn CGImageCreateWithImageInRect(
+    env: &mut Environment,
+    image: CGImageRef,
+    rect: super::CGRect,
+) -> CGImageRef {
+    if image.is_null() { return nil; }
+
+    let (img_w, img_h) = env
+        .objc
+        .borrow::<CGImageHostObject>(image)
+        .image
+        .dimensions();
+
+    // Clamp rect to image bounds.
+    let x      = (rect.origin.x as u32).min(img_w);
+    let y      = (rect.origin.y as u32).min(img_h);
+    let width  = (rect.size.width  as u32).min(img_w.saturating_sub(x));
+    let height = (rect.size.height as u32).min(img_h.saturating_sub(y));
+
+    if width == 0 || height == 0 { return nil; }
+
+    let src_pixels = env
+        .objc
+        .borrow::<CGImageHostObject>(image)
+        .image
+        .pixels();
+
+    // Copy the sub-region row by row (RGBA — 4 bytes per pixel).
+    let mut dst = vec![0u8; (width * height * 4) as usize];
+    for row in 0..height {
+        let src_start = ((y + row) * img_w + x) as usize * 4;
+        let dst_start = (row * width) as usize * 4;
+        dst[dst_start..dst_start + width as usize * 4]
+            .copy_from_slice(&src_pixels[src_start..src_start + width as usize * 4]);
+    }
+
+    let new_image = Image::from_pixels(width, height, dst);
+    from_image(env, new_image)
+}
+
+/// Create an image masked by another image. We don't apply the mask —
+/// return a copy of the source so apps that read back pixels get something.
+fn CGImageCreateWithMask(
+    env: &mut Environment,
+    image: CGImageRef,
+    _mask: CGImageRef,
+) -> CGImageRef {
+    log!("CGImageCreateWithMask: mask not applied (stubbed)");
+    CGImageCreateCopy(env, image)
+}
+
+/// Invert-mask stub — just copy.
+fn CGImageCreateMaskWithImageMask(env: &mut Environment, mask_image: CGImageRef) -> CGImageRef {
+    log!("CGImageCreateMaskWithImageMask: stubbed");
+    CGImageCreateCopy(env, mask_image)
+}
+
+// MARK: - Additional accessors
+
+fn CGImageGetBitmapInfo(_env: &mut Environment, image: CGImageRef) -> CGBitmapInfo {
+    if image.is_null() { return 0; }
+    // Report premultiplied-last RGBA, big-endian 32-bit — matches our Image format.
+    kCGImageAlphaPremultipliedLast | kCGImageByteOrder32Big
+}
+
+/// Decode array — we always use the default (nil / identity mapping).
+fn CGImageGetDecode(_env: &mut Environment, image: CGImageRef) -> ConstPtr<CGFloat> {
+    ConstPtr::null()
+}
+
+fn CGImageGetShouldInterpolate(_env: &mut Environment, image: CGImageRef) -> bool {
+    if image.is_null() { return false; }
+    true
+}
+
+/// CGColorRenderingIntent — 0 = kCGRenderingIntentDefault.
+fn CGImageGetRenderingIntent(_env: &mut Environment, image: CGImageRef) -> i32 {
+    0
+}
+
+fn CGImageIsMask(_env: &mut Environment, _image: CGImageRef) -> bool {
+    false
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGImageRelease(_)),
     export_c_func!(CGImageRetain(_)),
     export_c_func!(CGImageCreateCopyWithColorSpace(_, _)),
     export_c_func!(CGImageCreateWithPNGDataProvider(_, _, _, _)),
     export_c_func!(CGImageCreateWithJPEGDataProvider(_, _, _, _)),
+    export_c_func!(CGImageCreateWithImageInRect(_, _)),
+    export_c_func!(CGImageCreateWithMask(_, _)),
+    export_c_func!(CGImageCreateMaskWithImageMask(_)),
+    export_c_func!(CGImageCreateCopy(_)),
     export_c_func!(CGImageGetAlphaInfo(_)),
+    export_c_func!(CGImageGetBitmapInfo(_)),
     export_c_func!(CGImageGetColorSpace(_)),
     export_c_func!(CGImageGetWidth(_)),
     export_c_func!(CGImageGetHeight(_)),
     export_c_func!(CGImageGetBitsPerPixel(_)),
+    export_c_func!(CGImageGetBitsPerComponent(_)),
     export_c_func!(CGImageGetBytesPerRow(_)),
     export_c_func!(CGImageGetDataProvider(_)),
-    export_c_func!(CGImageGetBitsPerComponent(_)),
+    export_c_func!(CGImageGetDecode(_)),
+    export_c_func!(CGImageGetShouldInterpolate(_)),
+    export_c_func!(CGImageGetRenderingIntent(_)),
+    export_c_func!(CGImageIsMask(_)),
+    export_c_func!(CGImageCreateWithImageInRect(_, _)),
 ];
 

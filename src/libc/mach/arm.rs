@@ -6,3 +6,4 @@
 
 pub mod task;
 pub mod thread_act;
+pub mod vm_types;

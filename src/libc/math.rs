@@ -543,6 +543,20 @@ fn sqlite3_bind_parameter_index(_env: &mut Environment, arg1: f64, arg2: f64) ->
     arg1.min(arg2)
 }
 
+fn rint(env: &mut Environment, arg: f64) -> f64 {
+    // TODO: handle errno properly
+    set_errno(env, 0);
+
+    arg.log10()
+}
+
+fn rintf(env: &mut Environment, arg: f32) -> f32 {
+    // TODO: handle errno properly
+    set_errno(env, 0);
+
+    arg.log10()
+}
+
 // Other
 fn nan(env: &mut Environment, arg: ConstPtr<u8>) -> f32 {
     assert_eq!(env.mem.read(arg), b'\0'); // TODO
@@ -679,6 +693,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(sqlite3_column_name(_, _)),
     export_c_func!(sqlite3_bind_parameter_index(_, _)),
     // Other
+    export_c_func!(rint(_)),
+    export_c_func!(rintf(_)),
     export_c_func!(nan(_)),
     export_c_func!(hypot(_, _)),
     export_c_func!(__fpclassifyf(_)),

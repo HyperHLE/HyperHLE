@@ -22,7 +22,7 @@
 //! - [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/html/index-wide.html)
 
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::libc::errno::{set_errno, EBADF, ECONNRESET, EINVAL, EPROTONOSUPPORT};
+use crate::libc::errno::{set_errno, EACCES, ENOTCONN, EAGAIN, EADDRINUSE, EADDRNOTAVAIL, EBADF, ECONNRESET, ECONNREFUSED, EINVAL, EIO, EISCONN, ENETUNREACH, ESOCKTNOSUPPORT, ETIMEDOUT, EPROTONOSUPPORT};
 use crate::libc::posix_io::{close, find_or_create_socket, is_socket, FileDescriptor};
 use crate::libc::time::timeval;
 use crate::mem::{
@@ -222,27 +222,11 @@ fn setsockopt(
     option_value: ConstVoidPtr,
     option_len: socklen_t,
 ) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     log_dbg!(
         "setsockopt({}, {:#x}, {:#x}, {:?}, {})",
-        socket,
-        level,
-        option_name,
-        option_value,
-        option_len
+        socket, level, option_name, option_value, option_len
     );
-
-    if option_name == SO_DEBUG {
-        set_errno(env, EINVAL);
-        log!(
-            "Warning: Ignore setsockopt SO_DEBUG at level {} for socket {} => -1",
-            level,
-            socket
-        );
-        return -1;
-    }
 
     let Some(sock) = State::get(env).sockets.get(&socket) else {
         set_errno(env, EBADF);
@@ -250,24 +234,76 @@ fn setsockopt(
     };
     let type_ = sock.type_;
 
-    assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
-
-    assert_eq!(level, SOL_SOCKET);
-    // TODO: SO_REUSEADDR is not supported in std::net (and not so portable)
-    assert!(option_name == SO_REUSEADDR || option_name == SO_BROADCAST);
-
-    assert_eq!(option_len, guest_size_of::<i32>());
-    let tmp: ConstPtr<i32> = option_value.cast();
-    assert_eq!(env.mem.read(tmp), 1);
-
-    let options = &mut State::get_mut(env)
-        .sockets
-        .get_mut(&socket)
-        .unwrap()
-        .options;
-    options.insert(option_name);
-
-    0 // Success
+    match (level, option_name) {
+        (SOL_SOCKET, SO_DEBUG) => {
+            // Silently ignore SO_DEBUG — requires elevated privileges on most
+            // platforms; apps set this speculatively and don't check the result.
+            log_dbg!("setsockopt: ignoring SO_DEBUG on socket {}", socket);
+            0
+        }
+        (SOL_SOCKET, SO_REUSEADDR) | (SOL_SOCKET, SO_BROADCAST) => {
+            assert_eq!(option_len, guest_size_of::<i32>());
+            let val: i32 = env.mem.read(option_value.cast());
+            if val != 0 {
+                State::get_mut(env)
+                    .sockets.get_mut(&socket).unwrap()
+                    .options.insert(option_name);
+            } else {
+                State::get_mut(env)
+                    .sockets.get_mut(&socket).unwrap()
+                    .options.remove(&option_name);
+            }
+            // Apply SO_BROADCAST immediately if the UDP socket already exists.
+            if option_name == SO_BROADCAST {
+                if let Some(udp) = State::get(env)
+                    .sockets.get(&socket).unwrap().udp_socket.as_ref()
+                {
+                    if let Err(e) = udp.set_broadcast(val != 0) {
+                        log!("setsockopt: set_broadcast failed: {}", e);
+                        set_errno(env, EIO);
+                        return -1;
+                    }
+                }
+            }
+            0
+        }
+        (level, option_name) if level == IPPROTO_TCP as i32 => {
+            // TCP_NODELAY (1) — disable Nagle's algorithm.
+            const TCP_NODELAY: i32 = 1;
+            if option_name == TCP_NODELAY {
+                assert_eq!(option_len, guest_size_of::<i32>());
+                let val: i32 = env.mem.read(option_value.cast());
+                if type_ == SOCK_STREAM {
+                    if let Some(stream) = State::get(env)
+                        .sockets.get(&socket).unwrap().tcp_stream.as_ref()
+                    {
+                        if let Err(e) = stream.set_nodelay(val != 0) {
+                            log!("setsockopt TCP_NODELAY failed: {}", e);
+                            set_errno(env, EIO);
+                            return -1;
+                        }
+                    }
+                    // If stream doesn't exist yet, store it for later.
+                    if val != 0 {
+                        State::get_mut(env)
+                            .sockets.get_mut(&socket).unwrap()
+                            .options.insert(TCP_NODELAY);
+                    }
+                }
+                0
+            } else {
+                log!("setsockopt: unhandled IPPROTO_TCP option {:#x}, ignoring", option_name);
+                0
+            }
+        }
+        (level, option_name) => {
+            log!(
+                "setsockopt: unhandled level={:#x} option={:#x} on socket {}, ignoring",
+                level, option_name, socket
+            );
+            0 // Return success rather than crashing the app
+        }
+    }
 }
 
 fn bind(
@@ -276,63 +312,108 @@ fn bind(
     address: ConstPtr<sockaddr>,
     address_len: socklen_t,
 ) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
-    let socket_host_object = State::get(env).sockets.get(&socket).unwrap();
-    let type_ = socket_host_object.type_;
-    assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
+    let Some(sock) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+    let type_ = sock.type_;
 
-    assert_eq!(address_len, guest_size_of::<sockaddr>());
+    if type_ != SOCK_STREAM && type_ != SOCK_DGRAM {
+        set_errno(env, ESOCKTNOSUPPORT);
+        return -1;
+    }
+
+    if address_len < guest_size_of::<sockaddr>() {
+        set_errno(env, EINVAL);
+        return -1;
+    }
+
     let sockaddr_val = env.mem.read(address);
-    log_dbg!(
-        "bind({}, {:?} ({:?}), {})",
-        socket,
-        address,
-        sockaddr_val,
-        address_len
-    );
-
     let socket_address = sockaddr_val.to_sockaddr_v4();
     let type_str = match type_ {
         SOCK_STREAM => "TCP",
-        SOCK_DGRAM => "UDP",
-        _ => unreachable!(),
+        SOCK_DGRAM  => "UDP",
+        _           => unreachable!(),
     };
-    log_dbg!("bind: {} socket address {:?}", type_str, socket_address);
+    log_dbg!(
+        "bind({}, {:?} ({:?}), {}) -> {} {:?}",
+        socket, address, sockaddr_val, address_len, type_str, socket_address
+    );
 
-    // re-borrow
-    let socket_host_object = State::get(env).sockets.get(&socket).unwrap();
     match type_ {
         SOCK_STREAM => {
-            assert!(socket_host_object.tcp_listener.is_none());
-            let host_socket = TcpListener::bind(socket_address).unwrap();
-            // We set host socket as non-blocking in order to have
-            // more control of how and when it's used
-            host_socket.set_nonblocking(true).unwrap();
-            // TODO: set options
-            State::get_mut(env)
-                .sockets
-                .get_mut(&socket)
-                .unwrap()
-                .tcp_listener = Some(host_socket);
-        }
-        SOCK_DGRAM => {
-            assert!(socket_host_object.udp_socket.is_none());
-            let host_socket = UdpSocket::bind(socket_address).unwrap();
-            // We set host socket as non-blocking in order to have
-            // more control of how and when it's used
-            host_socket.set_nonblocking(true).unwrap();
-            for &option in &socket_host_object.options {
-                if option == SO_BROADCAST {
-                    host_socket.set_broadcast(true).unwrap();
+            if State::get(env).sockets.get(&socket).unwrap().tcp_listener.is_some() {
+                set_errno(env, EINVAL); // already bound
+                return -1;
+            }
+            match TcpListener::bind(socket_address) {
+                Ok(host_socket) => {
+                    if let Err(e) = host_socket.set_nonblocking(true) {
+                        log!("bind: TCP set_nonblocking failed: {}", e);
+                        set_errno(env, EIO);
+                        return -1;
+                    }
+                    // Apply SO_REUSEADDR if set (best-effort; std doesn't expose it directly)
+                    State::get_mut(env)
+                        .sockets.get_mut(&socket).unwrap()
+                        .tcp_listener = Some(host_socket);
+                }
+                Err(e) => {
+                    log!("bind: TcpListener::bind({:?}) failed: {}", socket_address, e);
+                    let errno = match e.kind() {
+                        io::ErrorKind::AddrInUse        => EADDRINUSE,
+                        io::ErrorKind::AddrNotAvailable => EADDRNOTAVAIL,
+                        io::ErrorKind::PermissionDenied => EACCES,
+                        _                               => EIO,
+                    };
+                    set_errno(env, errno);
+                    return -1;
                 }
             }
-            State::get_mut(env)
-                .sockets
-                .get_mut(&socket)
-                .unwrap()
-                .udp_socket = Some(host_socket);
+        }
+        SOCK_DGRAM => {
+            if State::get(env).sockets.get(&socket).unwrap().udp_socket.is_some() {
+                set_errno(env, EINVAL); // already bound
+                return -1;
+            }
+            // Collect options before the mutable borrow below
+            let options: Vec<i32> = State::get(env)
+                .sockets.get(&socket).unwrap()
+                .options.iter().copied().collect();
+            match UdpSocket::bind(socket_address) {
+                Ok(host_socket) => {
+                    if let Err(e) = host_socket.set_nonblocking(true) {
+                        log!("bind: UDP set_nonblocking failed: {}", e);
+                        set_errno(env, EIO);
+                        return -1;
+                    }
+                    for option in options {
+                        if option == SO_BROADCAST {
+                            if let Err(e) = host_socket.set_broadcast(true) {
+                                log!("bind: set_broadcast failed: {}", e);
+                                set_errno(env, EIO);
+                                return -1;
+                            }
+                        }
+                    }
+                    State::get_mut(env)
+                        .sockets.get_mut(&socket).unwrap()
+                        .udp_socket = Some(host_socket);
+                }
+                Err(e) => {
+                    log!("bind: UdpSocket::bind({:?}) failed: {}", socket_address, e);
+                    let errno = match e.kind() {
+                        io::ErrorKind::AddrInUse        => EADDRINUSE,
+                        io::ErrorKind::AddrNotAvailable => EADDRNOTAVAIL,
+                        io::ErrorKind::PermissionDenied => EACCES,
+                        _                               => EIO,
+                    };
+                    set_errno(env, errno);
+                    return -1;
+                }
+            }
         }
         _ => unreachable!(),
     }
@@ -361,13 +442,24 @@ fn connect(
     address: ConstPtr<sockaddr>,
     address_len: socklen_t,
 ) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
-    let type_ = State::get(env).sockets.get(&socket).unwrap().type_;
-    assert!(type_ == SOCK_STREAM);
+    let Some(sock) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
 
-    assert_eq!(address_len, guest_size_of::<sockaddr>());
+    let type_ = sock.type_;
+    if type_ != SOCK_STREAM {
+        set_errno(env, ESOCKTNOSUPPORT);
+        return -1;
+    }
+
+    if address_len < guest_size_of::<sockaddr>() {
+        set_errno(env, EINVAL);
+        return -1;
+    }
+
     let sockaddr_val = env.mem.read(address);
     log_dbg!(
         "connect({:?} ({:?}), {})",
@@ -379,23 +471,46 @@ fn connect(
     let socket_address = sockaddr_val.to_sockaddr_v4();
     log_dbg!("connect: socket address {:?}", socket_address);
 
-    assert!(State::get(env)
+    if State::get(env)
         .sockets
         .get(&socket)
         .unwrap()
         .tcp_stream
-        .is_none());
-    let host_stream = TcpStream::connect(socket_address).unwrap();
-    // We set host socket as non-blocking in order to have
-    // more control of how and when it's used
-    host_stream.set_nonblocking(true).unwrap();
-    State::get_mut(env)
-        .sockets
-        .get_mut(&socket)
-        .unwrap()
-        .tcp_stream = Some(host_stream);
+        .is_some()
+    {
+        set_errno(env, EISCONN);
+        return -1;
+    }
 
-    0 // Success
+    match TcpStream::connect(socket_address) {
+        Ok(host_stream) => {
+            if let Err(e) = host_stream.set_nonblocking(true) {
+                log!("connect: set_nonblocking failed: {}", e);
+                set_errno(env, EIO);
+                return -1;
+            }
+            State::get_mut(env)
+                .sockets
+                .get_mut(&socket)
+                .unwrap()
+                .tcp_stream = Some(host_stream);
+            0 // Success
+        }
+        Err(e) => {
+            log!("connect: TcpStream::connect({:?}) failed: {}", socket_address, e);
+            let errno = match e.kind() {
+                std::io::ErrorKind::ConnectionRefused  => ECONNREFUSED,
+                std::io::ErrorKind::TimedOut           => ETIMEDOUT,
+                std::io::ErrorKind::AddrNotAvailable   => EADDRNOTAVAIL,
+                std::io::ErrorKind::AddrInUse          => EADDRINUSE,
+                std::io::ErrorKind::NetworkUnreachable => ENETUNREACH,
+                std::io::ErrorKind::PermissionDenied   => EACCES,
+                _                                      => EIO,
+            };
+            set_errno(env, errno);
+            -1
+        }
+    }
 }
 
 fn select(
@@ -869,47 +984,78 @@ fn send(
     length: GuestUSize,
     flags: i32,
 ) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
-    let type_ = State::get(env).sockets.get(&socket).unwrap().type_;
-    assert!(type_ == SOCK_STREAM);
-
+    let Some(sock) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+    let type_ = sock.type_;
     assert_eq!(flags, 0); // TODO
 
-    let num_bytes_written = match type_ {
+    match type_ {
         SOCK_STREAM => {
-            let mut tcp_stream = env
-                .libc_state
-                .socket
-                .sockets
-                .get(&socket)
-                .unwrap()
-                .tcp_stream
-                .as_ref()
-                .unwrap();
+            let Some(mut stream) = State::get(env)
+                .sockets.get(&socket).unwrap().tcp_stream.as_ref()
+            else {
+                set_errno(env, ENOTCONN);
+                return -1;
+            };
             let buf = env.mem.bytes_at(buffer.cast(), length);
-            match tcp_stream.write(buf) {
-                Ok(written) => written,
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    // TODO: if this happened, take a deep breath and do:
-                    // - block guest thread with a new [ThreadBlock] type
-                    // - poll for data in thread scheduling part
-                    // - write/read/accept/etc data once it is ready
-                    // - unblock guest thread
-                    unimplemented!("send: TCP socket {} would block on sending, block current guest thread {}.", socket, env.current_thread)
+            match stream.write(buf) {
+                Ok(n) => {
+                    log_dbg!("send: wrote {} bytes to TCP socket {}", n, socket);
+                    n.try_into().unwrap()
                 }
-                Err(e) => panic!("send: Socket {socket} encountered IO error: {e}"),
+                Err(ref e) if e.kind() == io::ErrorKind::BrokenPipe
+                    || e.kind() == io::ErrorKind::ConnectionReset =>
+                {
+                    log!("send: TCP socket {} connection lost: {}", socket, e);
+                    set_errno(env, ECONNRESET);
+                    -1
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    log_dbg!("send: TCP socket {} would block", socket);
+                    set_errno(env, EAGAIN);
+                    -1
+                }
+                Err(e) => {
+                    log!("send: TCP socket {} IO error: {}", socket, e);
+                    set_errno(env, EIO);
+                    -1
+                }
             }
         }
-        _ => unreachable!(),
-    };
-    log_dbg!(
-        "send: written {} bytes to TCP socket {}",
-        num_bytes_written,
-        socket
-    );
-    num_bytes_written.try_into().unwrap()
+        SOCK_DGRAM => {
+            // send() on a connected UDP socket — use send() not send_to()
+            let Some(udp) = State::get(env)
+                .sockets.get(&socket).unwrap().udp_socket.as_ref()
+            else {
+                set_errno(env, EBADF);
+                return -1;
+            };
+            let buf = env.mem.bytes_at(buffer.cast(), length);
+            match udp.send(buf) {
+                Ok(n) => {
+                    log_dbg!("send: sent {} bytes on UDP socket {}", n, socket);
+                    n.try_into().unwrap()
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    set_errno(env, EAGAIN);
+                    -1
+                }
+                Err(e) => {
+                    log!("send: UDP socket {} IO error: {}", socket, e);
+                    set_errno(env, EIO);
+                    -1
+                }
+            }
+        }
+        _ => {
+            set_errno(env, ESOCKTNOSUPPORT);
+            -1
+        }
+    }
 }
 
 fn sendto(
@@ -1018,6 +1164,111 @@ fn shutdown(env: &mut Environment, socket: i32, how: i32) -> i32 {
     close(env, socket)
 }
 
+fn getsockname(
+    env: &mut Environment,
+    socket: i32,
+    address: MutPtr<sockaddr>,
+    address_len: MutPtr<socklen_t>,
+) -> i32 {
+    set_errno(env, 0);
+
+    let Some(sock) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+
+    let local_addr: SocketAddr = match sock.type_ {
+        SOCK_STREAM => {
+            if let Some(stream) = &sock.tcp_stream {
+                match stream.local_addr() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        log!("getsockname: local_addr failed: {}", e);
+                        set_errno(env, EINVAL);
+                        return -1;
+                    }
+                }
+            } else if let Some(listener) = &sock.tcp_listener {
+                match listener.local_addr() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        log!("getsockname: listener local_addr failed: {}", e);
+                        set_errno(env, EINVAL);
+                        return -1;
+                    }
+                }
+            } else {
+                set_errno(env, EINVAL);
+                return -1;
+            }
+        }
+        SOCK_DGRAM => {
+            if let Some(udp) = &sock.udp_socket {
+                match udp.local_addr() {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        log!("getsockname: udp local_addr failed: {}", e);
+                        set_errno(env, EINVAL);
+                        return -1;
+                    }
+                }
+            } else {
+                set_errno(env, EINVAL);
+                return -1;
+            }
+        }
+        _ => {
+            set_errno(env, EBADF);
+            return -1;
+        }
+    };
+
+    if !address.is_null() {
+        env.mem.write(address, sockaddr::from_sockaddr_v4(&local_addr));
+        if !address_len.is_null() {
+            env.mem.write(address_len, guest_size_of::<sockaddr>());
+        }
+    }
+    0
+}
+
+fn getpeername(
+    env: &mut Environment,
+    socket: i32,
+    address: MutPtr<sockaddr>,
+    address_len: MutPtr<socklen_t>,
+) -> i32 {
+    set_errno(env, 0);
+
+    let Some(sock) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+
+    let peer_addr: SocketAddr = match &sock.tcp_stream {
+        Some(stream) => match stream.peer_addr() {
+            Ok(addr) => addr,
+            Err(e) => {
+                log!("getpeername: peer_addr failed: {}", e);
+                set_errno(env, EINVAL);
+                return -1;
+            }
+        },
+        None => {
+            set_errno(env, ENOTCONN);
+            return -1;
+        }
+    };
+
+    if !address.is_null() {
+        env.mem.write(address, sockaddr::from_sockaddr_v4(&peer_addr));
+        if !address_len.is_null() {
+            env.mem.write(address_len, guest_size_of::<sockaddr>());
+        }
+    }
+    0
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(socket(_, _, _)),
     export_c_func!(ioctl(_, _, _)),
@@ -1033,6 +1284,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(send(_, _, _, _)),
     export_c_func!(sendto(_, _, _, _, _, _)),
     export_c_func!(shutdown(_, _)),
+    export_c_func!(getsockname(_, _, _)),
+    export_c_func!(getpeername(_, _, _)),
 ];
 
 /// A helper to close a socket, not a part of API

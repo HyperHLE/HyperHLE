@@ -14,6 +14,7 @@ use super::{
     _nib_archive_decoder,
 };
 use crate::abi::{CallFromHost, GuestFunction};
+use crate::frameworks::foundation::ns_string::from_rust_string;
 use crate::fs::GuestPath;
 use crate::libc::stdlib::qsort::qsort_generic;
 use crate::mem::{ConstPtr, MutPtr, MutVoidPtr, Ptr};
@@ -206,6 +207,206 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, array_imm)
 }
 
+// Add to NSArray @implementation:
+
+- (id)objectsAtIndexes:(id)index_set { // NSIndexSet*
+    let count: NSUInteger = msg![env; index_set count];
+    let mut result = Vec::with_capacity(count as usize);
+    let total: NSUInteger = msg![env; this count];
+    for i in 0..total {
+        let contains: bool = msg![env; index_set containsIndex:i];
+        if contains {
+            let obj: id = msg![env; this objectAtIndex:i];
+            retain(env, obj);
+            result.push(obj);
+        }
+    }
+    let arr = from_vec(env, result);
+    autorelease(env, arr)
+}
+
+- (id)firstObjectCommonWithArray:(id)other { // NSArray*
+    let count: NSUInteger = msg![env; this count];
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        let contains: bool = msg![env; other containsObject:obj];
+        if contains {
+            return obj;
+        }
+    }
+    nil
+}
+
+- (bool)isEqualToArray:(id)other { // NSArray*
+    let count: NSUInteger = msg![env; this count];
+    let other_count: NSUInteger = msg![env; other count];
+    if count != other_count {
+        return false;
+    }
+    for i in 0..count {
+        let a: id = msg![env; this objectAtIndex:i];
+        let b: id = msg![env; other objectAtIndex:i];
+        let equal: bool = msg![env; a isEqual:b];
+        if !equal {
+            return false;
+        }
+    }
+    true
+}
+
+- (NSUInteger)indexOfObject:(id)object inRange:(NSRange)range {
+    for i in range.location..(range.location + range.length) {
+        let curr: id = msg![env; this objectAtIndex:i];
+        let equal: bool = msg![env; object isEqual:curr];
+        if equal {
+            return i;
+        }
+    }
+    NSNotFound as NSUInteger
+}
+
+- (NSUInteger)indexOfObjectIdenticalTo:(id)object {
+    let count: NSUInteger = msg![env; this count];
+    for i in 0..count {
+        let curr: id = msg![env; this objectAtIndex:i];
+        if curr == object {
+            return i;
+        }
+    }
+    NSNotFound as NSUInteger
+}
+
+- (NSUInteger)indexOfObjectIdenticalTo:(id)object inRange:(NSRange)range {
+    for i in range.location..(range.location + range.length) {
+        let curr: id = msg![env; this objectAtIndex:i];
+        if curr == object {
+            return i;
+        }
+    }
+    NSNotFound as NSUInteger
+}
+
+- (id)arrayByAddingObject:(id)object {
+    let count: NSUInteger = msg![env; this count];
+    let mut objects = Vec::with_capacity(count as usize + 1);
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        retain(env, obj);
+        objects.push(obj);
+    }
+    retain(env, object);
+    objects.push(object);
+    let arr = from_vec(env, objects);
+    autorelease(env, arr)
+}
+
+- (id)arrayByAddingObjectsFromArray:(id)other { // NSArray*
+    let count: NSUInteger = msg![env; this count];
+    let other_count: NSUInteger = msg![env; other count];
+    let mut objects = Vec::with_capacity((count + other_count) as usize);
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        retain(env, obj);
+        objects.push(obj);
+    }
+    for i in 0..other_count {
+        let obj: id = msg![env; other objectAtIndex:i];
+        retain(env, obj);
+        objects.push(obj);
+    }
+    let arr = from_vec(env, objects);
+    autorelease(env, arr)
+}
+
+- (id)subarrayWithRange:(NSRange)range {
+    let mut objects = Vec::with_capacity(range.length as usize);
+    for i in range.location..(range.location + range.length) {
+        let obj: id = msg![env; this objectAtIndex:i];
+        retain(env, obj);
+        objects.push(obj);
+    }
+    let arr = from_vec(env, objects);
+    autorelease(env, arr)
+}
+
+- (id)filteredArrayUsingPredicate:(id)predicate { // NSPredicate*
+    let count: NSUInteger = msg![env; this count];
+    let mut result = Vec::new();
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        let matches: bool = msg![env; predicate evaluateWithObject:obj];
+        if matches {
+            retain(env, obj);
+            result.push(obj);
+        }
+    }
+    let arr = from_vec(env, result);
+    autorelease(env, arr)
+}
+
+- (())makeObjectsPerformSelector:(SEL)sel {
+    let count: NSUInteger = msg![env; this count];
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        let _: id = msg![env; obj performSelector:sel];
+    }
+}
+
+- (())encodeWithCoder:(id)coder {
+    let class: Class = msg![env; coder class];
+    let keyed_arch_class: Class = msg_class![env; NSKeyedArchiver class];
+
+    if env.objc.class_is_subclass_of(class, keyed_arch_class) {
+        let array = env.objc.borrow::<ArrayHostObject>(this).array.clone();
+
+        // NSKeyedArchiver stores arrays as NS.objects.0, NS.objects.1 ...
+        for (i, obj) in array.iter().copied().enumerate() {
+            let key = from_rust_string(env, format!("NS.objects.{}", i));
+            () = msg![env; coder encodeObject:obj forKey:key];
+            release(env, key);
+        }
+
+        // Encode total count so decoder knows how many to read
+        let count_key = from_rust_string(env, "NS.count".to_string());
+        let count = array.len() as NSUInteger;
+        () = msg![env; coder encodeInt:count forKey:count_key];
+        release(env, count_key);
+    } else {
+        log!(
+            "Warning: NSArray encodeWithCoder: unsupported coder class, skipping"
+        );
+    }
+}
+
+- (())makeObjectsPerformSelector:(SEL)sel withObject:(id)arg {
+    let count: NSUInteger = msg![env; this count];
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        let _: id = msg![env; obj performSelector:sel withObject:arg];
+    }
+}
+
+- (id)valueForKey:(id)key { // NSString*
+    let count: NSUInteger = msg![env; this count];
+    let mut result = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        let val: id = msg![env; obj valueForKey:key];
+        retain(env, val);
+        result.push(val);
+    }
+    let arr = from_vec(env, result);
+    autorelease(env, arr)
+}
+
+- (())setValue:(id)value forKey:(id)key {
+    let count: NSUInteger = msg![env; this count];
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        () = msg![env; obj setValue:value forKey:key];
+    }
+}
+
 @end
 
 // NSMutableArray is an abstract class. A subclass must provide everything
@@ -302,6 +503,90 @@ pub const CLASSES: ClassExports = objc_classes! {
     let other: id = msg_class![env; NSArray alloc];
     let other: id = msg![env; other initWithArray:this];
     other
+}
+
+- (())removeObjectsInArray:(id)other { // NSArray*
+    let count: NSUInteger = msg![env; other count];
+    for i in 0..count {
+        let obj: id = msg![env; other objectAtIndex:i];
+        () = msg![env; this removeObject:obj];
+    }
+}
+
+- (())removeObjectsInRange:(NSRange)range {
+    // Remove in reverse order to preserve indices.
+    let end = range.location + range.length;
+    let mut i = end;
+    while i > range.location {
+        i -= 1;
+        () = msg![env; this removeObjectAtIndex:i];
+    }
+}
+
+- (())removeObjectIdenticalTo:(id)object {
+    let count: NSUInteger = msg![env; this count];
+    let mut indices = Vec::new();
+    for i in 0..count {
+        let curr: id = msg![env; this objectAtIndex:i];
+        if curr == object {
+            indices.push(i);
+        }
+    }
+    for i in indices.into_iter().rev() {
+        () = msg![env; this removeObjectAtIndex:i];
+    }
+}
+
+- (())exchangeObjectAtIndex:(NSUInteger)idx1 withObjectAtIndex:(NSUInteger)idx2 {
+    env.objc
+        .borrow_mut::<ArrayHostObject>(this)
+        .array
+        .swap(idx1 as usize, idx2 as usize);
+}
+
+- (())setArray:(id)other { // NSArray*
+    () = msg![env; this removeAllObjects];
+    () = msg![env; this addObjectsFromArray:other];
+}
+
+- (())filterUsingPredicate:(id)predicate { // NSPredicate*
+    let count: NSUInteger = msg![env; this count];
+    let mut to_remove = Vec::new();
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        let matches: bool = msg![env; predicate evaluateWithObject:obj];
+        if !matches {
+            to_remove.push(i);
+        }
+    }
+    for i in to_remove.into_iter().rev() {
+        () = msg![env; this removeObjectAtIndex:i];
+    }
+}
+
+- (())insertObjects:(id)objects atIndexes:(id)indexes { // NSArray*, NSIndexSet*
+    let count: NSUInteger = msg![env; objects count];
+    let total_idx: NSUInteger = msg![env; indexes count];
+    if count != total_idx {
+        log!("Warning: insertObjects:atIndexes: count mismatch, ignoring");
+        return;
+    }
+    // Collect sorted indices and insert in ascending order.
+    let arr_count: NSUInteger = msg![env; this count];
+    let mut pairs: Vec<(NSUInteger, id)> = Vec::new();
+    let mut obj_i: NSUInteger = 0;
+    for idx in 0..arr_count + count {
+        let contains: bool = msg![env; indexes containsIndex:idx];
+        if contains {
+            let obj: id = msg![env; objects objectAtIndex:obj_i];
+            pairs.push((idx, obj));
+            obj_i += 1;
+        }
+    }
+    // Insert in reverse so earlier insertions don't shift later indices.
+    for (idx, obj) in pairs.into_iter().rev() {
+        () = msg![env; this insertObject:obj atIndex:idx];
+    }
 }
 
 @end
@@ -512,6 +797,33 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
         objects.push(next);
         retain(env, next);
+    }
+    env.objc.borrow_mut::<ArrayHostObject>(this).array = objects;
+    this
+}
+
+- (id)initWithObjects:(id)firstObj, ...args {
+    retain(env, firstObj);
+    let mut objects = vec![firstObj];
+    let mut varargs = args.start();
+    loop {
+        let next_arg: id = varargs.next(env);
+        if next_arg.is_null() {
+            break;
+        }
+        retain(env, next_arg);
+        objects.push(next_arg);
+    }
+    env.objc.borrow_mut::<ArrayHostObject>(this).array = objects;
+    this
+}
+
+- (id)initWithObjects:(ConstPtr<id>)objects_ptr count:(NSUInteger)count {
+    let mut objects = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let obj: id = env.mem.read(objects_ptr + i);
+        retain(env, obj);
+        objects.push(obj);
     }
     env.objc.borrow_mut::<ArrayHostObject>(this).array = objects;
     this

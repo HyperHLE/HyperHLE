@@ -80,10 +80,6 @@ impl<T: Copy + Default + Eq + Ord + SafeRead + Debug> GenericChar<T> {
             let char_b = env.mem.read(b + offset);
             offset += 1;
 
-            // TODO: While the C standard only requires this value to be
-            // non-zero and have the right sign, the man pages for iOS say this
-            // value should have a magnitude corresponding to the difference
-            // between the first differing bytes. Maybe some app relies on that?
             match char_a.cmp(&char_b) {
                 Ordering::Less => return -1,
                 Ordering::Greater => return 1,
@@ -139,6 +135,7 @@ impl<T: Copy + Default + Eq + Ord + SafeRead + Debug> GenericChar<T> {
         }
         dest
     }
+
     pub(super) fn strcat(
         env: &mut Environment,
         dest: MutPtr<T>,
@@ -310,7 +307,6 @@ impl<T: Copy + Default + Eq + Ord + SafeRead + Debug> GenericChar<T> {
         let len = Self::strlen(env, string);
         let mut offset = 0;
         loop {
-            // if c is '\0', the function should locate the terminating '\0'
             if env.mem.read(string + offset) == char {
                 return string + offset;
             }
@@ -343,7 +339,6 @@ impl<T: Copy + Default + Eq + Ord + SafeRead + Debug> GenericChar<T> {
         let mut i = 0;
         loop {
             let c = env.mem.read(src + i);
-
             match i.cmp(&(size - 1)) {
                 Ordering::Less => env.mem.write(dst + i, c),
                 Ordering::Equal => env.mem.write(dst + i, Self::null()),
@@ -357,4 +352,85 @@ impl<T: Copy + Default + Eq + Ord + SafeRead + Debug> GenericChar<T> {
         }
         i
     }
+
+    // --- Added missing functions below ---
+
+    pub(super) fn strlcat(
+        env: &mut Environment,
+        dst: MutPtr<T>,
+        src: ConstPtr<T>,
+        size: GuestUSize,
+    ) -> GuestUSize {
+        let dst_len = Self::strlen(env, dst.cast_const());
+        let src_len = Self::strlen(env, src);
+        if dst_len >= size {
+            return size + src_len;
+        }
+        let copy_len = (size - dst_len - 1).min(src_len);
+        for i in 0..copy_len {
+            let c = env.mem.read(src + i);
+            env.mem.write(dst + dst_len + i, c);
+        }
+        env.mem.write(dst + dst_len + copy_len, Self::null());
+        dst_len + src_len
+    }
+
+    pub(super) fn strspn(
+        env: &mut Environment,
+        s: ConstPtr<T>,
+        accept: ConstPtr<T>,
+    ) -> GuestUSize {
+        let mut i = 0;
+        loop {
+            let c = env.mem.read(s + i);
+            if c == Self::null() {
+                break;
+            }
+            let mut j = 0;
+            let mut found = false;
+            loop {
+                let a = env.mem.read(accept + j);
+                if a == Self::null() {
+                    break;
+                }
+                if c == a {
+                    found = true;
+                    break;
+                }
+                j += 1;
+            }
+            if !found {
+                break;
+            }
+            i += 1;
+        }
+        i
+    }
+
+    pub(super) fn strpbrk(
+        env: &mut Environment,
+        s: ConstPtr<T>,
+        accept: ConstPtr<T>,
+    ) -> ConstPtr<T> {
+        let mut i = 0;
+        loop {
+            let c = env.mem.read(s + i);
+            if c == Self::null() {
+                return Ptr::null();
+            }
+            let mut j = 0;
+            loop {
+                let a = env.mem.read(accept + j);
+                if a == Self::null() {
+                    break;
+                }
+                if c == a {
+                    return s + i;
+                }
+                j += 1;
+            }
+            i += 1;
+        }
+    }
 }
+

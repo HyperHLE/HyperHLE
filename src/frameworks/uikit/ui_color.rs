@@ -111,6 +111,140 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)lightTextColor { get_standard_color(env, _cmd, 1.0, 1.0, 1.0, 0.6) }
 + (id)darkTextColor  { get_standard_color(env, _cmd, 0.0, 0.0, 0.0, 1.0) }
 
++ (id)colorWithHue:(CGFloat)h
+        saturation:(CGFloat)s
+        brightness:(CGFloat)v
+             alpha:(CGFloat)a {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithHue:h saturation:s brightness:v alpha:a];
+    autorelease(env, new)
+}
+
++ (id)colorWithPatternImage:(id)_image { // UIImage*
+    // No pattern rendering — return clear color as a safe fallback.
+    log!("UIColor colorWithPatternImage: stubbed, returning clearColor");
+    msg_class![env; UIColor clearColor]
+}
+
+// iOS 13+ dynamic color — we always use the light variant.
++ (id)colorWithDynamicProvider:(id)_block {
+    log!("UIColor colorWithDynamicProvider: stubbed, returning clearColor");
+    msg_class![env; UIColor clearColor]
+}
+
+// MARK: - Additional standard colors (iOS 7+)
+
++ (id)groupTableViewBackgroundColor {
+    get_standard_color(env, _cmd, 0.937, 0.937, 0.957, 1.0)
+}
++ (id)viewFlipsideBackgroundColor {
+    get_standard_color(env, _cmd, 0.12, 0.12, 0.12, 1.0)
+}
++ (id)scrollViewTexturedBackgroundColor {
+    get_standard_color(env, _cmd, 0.43, 0.43, 0.43, 1.0)
+}
++ (id)underPageBackgroundColor {
+    get_standard_color(env, _cmd, 0.15, 0.15, 0.15, 1.0)
+}
+
+// iOS 13+ semantic colors — approximated with fixed values.
++ (id)labelColor              { get_standard_color(env, _cmd, 0.0, 0.0, 0.0, 1.0) }
++ (id)secondaryLabelColor     { get_standard_color(env, _cmd, 0.24, 0.24, 0.26, 0.6) }
++ (id)tertiaryLabelColor      { get_standard_color(env, _cmd, 0.24, 0.24, 0.26, 0.3) }
++ (id)quaternaryLabelColor    { get_standard_color(env, _cmd, 0.24, 0.24, 0.26, 0.18) }
++ (id)systemFillColor         { get_standard_color(env, _cmd, 0.47, 0.47, 0.50, 0.2) }
++ (id)secondarySystemFillColor { get_standard_color(env, _cmd, 0.47, 0.47, 0.50, 0.16) }
++ (id)tertiarySystemFillColor  { get_standard_color(env, _cmd, 0.47, 0.47, 0.50, 0.12) }
++ (id)quaternarySystemFillColor { get_standard_color(env, _cmd, 0.45, 0.45, 0.50, 0.08) }
++ (id)placeholderTextColor    { get_standard_color(env, _cmd, 0.24, 0.24, 0.26, 0.3) }
++ (id)systemBackgroundColor   { get_standard_color(env, _cmd, 1.0, 1.0, 1.0, 1.0) }
++ (id)secondarySystemBackgroundColor { get_standard_color(env, _cmd, 0.95, 0.95, 0.97, 1.0) }
++ (id)tertiarySystemBackgroundColor  { get_standard_color(env, _cmd, 1.0, 1.0, 1.0, 1.0) }
++ (id)systemGroupedBackgroundColor   { get_standard_color(env, _cmd, 0.95, 0.95, 0.97, 1.0) }
++ (id)secondarySystemGroupedBackgroundColor { get_standard_color(env, _cmd, 1.0, 1.0, 1.0, 1.0) }
++ (id)tertiarySystemGroupedBackgroundColor  { get_standard_color(env, _cmd, 0.95, 0.95, 0.97, 1.0) }
++ (id)separatorColor          { get_standard_color(env, _cmd, 0.24, 0.24, 0.26, 0.29) }
++ (id)opaqueSeparatorColor    { get_standard_color(env, _cmd, 0.78, 0.78, 0.78, 1.0) }
++ (id)linkColor               { get_standard_color(env, _cmd, 0.0, 0.48, 1.0, 1.0) }
++ (id)systemBlueColor         { get_standard_color(env, _cmd, 0.0, 0.48, 1.0, 1.0) }
++ (id)systemGreenColor        { get_standard_color(env, _cmd, 0.20, 0.78, 0.35, 1.0) }
++ (id)systemIndigoColor       { get_standard_color(env, _cmd, 0.35, 0.34, 0.84, 1.0) }
++ (id)systemOrangeColor       { get_standard_color(env, _cmd, 1.0, 0.58, 0.0, 1.0) }
++ (id)systemPinkColor         { get_standard_color(env, _cmd, 1.0, 0.18, 0.33, 1.0) }
++ (id)systemPurpleColor       { get_standard_color(env, _cmd, 0.69, 0.32, 0.87, 1.0) }
++ (id)systemRedColor          { get_standard_color(env, _cmd, 1.0, 0.23, 0.19, 1.0) }
++ (id)systemTealColor         { get_standard_color(env, _cmd, 0.35, 0.78, 0.98, 1.0) }
++ (id)systemYellowColor       { get_standard_color(env, _cmd, 1.0, 0.80, 0.0, 1.0) }
++ (id)systemGrayColor         { get_standard_color(env, _cmd, 0.56, 0.56, 0.58, 1.0) }
++ (id)systemGray2Color        { get_standard_color(env, _cmd, 0.68, 0.68, 0.70, 1.0) }
++ (id)systemGray3Color        { get_standard_color(env, _cmd, 0.78, 0.78, 0.80, 1.0) }
++ (id)systemGray4Color        { get_standard_color(env, _cmd, 0.82, 0.82, 0.84, 1.0) }
++ (id)systemGray5Color        { get_standard_color(env, _cmd, 0.90, 0.90, 0.92, 1.0) }
++ (id)systemGray6Color        { get_standard_color(env, _cmd, 0.95, 0.95, 0.97, 1.0) }
+
+// MARK: - HSB init
+
+- (id)initWithHue:(CGFloat)h
+       saturation:(CGFloat)s
+       brightness:(CGFloat)v
+            alpha:(CGFloat)a {
+    // Convert HSB → RGB.
+    let (r, g, b) = hsb_to_rgb(h, s, v);
+    msg![env; this initWithRed:r green:g blue:b alpha:a]
+}
+
+// MARK: - Component accessors
+
+- (bool)getWhite:(MutPtr<CGFloat>)white alpha:(MutPtr<CGFloat>)alpha {
+    let color = env.objc.borrow::<UIColorHostObject>(this).cg_color;
+    let (r, g, b, a) = cg_color::to_rgba(&env.objc, color);
+    // Return luminance as white component.
+    let w = 0.299 * r + 0.587 * g + 0.114 * b;
+    if !white.is_null() { env.mem.write(white, w); }
+    if !alpha.is_null() { env.mem.write(alpha, a); }
+    true
+}
+
+- (bool)getHue:(MutPtr<CGFloat>)hue
+    saturation:(MutPtr<CGFloat>)saturation
+    brightness:(MutPtr<CGFloat>)brightness
+         alpha:(MutPtr<CGFloat>)alpha {
+    let color = env.objc.borrow::<UIColorHostObject>(this).cg_color;
+    let (r, g, b, a) = cg_color::to_rgba(&env.objc, color);
+    let (h, s, v) = rgb_to_hsb(r, g, b);
+    if !hue.is_null()        { env.mem.write(hue, h); }
+    if !saturation.is_null() { env.mem.write(saturation, s); }
+    if !brightness.is_null() { env.mem.write(brightness, v); }
+    if !alpha.is_null()      { env.mem.write(alpha, a); }
+    true
+}
+
+// MARK: - Drawing
+
+- (())setStroke {
+    use crate::frameworks::core_graphics::cg_context::CGContextSetRGBStrokeColor;
+    let context = UIGraphicsGetCurrentContext(env);
+    if context == nil { return; }
+    let (r, g, b, a) = get_rgba(&env.objc, this);
+    CGContextSetRGBStrokeColor(env, context, r, g, b, a);
+}
+
+// MARK: - Equality / description
+
+- (bool)isEqual:(id)other {
+    if this == other { return true; }
+    let (r1, g1, b1, a1) = get_rgba(&env.objc, this);
+    let (r2, g2, b2, a2) = get_rgba(&env.objc, other);
+    r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2
+}
+
+- (id)description {
+    let (r, g, b, a) = get_rgba(&env.objc, this);
+    let s = format!("UIDeviceRGBColorSpace {} {} {} {}", r, g, b, a);
+    let ns = crate::frameworks::foundation::ns_string::from_rust_string(env, s);
+    autorelease(env, ns)
+}
+
 - (id)initWithCGColor:(CGColorRef)cg_color {
     CGColorRetain(env, cg_color);
     env.objc.borrow_mut::<UIColorHostObject>(this).cg_color = cg_color;
@@ -217,6 +351,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 @implementation UIDeviceRGBColor: UIColor
 @end
+@implementation UICachedDeviceWhiteColor: UIColor
+@end
 
 @implementation _touchHLE_UIColor_Static: UIColor
 
@@ -238,4 +374,44 @@ pub const CLASSES: ClassExports = objc_classes! {
 pub fn get_rgba(objc: &ObjC, ui_color: id) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
     let color = objc.borrow::<UIColorHostObject>(ui_color).cg_color;
     cg_color::to_rgba(objc, color)
+}
+
+/// Convert HSB (each in 0.0–1.0) to RGB.
+fn hsb_to_rgb(h: CGFloat, s: CGFloat, v: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+    if s == 0.0 {
+        return (v, v, v);
+    }
+    let h6 = (h * 6.0).rem_euclid(6.0);
+    let i  = h6 as i32;
+    let f  = h6 - i as CGFloat;
+    let p  = v * (1.0 - s);
+    let q  = v * (1.0 - s * f);
+    let t  = v * (1.0 - s * (1.0 - f));
+    match i {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    }
+}
+
+/// Convert RGB to HSB (each in 0.0–1.0).
+fn rgb_to_hsb(r: CGFloat, g: CGFloat, b: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let v = max;
+    let s = if max == 0.0 { 0.0 } else { delta / max };
+    let h = if delta == 0.0 {
+        0.0
+    } else if max == r {
+        ((g - b) / delta).rem_euclid(6.0) / 6.0
+    } else if max == g {
+        ((b - r) / delta + 2.0) / 6.0
+    } else {
+        ((r - g) / delta + 4.0) / 6.0
+    };
+    (h, s, v)
 }

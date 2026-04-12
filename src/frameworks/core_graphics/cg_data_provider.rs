@@ -17,8 +17,9 @@ use crate::frameworks::core_foundation::cf_url::CFURLRef;
 use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
 use crate::frameworks::foundation::ns_string::to_rust_string;
 use crate::frameworks::foundation::NSUInteger;
+use crate::fs::GuestPath;
 use crate::mem::{ConstVoidPtr, GuestUSize, MutVoidPtr};
-use crate::objc::{id, msg, msg_class, objc_classes, ClassExports, HostObject};
+use crate::objc::{id, msg, msg_class, nil, objc_classes, ClassExports, HostObject};
 use crate::Environment;
 
 pub type CGDataProviderRef = CFTypeRef;
@@ -202,6 +203,72 @@ fn CGDataProviderCreateWithCFData(env: &mut Environment, data: CFDataRef) -> CGD
     )
 }
 
+fn CGDataProviderCreateWithFilename(
+    env: &mut Environment,
+    filename: crate::mem::ConstPtr<u8>,
+) -> CGDataProviderRef {
+    let path_str = env.mem.cstr_at_utf8(filename).unwrap_or("").to_string();
+    log_dbg!("CGDataProviderCreateWithFilename: {}", path_str);
+    let Ok(bytes) = env.fs.read(GuestPath::new(&path_str)) else {
+        log!("Warning: CGDataProviderCreateWithFilename: couldn't read {:?}", path_str);
+        return nil; // <- was std::ptr::null()
+    };
+    let len: GuestUSize = bytes.len().try_into().unwrap();
+    let buf = env.mem.alloc(len);
+    env.mem.bytes_at_mut(buf.cast(), len).copy_from_slice(&bytes);
+
+    CGDataProviderCreateWithData(
+        env,
+        MutVoidPtr::null(),
+        buf.cast_const().cast(),
+        len,
+        GuestFunction::null_ptr(), // <- was GuestFunction::from_ptr(...)
+    )
+}
+
+fn CGDataProviderGetInfo(
+    _env: &mut Environment,
+    _provider: CGDataProviderRef,
+) -> MutVoidPtr {
+    // Real API returns the `info` pointer passed at creation time.
+    // We don't expose it publicly; return null as a safe stub.
+    MutVoidPtr::null()
+}
+
+fn CGDataProviderGetSize(
+    env: &mut Environment,
+    provider: CGDataProviderRef,
+) -> u64 {
+    match *env.objc.borrow(provider) {
+        CGDataProviderHostObject::DataWithSize { size, .. } => size as u64,
+        CGDataProviderHostObject::CGImage(cg_image) => {
+            cg_image::borrow_image(&env.objc, cg_image).pixels().len() as u64
+        }
+        CGDataProviderHostObject::CFData(cf_data) => {
+            CFDataGetLength(env, cf_data) as u64
+        }
+    }
+}
+
+fn CGDataProviderCreateSequential(
+    _env: &mut Environment,
+    _info: MutVoidPtr,
+    _callbacks: ConstVoidPtr,
+) -> CGDataProviderRef {
+    log!("Warning: CGDataProviderCreateSequential is not supported, returning null");
+    nil // <- was std::ptr::null()
+}
+
+fn CGDataProviderCreateDirect(
+    _env: &mut Environment,
+    _info: MutVoidPtr,
+    _size: i64,
+    _callbacks: ConstVoidPtr,
+) -> CGDataProviderRef {
+    log!("Warning: CGDataProviderCreateDirect is not supported, returning null");
+    nil // <- was std::ptr::null()
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGDataProviderRetain(_)),
     export_c_func!(CGDataProviderRelease(_)),
@@ -209,4 +276,9 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGDataProviderCopyData(_)),
     export_c_func!(CGDataProviderCreateWithURL(_)),
     export_c_func!(CGDataProviderCreateWithCFData(_)),
+    export_c_func!(CGDataProviderCreateWithFilename(_)),
+    export_c_func!(CGDataProviderGetInfo(_)),
+    export_c_func!(CGDataProviderGetSize(_)),
+    export_c_func!(CGDataProviderCreateSequential(_, _)),
+    export_c_func!(CGDataProviderCreateDirect(_, _, _)),
 ];

@@ -82,6 +82,8 @@ impl_HostIMP!(P1, P2);
 impl_HostIMP!(P1, P2, P3);
 impl_HostIMP!(P1, P2, P3, P4);
 impl_HostIMP!(P1, P2, P3, P4, P5);
+impl_HostIMP!(P1, P2, P3, P4, P5, P6);
+
 
 /// Type for a guest function implementing a method. See [GuestFunction].
 pub type GuestIMP = GuestFunction;

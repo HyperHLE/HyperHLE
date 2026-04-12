@@ -29,6 +29,8 @@ pub mod audio_queue;
 pub mod audio_services;
 pub mod audio_session;
 pub mod audio_unit;
+pub mod audio_converter;
+pub mod ext_audio_file;
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox",
@@ -37,11 +39,13 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     constant_exports: &[],
     function_exports: &[
         audio_components::FUNCTIONS,
+        audio_converter::FUNCTIONS,
         audio_file::FUNCTIONS,
         audio_queue::FUNCTIONS,
         audio_services::FUNCTIONS,
         audio_session::FUNCTIONS,
         audio_unit::FUNCTIONS,
+        ext_audio_file::FUNCTIONS,
     ],
 };
 
@@ -50,7 +54,9 @@ pub struct State {
     audio_file: audio_file::State,
     audio_queue: audio_queue::State,
     audio_components: audio_components::State,
+    audio_services: audio_services::State,
     audio_session: audio_session::State,
+    ext_audio_file: ext_audio_file::State,
     al_context: LazyALContext,
 }
 impl State {

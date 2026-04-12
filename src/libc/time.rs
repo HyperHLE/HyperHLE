@@ -42,7 +42,6 @@ fn clock(env: &mut Environment) -> clock_t {
 fn time(env: &mut Environment, out: MutPtr<time_t>) -> time_t {
     // TODO: handle errno properly
     set_errno(env, 0);
-
     let time64 = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -115,18 +114,22 @@ impl tm {
 
 // Helpers for timestamp to calendar date conversion, all of these are our own
 // original implementation details.
+
 const fn is_leap_year(year: i32) -> bool {
     year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 /// Number of years in a Gregorian calendar cycle (leap year function cycle)
 const CYCLE_YEARS: i32 = 400;
+
 /// Lookup table where the index is the number of years since the first year in
 /// a Gregorian calendar cycle (400 years), and the value is the number of days
 /// between the first day in that year and the first day in the first year.
 /// Intended for binary search.
 const YEAR_TO_DAY: [i32; CYCLE_YEARS as usize] = calc_year_to_day().0;
+
 /// Number of days in a Gregorian calendar cycle
 const CYCLE_DAYS: i32 = calc_year_to_day().1;
+
 const fn calc_year_to_day() -> ([i32; CYCLE_YEARS as usize], i32) {
     let mut table = [0i32; CYCLE_YEARS as usize];
     let mut day = 0;
@@ -142,9 +145,11 @@ const fn calc_year_to_day() -> ([i32; CYCLE_YEARS as usize], i32) {
 /// of the year, and the value is the number of days in that month in a non-leap
 /// year.
 const DAYS_IN_MONTH: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
 /// Lookup table where the index is the number of months since the first month
 /// in a non-leap year, and the value is the number of days between that month's
-/// first day and the first day of the year. Intended for binary search.
+/// first day and the first day of the year.
+/// Intended for binary search.
 const MONTH_TO_DAY_NONLEAP: [i32; 12] = calc_month_to_day(false);
 /// [MONTH_TO_DAY_NONLEAP] but for leap years.
 const MONTH_TO_DAY_LEAP: [i32; 12] = calc_month_to_day(true);
@@ -164,7 +169,6 @@ pub fn timestamp_to_calendar_date(timestamp: time_t) -> tm {
 
     // The easy bit: seconds, minutes, hours and days don't vary in length in
     // UNIX time.
-
     let days_since_unix_epoch = seconds_since_unix_epoch.div_euclid(DAY_SECONDS);
     let second_in_day = seconds_since_unix_epoch.rem_euclid(DAY_SECONDS);
 
@@ -292,12 +296,10 @@ pub fn calendar_date_to_timestamp(tm: tm) -> time_t {
 
     // Days
     seconds += (tm.tm_mday as i64 - 1) * 86400;
-
     // Hours, minutes and seconds
     seconds += tm.tm_hour as i64 * 3600;
     seconds += tm.tm_min as i64 * 60;
     seconds += tm.tm_sec as i64;
-
     // Adjust for dates before 1970
     if year < 1970 {
         let mut days_before_year = 0i64;
@@ -336,7 +338,6 @@ fn test_calendar_date_to_timestamp() {
         1117223147,  // Fri, 2005-05-27T19:45:47
         -466053135,  // Sat, 1955-03-26T20:47:45
     ];
-
     for &timestamp in &test_timestamps {
         do_roundtrip_test(timestamp);
     }
@@ -462,8 +463,8 @@ unsafe impl SafeRead for timeval {}
 #[derive(Default)]
 #[repr(C, packed)]
 pub struct timespec {
-    tv_sec: time_t,
-    tv_nsec: i32,
+    pub tv_sec: time_t,
+    pub tv_nsec: i32,
 }
 unsafe impl SafeRead for timespec {}
 
@@ -482,7 +483,6 @@ fn gettimeofday(
 ) -> i32 {
     // TODO: handle errno properly
     set_errno(env, 0);
-
     if !timezone_ptr.is_null() {
         env.mem.write(
             timezone_ptr,
@@ -500,7 +500,6 @@ fn gettimeofday(
     let time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
-
     let time_s_64: u64 = time.as_secs();
     let tv_sec = time_s_64 as time_t;
     if time_s_64 != tv_sec as u64 {
@@ -509,14 +508,12 @@ fn gettimeofday(
     let tv_usec: suseconds_t = time.subsec_micros().try_into().unwrap();
 
     env.mem.write(timeval_ptr, timeval { tv_sec, tv_usec });
-
     0 // success
 }
 
 fn nanosleep(env: &mut Environment, rqtp: ConstPtr<timespec>, _rmtp: MutPtr<timespec>) -> i32 {
     // TODO: handle errno properly
     set_errno(env, 0);
-
     let t = env.mem.read(rqtp);
     let tv_sec = t.tv_sec;
     let tv_nsec = t.tv_nsec;
@@ -538,7 +535,6 @@ fn strptime(
         env.mem.cstr_at_utf8(buffer),
         env.mem.cstr_at_utf8(format)
     );
-
     let mut time_val = env.mem.read(time_ptr);
 
     let mut conversation_failed = false;
@@ -547,7 +543,6 @@ fn strptime(
     loop {
         let c = env.mem.read(format + format_char_idx);
         format_char_idx += 1;
-
         if c == b'\0' {
             break;
         }
@@ -573,7 +568,6 @@ fn strptime(
 
         let specifier = env.mem.read(format + format_char_idx);
         format_char_idx += 1;
-
         let mut parse_2_digits = |range: Range<i32>| -> Result<i32, ()> {
             let mut num: i32 = 0;
             let mut chars_count = 0;
@@ -592,7 +586,6 @@ fn strptime(
                 Ok(num)
             }
         };
-
         match specifier {
             b'H' => match parse_2_digits(0..24) {
                 Ok(hour) => {
@@ -630,7 +623,6 @@ fn strptime(
     }
 
     env.mem.write(time_ptr, time_val);
-
     if conversation_failed {
         Ptr::null()
     } else {
@@ -652,20 +644,17 @@ fn strftime(
         env.mem.cstr_at_utf8(format),
         time_ptr
     );
-
     // TODO: support other locales
     let ctype_locale = setlocale(env, LC_CTYPE, Ptr::null());
     assert_eq!(env.mem.read(ctype_locale), b'C');
 
     let time_val = env.mem.read(time_ptr);
-
     let mut res = Vec::<u8>::new();
 
     let mut format_char_idx = 0;
     loop {
         let c = env.mem.read(format + format_char_idx);
         format_char_idx += 1;
-
         if c == b'\0' {
             break;
         }
@@ -676,7 +665,6 @@ fn strftime(
 
         let specifier = env.mem.read(format + format_char_idx);
         format_char_idx += 1;
-
         match specifier {
             b'm' => {
                 let month = time_val.tm_mon + 1;
@@ -685,7 +673,8 @@ fn strftime(
                 res.extend_from_slice(formatted_month.as_bytes());
             }
             b'd' => {
-                let day = time_val.tm_mday; // from 1
+                let day = time_val.tm_mday;
+                // from 1
                 assert!((1..=31).contains(&day));
                 let formatted_day = format!("{:02}", day);
                 res.extend_from_slice(formatted_day.as_bytes());
@@ -715,7 +704,6 @@ fn strftime(
     } else {
         &res[..]
     };
-
     let dest_slice = env.mem.bytes_at_mut(s, max_size);
     for (i, &byte) in middle.iter().chain(b"\0".iter()).enumerate() {
         dest_slice[i] = byte;
@@ -738,3 +726,4 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(strptime(_, _, _)),
     export_c_func!(strftime(_, _, _, _)),
 ];
+

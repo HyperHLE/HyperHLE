@@ -197,3 +197,15 @@ com.gameloft.HOS2: --stick-to-touch=28,206,84,84 --button-to-touch=Start,25,25 -
 
 # Unity's 3D World demo
 com.unity3d.3Dworld: --landscape-left --force-composition
+
+# Doom
+com.idsoftware.Doom: --force-composition
+
+# Edge
+net.mobigame.Edge: --force-composition
+
+# Radiant 
+net.hexage.radiant: --force-composition
+
+# BBR3D
+com.digitalchocolate.iwall: --force-composition

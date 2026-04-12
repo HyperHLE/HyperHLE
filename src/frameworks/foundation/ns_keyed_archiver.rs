@@ -1,11 +1,13 @@
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * License, v. 2.0.
+ * If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! `NSKeyedArchiver` and serialization of its object graph format.
 //!
 //! Resources:
+//!
 //! - You can get a good intuitive grasp of how the format works just by staring
 //!   at a pretty-print of a simple archive file from something that can parse
 //!   plists, e.g. `plutil -p` or `println!("{:#?}", plist::Value::...);`.
@@ -18,7 +20,7 @@ use plist::{to_writer_binary, Dictionary, Uid, Value};
 
 use crate::frameworks::foundation::ns_keyed_unarchiver::NSKeyedArchiveRootObjectKey;
 use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
-use crate::frameworks::foundation::NSUInteger;
+use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::mem::{ConstPtr, GuestUSize};
 use crate::objc::{
     id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
@@ -34,7 +36,8 @@ struct NSKeyedArchiverHostObject {
 }
 impl HostObject for NSKeyedArchiverHostObject {}
 
-pub const CLASSES: ClassExports = objc_classes! {
+pub const CLASSES: ClassExports = objc_classes!
+{
 
 (env, this, _cmd);
 
@@ -76,11 +79,68 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; data writeToFile:file atomically:true]
 }
 
+- (id)initForWritingWithMutableData:(id)_data {
+    log!("Warning: stubbed NSKeyedArchiver initForWritingWithMutableData:");
+    this
+}
+
 - (())encodeObject:(id)object // NSCoding *
             forKey:(id)key { // NSString *
     let key = normalize_key(env, key);
     encode_object_for_key(env, this, object, key);
 }
+
+// --- ИЗМЕНЕНО: Изменен тип i32 на u32 для решения проблемы Type mismatch ---
+- (())encodeInt:(u32)value forKey:(id)key { // NSString *
+    let key = normalize_key(env, key);
+    let scope = get_value_to_encode_for_current_key(env, this);
+    assert!(!scope.contains_key(&key));
+    scope.insert(key, value.into());
+}
+
+- (())encodeInt32:(i32)value forKey:(id)key { // NSString *
+    let key = normalize_key(env, key);
+    let scope = get_value_to_encode_for_current_key(env, this);
+    assert!(!scope.contains_key(&key));
+    scope.insert(key, value.into());
+}
+
+- (())encodeInt64:(i64)value forKey:(id)key { // NSString *
+    let key = normalize_key(env, key);
+    let scope = get_value_to_encode_for_current_key(env, this);
+    assert!(!scope.contains_key(&key));
+    scope.insert(key, value.into());
+}
+
+- (())encodeInteger:(NSInteger)value forKey:(id)key { // NSString *
+    let key = normalize_key(env, key);
+    let scope = get_value_to_encode_for_current_key(env, this);
+    assert!(!scope.contains_key(&key));
+    scope.insert(key, value.into());
+}
+
+- (())encodeBool:(bool)value forKey:(id)key { // NSString *
+    let key = normalize_key(env, key);
+    let scope = get_value_to_encode_for_current_key(env, this);
+    assert!(!scope.contains_key(&key));
+    scope.insert(key, value.into());
+}
+
+- (())encodeFloat:(f32)value forKey:(id)key { // NSString *
+    let key = normalize_key(env, key);
+    let scope = get_value_to_encode_for_current_key(env, this);
+    assert!(!scope.contains_key(&key));
+    // plist сохраняет дробные числа как f64
+    scope.insert(key, (value as f64).into());
+}
+
+- (())encodeDouble:(f64)value forKey:(id)key { // NSString *
+    let key = normalize_key(env, key);
+    let scope = get_value_to_encode_for_current_key(env, this);
+    assert!(!scope.contains_key(&key));
+    scope.insert(key, value.into());
+}
+// ---------------------------------------------------------------
 
 - (())encodeBytes:(ConstPtr<u8>)bytes
            length:(NSUInteger)length
@@ -100,14 +160,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     let len = buffer.len() as GuestUSize;
     let guest_buffer = env.mem.alloc(len);
     env.mem.bytes_at_mut(guest_buffer.cast(), len).copy_from_slice(&buffer[..]);
-    let encoded_data: id = msg_class![env; NSData dataWithBytesNoCopy:guest_buffer length:len];
+    let encoded_data: id = msg_class![env;
+    NSData dataWithBytesNoCopy:guest_buffer length:len];
     env.objc.borrow_mut::<NSKeyedArchiverHostObject>(this).encoded_data = encoded_data;
     retain(env, encoded_data);
 }
 
 - (id)encodedData {
     if env.objc.borrow::<NSKeyedArchiverHostObject>(this).encoded_data == nil {
-        () = msg![env; this finishEncoding];
+        () = msg![env;
+        this finishEncoding];
     }
     env.objc.borrow::<NSKeyedArchiverHostObject>(this).encoded_data
 }
@@ -205,6 +267,11 @@ fn encode_object(env: &mut Environment, archiver: id, object: id) -> Uid {
                 .borrow_mut::<NSKeyedArchiverHostObject>(archiver)
                 .current_key = previous_key;
         }
+        
+        // Кэшируем объект, чтобы избежать дубликатов (перенесено из оригинала)
+        let host_object = env.objc.borrow_mut::<NSKeyedArchiverHostObject>(archiver);
+        host_object.already_archived.insert(object, new_uid);
+        
         new_uid
     }
 }

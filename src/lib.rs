@@ -15,7 +15,6 @@
 //! - The host can access both "guest memory" and "host memory".
 //! - A "guest function" is emulated Arm code, usually from the app binary.
 //! - A "host function" is a Rust function that is part of this emulator.
-
 // Allow the crate to have a non-snake-case name (touchHLE).
 // This also allows items in the crate to have non-snake-case names.
 #![allow(non_snake_case)]
@@ -61,7 +60,6 @@ use environment::{Environment, MutexId, MutexType, ThreadId, PTHREAD_MUTEX_DEFAU
 use std::path::PathBuf;
 
 pub use touchHLE_version::*;
-
 /// This is the true entry point on Android (SDLActivity calls it after
 /// initialization). On other platforms the true entry point is in src/bin.rs.
 #[cfg(target_os = "android")]
@@ -86,7 +84,6 @@ pub extern "C" fn SDL_main(
             echo!("Panic: {}", payload);
         }
     }));
-
     // Empty args: brings up app picker.
     match main([String::new()].into_iter()) {
         Ok(_) => echo!("touchHLE finished"),
@@ -113,7 +110,6 @@ Special options:
     --info
         Print basic information about the app bundle without running the app.
 ";
-
 pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     echo!(
         "touchHLE {}{}{} — https://touchhle.org/",
@@ -146,7 +142,6 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     let mut option_args = Vec::new();
     let mut options = options::Options::default();
     let mut app_args = None::<Vec<String>>;
-
     for arg in args {
         if let Some(ref mut app_args) = app_args {
             app_args.push(arg);
@@ -202,7 +197,6 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         option_args.append(&mut extra_options);
         bundle_path
     };
-
     // When PowerShell does tab-completion on a directory, for some reason it
     // expands it to `'..\My Bundle.app\'` and that trailing \ seems to
     // get interpreted as escaping a double quotation mark?
@@ -281,6 +275,9 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         echo!("Warning: app requires OpenGL ES 2.0+ support. Only OpenGL ES 1.1 is currently supported.");
     }
 
+    // Регистрация GLES 2.0 stub функций
+    dyld::register_gles2_stubs();
+
     if just_info {
         return Ok(());
     }
@@ -331,7 +328,6 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         ),
     }
     echo!();
-
     // Apply command-line options
     for option_arg in option_args {
         let parse_result = options.parse_argument(&option_arg);
@@ -368,3 +364,4 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     env.run();
     Ok(())
 }
+

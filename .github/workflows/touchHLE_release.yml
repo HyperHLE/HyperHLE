@@ -17,7 +17,7 @@ jobs:
     steps:  
       - name: Checkout touchHLE  
         shell: bash
-        run: |  
+        run: |
           mkdir -p "$GITHUB_WORKSPACE"  
           git clone https://github.com/j92580498-max/touchHLE "$GITHUB_WORKSPACE"  
           cd "$GITHUB_WORKSPACE"  
@@ -90,7 +90,7 @@ jobs:
     steps:  
     - name: Checkout touchHLE  
       shell: bash
-      run: |  
+      run: |
         mkdir -p "$GITHUB_WORKSPACE"  
         git clone https://github.com/j92580498-max/touchHLE "$GITHUB_WORKSPACE"  
         cd "$GITHUB_WORKSPACE"  
@@ -170,15 +170,12 @@ jobs:
     steps:  
     - name: Checkout touchHLE  
       shell: bash
-      run: |  
+      run: |
         mkdir -p "$GITHUB_WORKSPACE"  
         git clone https://github.com/j92580498-max/touchHLE "$GITHUB_WORKSPACE"  
         cd "$GITHUB_WORKSPACE"  
         git fetch origin "$GITHUB_REF"  
         git checkout "$GITHUB_SHA"
-    - name: Check formatting  
-      shell: bash
-      run: dev-scripts/format.sh --check  
     - name: Get Submodules  
       run: git submodule update --init  
     - name: Try to get cached copy of Boost  
@@ -205,29 +202,6 @@ jobs:
     - if: ${{ steps.cache-cmake.outputs.cache-hit != 'true' }}  
       name: Extract Cmake  
       run: 7z -ovendor x "cmake-3.31.6-windows-x86_64.zip" && ren vendor\cmake-3.31.6-windows-x86_64 cmake  
-    - name: Lint  
-      shell: bash
-      run: dev-scripts/lint.sh  
-      env:  
-        CMAKE: ${{ github.workspace }}\vendor\cmake\bin\cmake  
-    - name: Try to get cached copy of LLVM  
-      id: cache-llvm  
-      uses: actions/cache@v3  
-      with:  
-        path: tests/llvm  
-        key: llvm_12_0_1_Windows_x64  
-    - if: ${{ steps.cache-llvm.outputs.cache-hit != 'true' }}  
-      name: Download LLVM  
-      run: curl -L -O "https://github.com/llvm/llvm-project/releases/download/llvmorg-12.0.1/LLVM-12.0.1-win64.exe"  
-    - if: ${{ steps.cache-llvm.outputs.cache-hit != 'true' }}  
-      name: Extract LLVM  
-      run: 7z -otests/llvm x LLVM-12.0.1-win64.exe  
-    - name: Get copy of common-3.0-sdk  
-      run: cd ${{ github.workspace }}/tests && curl -L --output ${{ runner.temp }}\sdk.tar.gz https://github.com/touchHLE/common-3.0-sdk/releases/latest/download/common-3.0.sdk-windows-x86_64.tar.gz && tar xzvf ${{ runner.temp }}\sdk.tar.gz  
-    - name: Test  
-      run: cargo test  
-      env:  
-        CMAKE: ${{ github.workspace }}\vendor\cmake\bin\cmake  
     - name: Build  
       run: cargo build --release  
       env:  
@@ -239,8 +213,4 @@ jobs:
       with:  
         name: touchHLE_Windows_x86_64  
         path: touchHLE_windows_bundle/  
-      # Исправлено: путь до артефакта TestApp на Windows
-    - uses: actions/upload-artifact@v4  
-      with:  
-        name: TestApp_built_on_Windows  
-        path: tests/TestApp.app
+

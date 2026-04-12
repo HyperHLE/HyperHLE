@@ -141,6 +141,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     subviews.first().copied().unwrap_or(nil)
 }
 
+// Support for rootViewController (iOS 4+)
+- (())setRootViewController:(id)view_controller {
+    log_dbg!("[(UIWindow*){:?} setRootViewController:{:?}]", this, view_controller);
+    
+    // The default behavior in iOS is to add the view controller's view as a subview of the window.
+    if view_controller != nil {
+        let view: id = msg![env; view_controller view];
+        () = msg![env; this addSubview:view];
+    }
+}
+
+- (id)rootViewController {
+    log!("TODO: [(UIWindow*){:?} rootViewController] full implementation missing", this);
+    nil
+}
+
 // UIResponder implementation
 // From the Apple UIView docs regarding [UIResponder nextResponder]:
 // "UIWindow returns the application object."

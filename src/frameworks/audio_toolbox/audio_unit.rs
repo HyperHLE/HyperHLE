@@ -6,9 +6,6 @@
 //! `AudioUnit.h` (Audio Unit Services)
 
 // Allow compiler to ignore warnings to prevent build failure on strict CI
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
 
 use std::time::Instant;
 

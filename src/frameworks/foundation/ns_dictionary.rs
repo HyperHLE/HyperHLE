@@ -433,6 +433,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo!("TODO: Implement [dictionary init] for custom subclasses")
 }
 
+- (id)keyEnumerator {
+    // 1. Получаем все ключи словаря в виде объекта NSArray
+    let keys: id = msg![env; this allKeys];
+    
+    // 2. Возвращаем готовый энумератор массива (он уже честно реализован в ns_array.rs)
+    msg![env; keys objectEnumerator]
+}
+
+- (id)objectEnumerator {
+    // Заодно добавим и перебор значений, чтобы игра не упала на следующем шаге
+    let values: id = msg![env; this allValues];
+    msg![env; values objectEnumerator]
+}
+    
 // These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
@@ -553,6 +567,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     res
 }
 
+// РЕАЛИЗАЦИЯ УДАЛЕНИЯ ПО МАССИВУ КЛЮЧЕЙ
+- (())removeObjectsForKeys:(id)key_array { // NSArray *
+    if key_array == nil {
+        return;
+    }
+    let count: NSUInteger = msg![env; key_array count];
+    for i in 0..count {
+        let key: id = msg![env; key_array objectAtIndex:i];
+        () = msg![env; this removeObjectForKey:key];
+    }
+}
+
 @end
 
 // Our private subclass that is the single implementation of NSDictionary for
@@ -604,6 +630,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     all_keys_common(env, this)
 }
 
+- (id)allValues {
+    let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    let values: Vec<id> = host_obj.map.values().flatten().map(|&(_key, value)| value).collect();
+    *env.objc.borrow_mut(this) = host_obj;
+
+    for &val in &values {
+        retain(env, val);
+    }
+    let res = crate::frameworks::foundation::ns_array::from_vec(env, values);
+    autorelease(env, res)
+}
+    
 // NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
@@ -723,6 +761,50 @@ pub const CLASSES: ClassExports = objc_classes! {
     let res = host_obj.lookup(env, key);
     *env.objc.borrow_mut(this) = host_obj;
     res
+}
+
+// NSCoding implementation
+- (())encodeWithCoder:(id)coder {
+    let class: Class = msg![env; coder class];
+    let keyed_arch_class: Class = msg_class![env; NSKeyedArchiver class];
+
+    if env.objc.class_is_subclass_of(class, keyed_arch_class) {
+        // Mirror of initWithCoder: decode format:
+        // {
+        //   "NS.keys" => [ keys here ]
+        //   "NS.objects" => [ objects here ]
+        // }
+        let host = env.objc.borrow::<DictionaryHostObject>(this);
+        let pairs: Vec<(id, id)> = host.map.values()
+           .flat_map(|v| v.iter().copied())
+           .collect();
+            drop(host);
+
+        let keys_array: id = msg_class![env; NSMutableArray new];
+        let objects_array: id = msg_class![env; NSMutableArray new];
+
+        for (k, v) in &pairs {
+        let key = *k;
+        let val = *v;
+        () = msg![env; keys_array addObject:key];
+        () = msg![env; objects_array addObject:val];
+    }
+
+        let keys_str = from_rust_string(env, "NS.keys".to_string());
+        let objects_str = from_rust_string(env, "NS.objects".to_string());
+
+        () = msg![env; coder encodeObject:keys_array forKey:keys_str];
+        () = msg![env; coder encodeObject:objects_array forKey:objects_str];
+
+        release(env, keys_str);
+        release(env, objects_str);
+        release(env, keys_array);
+        release(env, objects_array);
+    } else {
+        log!(
+            "Warning: NSMutableDictionary encodeWithCoder: unsupported coder class, skipping"
+        );
+    }
 }
 
 // NSFastEnumeration implementation
@@ -995,3 +1077,4 @@ fn build_description(env: &mut Environment, dict: id) -> id {
     release(env, desc);
     autorelease(env, desc_imm)
 }
+

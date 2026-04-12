@@ -141,7 +141,7 @@ pub enum ThreadBlock {
     // Thread is waiting on a semaphore.
     Semaphore(MutPtr<sem_t>),
     // Thread is waiting on a condition variable
-    Condition(pthread_cond_t),
+    Condition(MutPtr<pthread_cond_t>),
     // Thread is waiting for another thread to finish (joining).
     Joining(ThreadId, MutPtr<MutVoidPtr>),
     // Thread has hit a cpu error, and is waiting to be debugged.
@@ -270,9 +270,6 @@ impl Environment {
                 .iter()
                 .find(|&&o| o != "UIInterfaceOrientationPortrait")
             {
-                // TODO: Overwriting the options might not be ideal; do we need
-                //       to distinguish this kind of orientation change from
-                //       others?
                 options.initial_orientation = match non_portrait_orientation {
                     // UIInterfaceOrientation values are flipped relative to
                     // (UI)DeviceOrientation values (content has to rotate in
@@ -286,6 +283,12 @@ impl Environment {
                     // This appears to be an older way set the orientation.
                     // From testing, it seems to correspond to left.
                     "UIInterfaceOrientationLandscape" => window::DeviceOrientation::LandscapeLeft,
+                    
+                    // ДОБАВЛЯЕМ СЮДА ПРИВЯЗКУ К ОБЫЧНОМУ ПОРТРЕТУ:
+                    "UIInterfaceOrientationPortraitUpsideDown" => {
+                        window::DeviceOrientation::Portrait
+                    }
+                    
                     other => unimplemented!("Unsupported startup orientation: {:?}", other),
                 };
                 log!("App needs non-portrait user interface orientation {:?}, applying device orientation {:?}.", non_portrait_orientation, options.initial_orientation);

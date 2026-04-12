@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+
 //! `AudioSession.h` (Audio Session) // TODO: is this the real name?
 
 use crate::abi::GuestFunction;
@@ -20,18 +21,28 @@ const kAudioSessionBadPropertySizeError: OSStatus = fourcc(b"!siz") as _;
 
 /// Usually a FourCC.
 type AudioSessionPropertyID = u32;
-const kAudioSessionProperty_OtherAudioIsPlaying: AudioSessionPropertyID = fourcc(b"othr");
-const kAudioSessionProperty_AudioCategory: AudioSessionPropertyID = fourcc(b"acat");
-const kAudioSessionProperty_CurrentHardwareSampleRate: AudioSessionPropertyID = fourcc(b"chsr");
-const kAudioSessionProperty_CurrentHardwareOutputNumberChannels: AudioSessionPropertyID =
-    fourcc(b"choc");
-const kAudioSessionProperty_CurrentHardwareOutputVolume: AudioSessionPropertyID = fourcc(b"chov");
-const kAudioSessionProperty_PreferredHardwareIOBufferDuration: AudioSessionPropertyID =
-    fourcc(b"iobd");
-const kAudioSessionProperty_PreferredHardwareSampleRate: AudioSessionPropertyID = fourcc(b"hwsr");
+const kAudioSessionProperty_OtherAudioIsPlaying: AudioSessionPropertyID =
+    fourcc(b"othr");
+const kAudioSessionProperty_AudioCategory: AudioSessionPropertyID =
+    fourcc(b"acat");
+const kAudioSessionProperty_CurrentHardwareSampleRate: AudioSessionPropertyID =
+    fourcc(b"chsr");
+const kAudioSessionProperty_CurrentHardwareOutputNumberChannels:
+    AudioSessionPropertyID = fourcc(b"choc");
+const kAudioSessionProperty_CurrentHardwareOutputVolume: AudioSessionPropertyID =
+    fourcc(b"chov");
+const kAudioSessionProperty_PreferredHardwareIOBufferDuration:
+    AudioSessionPropertyID = fourcc(b"iobd");
+const kAudioSessionProperty_PreferredHardwareSampleRate:
+    AudioSessionPropertyID = fourcc(b"hwsr");
+const kAudioSessionProperty_AudioInputAvailable: AudioSessionPropertyID =
+    fourcc(b"aiav");
+const kAudioSessionProperty_AudioRoute: AudioSessionPropertyID =
+    fourcc(b"rout");
 
 const kAudioSessionCategory_SoloAmbientSound: u32 = fourcc(b"solo");
-const kAudioSessionProperty_CurrentHardwareIOBufferDuration: u32 = fourcc(b"chbd");
+const kAudioSessionProperty_CurrentHardwareIOBufferDuration: u32 =
+    fourcc(b"chbd");
 
 pub struct State {
     audio_session_category: u32,
@@ -40,6 +51,7 @@ pub struct State {
     current_hardware_output_volume: f32,
     current_hardware_io_buffer_duration: f32,
 }
+
 impl Default for State {
     fn default() -> Self {
         // TODO: Check values from a real device
@@ -93,12 +105,14 @@ fn AudioSessionGetProperty(
 ) -> OSStatus {
     let required_size = get_audio_session_property_size(in_ID);
     let io_data_size_value = env.mem.read(io_data_size);
+
     if io_data_size_value != required_size {
         log!("Warning: AudioSessionGetProperty() failed");
         return kAudioSessionBadPropertySizeError;
     }
 
     let state = &env.framework_state.audio_toolbox.audio_session;
+
     match in_ID {
         kAudioSessionProperty_OtherAudioIsPlaying => {
             let value: u32 = 0;
@@ -124,7 +138,24 @@ fn AudioSessionGetProperty(
             let value: f32 = state.current_hardware_io_buffer_duration;
             env.mem.write(out_data.cast(), value);
         }
-        _ => unreachable!(),
+        kAudioSessionProperty_AudioInputAvailable => {
+            // Return 1 so game thinks microphone exists.
+            // Prevents abort() from Outfit7 SDK audio checks.
+            let value: u32 = 1;
+            env.mem.write(out_data.cast(), value);
+        }
+        kAudioSessionProperty_AudioRoute => {
+            let value: u32 = 0;
+            env.mem.write(out_data.cast(), value);
+        }
+        _ => {
+            // Safe fallback instead of unreachable!() panic
+            log!(
+                "TODO: AudioSessionGetProperty() unimplemented property: {} -> returning 0",
+                debug_fourcc(in_ID)
+            );
+            env.mem.write(out_data.cast::<u32>(), 0u32);
+        }
     }
 
     let result = 0; // success
@@ -148,19 +179,33 @@ fn AudioSessionSetProperty(
 ) -> OSStatus {
     let required_size: GuestUSize = match in_ID {
         kAudioSessionProperty_AudioCategory => guest_size_of::<u32>(),
-        kAudioSessionProperty_PreferredHardwareIOBufferDuration => guest_size_of::<f32>(),
-        kAudioSessionProperty_PreferredHardwareSampleRate => guest_size_of::<f64>(),
-        _ => unimplemented!("Unimplemented property ID: {}", debug_fourcc(in_ID)),
+        kAudioSessionProperty_PreferredHardwareIOBufferDuration => {
+            guest_size_of::<f32>()
+        }
+        kAudioSessionProperty_PreferredHardwareSampleRate => {
+            guest_size_of::<f64>()
+        }
+        _ => {
+            log!(
+                "TODO: AudioSessionSetProperty() unimplemented property: {} (size: {}) -> ignoring",
+                debug_fourcc(in_ID),
+                in_data_size
+            );
+            return 0; // silently succeed instead of panicking
+        }
     };
+
     if in_data_size != required_size {
         log!("Warning: AudioSessionSetProperty() failed");
         return kAudioSessionBadPropertySizeError;
     }
+
     if in_ID == kAudioSessionProperty_PreferredHardwareSampleRate {
         env.framework_state
             .audio_toolbox
             .audio_session
-            .current_hardware_sample_rate = env.mem.read(in_data.cast::<f64>());
+            .current_hardware_sample_rate =
+            env.mem.read(in_data.cast::<f64>());
         log!(
             "AudioSessionSetProperty current_hardware_sample_rate {}",
             env.framework_state
@@ -184,7 +229,11 @@ fn AudioSessionSetProperty(
 
 fn AudioSessionSetActive(_env: &mut Environment, active: bool) -> OSStatus {
     let result = 0; // success
-    log!("TODO: AudioSessionSetActive({:?}) -> {:?}", active, result);
+    log!(
+        "TODO: AudioSessionSetActive({:?}) -> {:?}",
+        active,
+        result
+    );
     result
 }
 
@@ -204,6 +253,7 @@ fn AudioSessionAddPropertyListener(
     );
     result
 }
+
 fn AudioSessionRemovePropertyListenerWithUserData(
     _env: &mut Environment,
     in_property_id: AudioSessionPropertyID,
@@ -221,16 +271,37 @@ fn AudioSessionRemovePropertyListenerWithUserData(
     result
 }
 
-/// Helper function to get AudioSession Property size by id
+/// Helper function to get AudioSession Property size by id.
+/// Returns guest_size_of::<u32>() as a safe default for unknown IDs
+/// instead of panicking, so that apps querying unimplemented properties
+/// do not abort touchHLE.
 fn get_audio_session_property_size(in_ID: AudioSessionPropertyID) -> GuestUSize {
     match in_ID {
         kAudioSessionProperty_OtherAudioIsPlaying => guest_size_of::<u32>(),
         kAudioSessionProperty_AudioCategory => guest_size_of::<u32>(),
-        kAudioSessionProperty_CurrentHardwareSampleRate => guest_size_of::<f64>(),
-        kAudioSessionProperty_CurrentHardwareOutputNumberChannels => guest_size_of::<u32>(),
-        kAudioSessionProperty_CurrentHardwareOutputVolume => guest_size_of::<f32>(),
-        kAudioSessionProperty_CurrentHardwareIOBufferDuration => guest_size_of::<f32>(),
-        _ => unimplemented!("Unimplemented property ID: {}", debug_fourcc(in_ID)),
+        kAudioSessionProperty_CurrentHardwareSampleRate => {
+            guest_size_of::<f64>()
+        }
+        kAudioSessionProperty_CurrentHardwareOutputNumberChannels => {
+            guest_size_of::<u32>()
+        }
+        kAudioSessionProperty_CurrentHardwareOutputVolume => {
+            guest_size_of::<f32>()
+        }
+        kAudioSessionProperty_CurrentHardwareIOBufferDuration => {
+            guest_size_of::<f32>()
+        }
+        kAudioSessionProperty_AudioInputAvailable => guest_size_of::<u32>(),
+        kAudioSessionProperty_AudioRoute => guest_size_of::<u32>(),
+        _ => {
+            // Return u32 size as a safe default rather than panicking.
+            // AudioSessionGetProperty has its own fallback that writes 0.
+            log!(
+                "TODO: get_audio_session_property_size unknown property: {} -> 4",
+                debug_fourcc(in_ID)
+            );
+            guest_size_of::<u32>()
+        }
     }
 }
 
@@ -241,5 +312,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioSessionSetProperty(_, _, _)),
     export_c_func!(AudioSessionSetActive(_)),
     export_c_func!(AudioSessionAddPropertyListener(_, _, _)),
-    export_c_func!(AudioSessionRemovePropertyListenerWithUserData(_, _, _)),
+    export_c_func!(
+        AudioSessionRemovePropertyListenerWithUserData(_, _, _)
+    ),
 ];

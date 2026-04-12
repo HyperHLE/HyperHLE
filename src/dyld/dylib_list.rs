@@ -6,8 +6,27 @@
 //! Separate module just for the dylib list, so it gets its own git history.
 
 use crate::frameworks;
+use crate::frameworks::libsqlite3;
 use crate::libc;
 use crate::objc;
+
+// CoreAudio
+pub const CORE_AUDIO: super::HostDylib = super::HostDylib {
+    path: "/System/Library/Frameworks/CoreAudio.framework/CoreAudio",
+    aliases: &[],
+    class_exports: &[],
+    constant_exports: &[],
+    function_exports: &[frameworks::core_audio::FUNCTIONS],
+};
+
+// CFNetwork
+pub const CF_NETWORK: super::HostDylib = super::HostDylib {
+    path: "/System/Library/Frameworks/CFNetwork.framework/CFNetwork",
+    aliases: &[],
+    class_exports: &[],
+    constant_exports: &[],
+    function_exports: &[frameworks::cf_network::FUNCTIONS],
+};
 
 /// The single list of host dylibs that the linker (and Objective-C runtime)
 /// searches through.
@@ -30,8 +49,14 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &frameworks::store_kit::DYLIB,
     &frameworks::system_configuration::DYLIB,
     &frameworks::uikit::DYLIB,
+    &frameworks::libicucore::DYLIB,
+    &frameworks::libsqlite3::DYLIB,
+    &frameworks::libxml2::DYLIB, // Добавлена поддержка libxml2 (необходима для Rolando)
     &frameworks::common_crypto::DYLIB,
-    &frameworks::address_book::DYLIB, // Добавлен наш фреймворк AddressBook
+    &frameworks::core_video::DYLIB, // <--- МЫ ДОБАВИЛИ ЭТУ СТРОКУ ДЛЯ ПОДДЕРЖКИ КАМЕРЫ
+    &frameworks::address_book::DYLIB,
+    &CORE_AUDIO, // <-- Добавлено CoreAudio
+    &CF_NETWORK, // <-- Добавлено CFNetwork
 ];
 
 #[cfg(test)]
@@ -54,6 +79,7 @@ mod tests {
             if !seen_classes.insert(class_name) {
                 panic!("Found duplicate class export {class_name}");
             }
+
             let ClassTemplate {
                 class_methods,
                 instance_methods,

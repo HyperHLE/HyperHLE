@@ -307,6 +307,285 @@ fn strlcpy(
     GenericChar::<u8>::strlcpy(env, dst, src, size)
 }
 
+// Add these functions to string.rs:
+
+fn strlcat(
+    env: &mut Environment,
+    dst: MutPtr<u8>,
+    src: ConstPtr<u8>,
+    size: GuestUSize,
+) -> GuestUSize {
+    GenericChar::<u8>::strlcat(env, dst, src, size)
+}
+
+fn strspn(env: &mut Environment, s: ConstPtr<u8>, accept: ConstPtr<u8>) -> GuestUSize {
+    GenericChar::<u8>::strspn(env, s, accept)
+}
+
+fn strpbrk(env: &mut Environment, s: ConstPtr<u8>, accept: ConstPtr<u8>) -> ConstPtr<u8> {
+    GenericChar::<u8>::strpbrk(env, s, accept)
+}
+
+fn strndup(env: &mut Environment, src: ConstPtr<u8>, n: GuestUSize) -> MutPtr<u8> {
+    let len = strlen(env, src).min(n);
+    let buf: MutPtr<u8> = env.mem.alloc(len + 1).cast();
+    for i in 0..len {
+        let c = env.mem.read(src + i);
+        env.mem.write(buf + i, c);
+    }
+    env.mem.write(buf + len, b'\0');
+    buf
+}
+
+fn memrchr(
+    env: &mut Environment,
+    s: ConstVoidPtr,
+    c: i32,
+    n: GuestUSize,
+) -> ConstVoidPtr {
+    let needle = c as u8;
+    let mut i = n;
+    while i > 0 {
+        i -= 1;
+        let byte = env.mem.read(s.cast::<u8>() + i);
+        if byte == needle {
+            return (s.cast::<u8>() + i).cast();
+        }
+    }
+    ConstVoidPtr::null()
+}
+
+fn memmem(
+    env: &mut Environment,
+    haystack: ConstVoidPtr,
+    haystacklen: GuestUSize,
+    needle: ConstVoidPtr,
+    needlelen: GuestUSize,
+) -> ConstVoidPtr {
+    if needlelen == 0 {
+        return haystack;
+    }
+    if needlelen > haystacklen {
+        return ConstVoidPtr::null();
+    }
+    let limit = haystacklen - needlelen;
+    'outer: for i in 0..=limit {
+        for j in 0..needlelen {
+            let h = env.mem.read(haystack.cast::<u8>() + i + j);
+            let n = env.mem.read(needle.cast::<u8>() + j);
+            if h != n {
+                continue 'outer;
+            }
+        }
+        return (haystack.cast::<u8>() + i).cast();
+    }
+    ConstVoidPtr::null()
+}
+
+fn strtok_r(
+    env: &mut Environment,
+    s: MutPtr<u8>,
+    sep: ConstPtr<u8>,
+    saveptr: MutPtr<MutPtr<u8>>,
+) -> MutPtr<u8> {
+    let start: MutPtr<u8> = if !s.is_null() {
+        s
+    } else {
+        env.mem.read(saveptr)
+    };
+
+    if start.is_null() {
+        return Ptr::null();
+    }
+
+    let sep_bytes = env.mem.cstr_at(sep);
+
+    // Skip leading separators.
+    let mut i: GuestUSize = 0;
+    loop {
+        let c = env.mem.read(start + i);
+        if c == b'\0' {
+            env.mem.write(saveptr, Ptr::null());
+            return Ptr::null();
+        }
+        if sep_bytes.contains(&c) {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+
+    let token_start = start + i;
+
+    // Find end of token.
+    loop {
+        let c = env.mem.read(start + i);
+        if sep_bytes.contains(&c) {
+            env.mem.write(start + i, b'\0');
+            env.mem.write(saveptr, start + i + 1);
+            return token_start;
+        }
+        if c == b'\0' {
+            env.mem.write(saveptr, Ptr::null());
+            return token_start;
+        }
+        i += 1;
+    }
+}
+
+fn strverscmp(env: &mut Environment, a: ConstPtr<u8>, b: ConstPtr<u8>) -> i32 {
+    // Version-aware string compare: numeric segments compared numerically.
+    let sa = env.mem.cstr_at_utf8(a).unwrap_or("").to_string();
+    let sb = env.mem.cstr_at_utf8(b).unwrap_or("").to_string();
+
+    let mut ia = sa.chars().peekable();
+    let mut ib = sb.chars().peekable();
+
+    loop {
+        match (ia.peek().copied(), ib.peek().copied()) {
+            (None, None) => return 0,
+            (None, _)    => return -1,
+            (_, None)    => return 1,
+            (Some(ca), Some(cb)) => {
+                if ca.is_ascii_digit() && cb.is_ascii_digit() {
+                    // Collect numeric runs and compare as integers.
+                    let na: u64 = {
+                        let mut s = String::new();
+                        while ia.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            s.push(ia.next().unwrap());
+                        }
+                        s.parse().unwrap_or(0)
+                    };
+                    let nb: u64 = {
+                        let mut s = String::new();
+                        while ib.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            s.push(ib.next().unwrap());
+                        }
+                        s.parse().unwrap_or(0)
+                    };
+                    match na.cmp(&nb) {
+                        std::cmp::Ordering::Less    => return -1,
+                        std::cmp::Ordering::Greater => return 1,
+                        std::cmp::Ordering::Equal   => {}
+                    }
+                } else {
+                    if ca != cb {
+                        return (ca as i32) - (cb as i32);
+                    }
+                    ia.next();
+                    ib.next();
+                }
+            }
+        }
+    }
+}
+
+fn strchrnul(env: &mut Environment, s: ConstPtr<u8>, c: u8) -> ConstPtr<u8> {
+    let mut i: GuestUSize = 0;
+    loop {
+        let byte = env.mem.read(s + i);
+        if byte == c || byte == b'\0' {
+            return s + i;
+        }
+        i += 1;
+    }
+}
+
+fn stpcpy(env: &mut Environment, dest: MutPtr<u8>, src: ConstPtr<u8>) -> MutPtr<u8> {
+    let mut i: GuestUSize = 0;
+    loop {
+        let c = env.mem.read(src + i);
+        env.mem.write(dest + i, c);
+        if c == b'\0' {
+            return dest + i; // pointer to the null terminator
+        }
+        i += 1;
+    }
+}
+
+fn stpncpy(
+    env: &mut Environment,
+    dest: MutPtr<u8>,
+    src: ConstPtr<u8>,
+    n: GuestUSize,
+) -> MutPtr<u8> {
+    let mut i: GuestUSize = 0;
+    while i < n {
+        let c = env.mem.read(src + i);
+        env.mem.write(dest + i, c);
+        if c == b'\0' {
+            // Zero-pad remaining bytes.
+            for j in i + 1..n {
+                env.mem.write(dest + j, b'\0');
+            }
+            return dest + i;
+        }
+        i += 1;
+    }
+    dest + n
+}
+
+fn strfry(env: &mut Environment, s: MutPtr<u8>) -> MutPtr<u8> {
+    // Fisher-Yates shuffle of the string in place.
+    let len = strlen(env, s.cast_const());
+    if len <= 1 { return s; }
+    for i in (1..len).rev() {
+        let j = (i as u64 * 6364136223846793005u64
+            .wrapping_add(1442695040888963407)) as u32 % (i + 1) as u32;
+        let a = env.mem.read(s + i);
+        let b = env.mem.read(s + j);
+        env.mem.write(s + i, b);
+        env.mem.write(s + j, a);
+    }
+    s
+}
+
+fn explicit_bzero(env: &mut Environment, dest: MutVoidPtr, count: GuestUSize) {
+    // Same as bzero but compiler must not optimize away (no difference in our emulated context).
+    for i in 0..count {
+        env.mem.write(dest.cast::<u8>() + i, 0u8);
+    }
+}
+
+fn strerror(_env: &mut Environment, errnum: i32) -> ConstPtr<u8> {
+    // We can't easily return a stable guest pointer to a Rust string.
+    // Return null — callers that check for null will handle it.
+    log!("strerror({}): stubbed, returning null", errnum);
+    ConstPtr::null()
+}
+
+fn strerror_r(
+    env: &mut Environment,
+    errnum: i32,
+    buf: MutPtr<u8>,
+    buflen: GuestUSize,
+) -> i32 {
+    let msg = format!("Error {}", errnum);
+    let bytes = msg.as_bytes();
+    let copy_len = (bytes.len() as GuestUSize).min(buflen.saturating_sub(1));
+    for i in 0..copy_len {
+        env.mem.write(buf + i, bytes[i as usize]);
+    }
+    env.mem.write(buf + copy_len, b'\0');
+    0
+}
+
+fn bcopy(env: &mut Environment, src: ConstVoidPtr, dest: MutVoidPtr, count: GuestUSize) {
+    memmove(env, dest, src, count);
+}
+
+fn strnlen(env: &mut Environment, s: ConstPtr<u8>, maxlen: GuestUSize) -> GuestUSize {
+    let mut len: GuestUSize = 0;
+    while len < maxlen {
+        let c = env.mem.read(s + len);
+        if c == b'\0' {
+            return len;
+        }
+        len += 1;
+    }
+    maxlen
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(strtok(_, _)),
     export_c_func!(bzero(_, _)),
@@ -341,4 +620,21 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(strchr(_, _)),
     export_c_func!(strrchr(_, _)),
     export_c_func!(strlcpy(_, _, _)),
+    export_c_func!(strlcat(_, _, _)),
+    export_c_func!(strspn(_, _)),
+    export_c_func!(strpbrk(_, _)),
+    export_c_func!(strndup(_, _)),
+    export_c_func!(memrchr(_, _, _)),
+    export_c_func!(memmem(_, _, _, _)),
+    export_c_func!(strtok_r(_, _, _)),
+    export_c_func!(strverscmp(_, _)),
+    export_c_func!(strchrnul(_, _)),
+    export_c_func!(stpcpy(_, _)),
+    export_c_func!(stpncpy(_, _, _)),
+    export_c_func!(strfry(_)),
+    export_c_func!(explicit_bzero(_, _)),
+    export_c_func!(strerror(_)),
+    export_c_func!(strerror_r(_, _, _)),
+    export_c_func!(bcopy(_, _, _)),
+    export_c_func!(strnlen(_, _)),
 ];
