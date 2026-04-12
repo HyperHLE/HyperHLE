@@ -21,24 +21,7 @@ fn __cxa_finalize(_env: &mut Environment, _d: MutVoidPtr) {
     // Empty
 }
 
-#[allow(non_snake_case)]
-fn _Unwind_SjLj_Register(_env: &mut Environment, _context: MutVoidPtr) {}
-
-#[allow(non_snake_case)]
-fn _Unwind_SjLj_Unregister(_env: &mut Environment, _context: MutVoidPtr) {}
-
-#[allow(non_snake_case)]
-fn _Unwind_SjLj_Resume(_env: &mut Environment, _context: MutVoidPtr) {}
-
-#[allow(non_snake_case)]
-fn _Znwm(_env: &mut Environment, _context: MutVoidPtr) {
-}
-
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(__cxa_atexit(_, _, _)),
     export_c_func!(__cxa_finalize(_)),
-    export_c_func!(_Unwind_SjLj_Register(_)),
-    export_c_func!(_Unwind_SjLj_Unregister(_)),
-    export_c_func!(_Unwind_SjLj_Resume(_)),
-    export_c_func!(_Znwm(_)),
 ];
