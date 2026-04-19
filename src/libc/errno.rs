@@ -19,6 +19,7 @@ pub const ESRCH: i32 = 3;
 pub const EINTR: i32 = 4;
 pub const EIO: i32 = 5;
 pub const ENXIO: i32 = 6;
+pub const ENOTDIR: i32 = 7;
 pub const ENETUNREACH: i32 = 8;
 pub const EBADF: i32 = 9;
 pub const ECHILD: i32 = 10;
