@@ -8,6 +8,7 @@
 
 mod av_audio_player;
 pub mod av_audio_session;
+pub mod av_asset_export_session;
 
 #[derive(Default)]
 pub struct State {
@@ -18,7 +19,7 @@ pub struct State {
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
     aliases: &[],
-    class_exports: &[av_audio_player::CLASSES, av_audio_session::CLASSES],
+    class_exports: &[av_audio_player::CLASSES, av_asset_export_session::CLASSES, av_audio_session::CLASSES],
     constant_exports: &[av_audio_session::CONSTANTS],
     function_exports: &[],
 };
