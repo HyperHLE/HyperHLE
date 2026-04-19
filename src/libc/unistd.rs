@@ -7,7 +7,7 @@
 
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::fs::GuestPath;
-use crate::libc::errno::{set_errno, EACCES, EINVAL, ENOENT, ENOSYS, EROFS};
+use crate::libc::errno::{set_errno, EACCES, EINVAL, ENOENT, ENOSYS, ENOTDIR, EROFS};
 use crate::libc::posix_io::{FileDescriptor, STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO};
 use crate::mem::{ConstPtr, GuestISize, GuestUSize, MutPtr, PAGE_SIZE};
 use crate::Environment;
@@ -333,6 +333,50 @@ fn chmod(env: &mut Environment, path: ConstPtr<u8>, _mode: u32) -> i32 {
     0
 }
 
+fn rmdir(env: &mut Environment, path: ConstPtr<u8>) -> i32 {
+    set_errno(env, 0);
+
+    if path.is_null() {
+        set_errno(env, EINVAL);
+        return -1;
+    }
+
+    let path_str = match env.mem.cstr_at_utf8(path) {
+        Ok(s) => s.to_owned(),
+        Err(_) => {
+            set_errno(env, EINVAL);
+            return -1;
+        }
+    };
+
+    log_dbg!("rmdir({:?})", path_str);
+
+    // Check that the path exists and is a directory first.
+    let guest_path = GuestPath::new(&path_str);
+    if !env.fs.is_dir(guest_path) {
+        if env.fs.exists(guest_path) {
+            // Path exists but is not a directory.
+            set_errno(env, ENOTDIR);
+        } else {
+            set_errno(env, ENOENT);
+        }
+        log!("Warning: rmdir({:?}) — not a directory or does not exist", path_str);
+        return -1;
+    }
+
+    match env.fs.remove(guest_path) {
+        Ok(()) => {
+            log_dbg!("rmdir({:?}) => 0", path_str);
+            0
+        }
+        Err(()) => {
+            set_errno(env, ENOENT);
+            log!("Warning: rmdir({:?}) failed, returning -1", path_str);
+            -1
+        }
+    }
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(sleep(_)),
     export_c_func!(usleep(_)),
@@ -351,4 +395,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fork()),
     export_c_func!(sbrk(_)),
     export_c_func!(chmod(_, _)),
+    export_c_func!(rmdir(_)),
+
 ];
