@@ -598,6 +598,25 @@ fn gai_strerror(env: &mut Environment, ecode: i32) -> ConstPtr<u8> {
     env.mem.alloc_and_write_cstr(&msg[..msg.len() - 1]).cast_const()
 }
 
+fn gethostent(env: &mut Environment) -> MutPtr<hostent> {
+    // gethostent() iterates the hosts database. Since touchHLE has no real
+    // network stack or hosts file, we always return NULL (end of entries).
+    log_dbg!("gethostent() — returning NULL (no hosts database)");
+    Ptr::null()
+}
+
+fn sethostent(_env: &mut Environment, _stay_open: i32) {
+    // sethostent() opens / rewinds the hosts database.
+    // No-op since we have no hosts database.
+    log_dbg!("sethostent() — ignored");
+}
+
+fn endhostent(_env: &mut Environment) {
+    // endhostent() closes the hosts database.
+    // No-op since we have no hosts database.
+    log_dbg!("endhostent() — ignored");
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(getaddrinfo(_, _, _, _)),
     export_c_func!(freeaddrinfo(_)),
@@ -609,5 +628,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(getnameinfo(_, _, _, _, _, _, _)),
     export_c_func!(__h_errno_location()),
     export_c_func!(gai_strerror(_)),
+    export_c_func!(gethostent()),
+    export_c_func!(sethostent(_)),
+    export_c_func!(endhostent()),
 ];
 
