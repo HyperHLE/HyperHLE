@@ -399,11 +399,55 @@ pub const CLASSES: ClassExports = objc_classes! {
         return;
     }
 
+    // ORIGINAL UPSTREAM FIXES (GAMELOFT HACKS):
+    if env.bundle.bundle_identifier().starts_with("com.gameloft.POP") && (sel == env.objc.lookup_selector("startMovie:").unwrap() || sel == env.objc.lookup_selector("stopMovie").unwrap()) && wait {
+        log!("Applying game-specific hack for PoP: WW: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
+        return;
+    }
+    if env.bundle.bundle_identifier().starts_with("com.gameloft.Asphalt5") && (sel == env.objc.lookup_selector("startMovie:").unwrap() || sel == env.objc.lookup_selector("stopMovie:").unwrap()) && wait {
+        log!("Applying game-specific hack for Asphalt5: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
+        return;
+    }
+    if env.bundle.bundle_identifier().starts_with("com.gameloft.SplinterCell") && sel == env.objc.lookup_selector("startMovie:").unwrap() && wait {
+        log!("Applying game-specific hack for SplinterCell: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
+        return;
+    }
+    if env.bundle.bundle_identifier().starts_with("com.gameloft.AssassinsCreed") && sel == env.objc.lookup_selector("moviePlayerInit:").unwrap() && wait {
+        log!("Applying game-specific hack for AssassinsCreed: ignoring performSelectorOnMainThread:SEL(moviePlayerInit:) waitUntilDone:true");
+        return;
+    }
+    if env.bundle.bundle_identifier().starts_with("com.gameloft.Ferrari") && wait {
+        if sel == env.objc.lookup_selector("startMovie:").unwrap() {
+            log!("Applying game-specific hack for Ferrari GT: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
+            return;
+        }
+        if sel == env.objc.lookup_selector("initTextInput:").unwrap() || sel == env.objc.lookup_selector("removeTextField:").unwrap() {
+            log!("Applying game-specific hack for Ferrari GT: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel.as_str(&env.mem), env.current_thread);
+            () = msg_send(env, (this, sel, arg));
+            return;
+        }
+    }
+    if env.bundle.bundle_identifier().starts_with("com.gameloft.HOS2") && wait {
+        if sel == env.objc.lookup_selector("loadMovie:").unwrap() || sel == env.objc.lookup_selector("sendGameInfo").unwrap() || sel == env.objc.lookup_selector("setStatusBar:").unwrap() {
+            log!("Applying game-specific hack for HOS2: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel.as_str(&env.mem), env.current_thread);
+            if sel.as_str(&env.mem).ends_with(':') {
+                () = msg_send(env, (this, sel, arg));
+            } else {
+                // assert!(arg.is_null()); // В форке мы не делаем strict-проверку для совместимости
+                () = msg_send(env, (this, sel));
+            }
+            return;
+        }
+        if sel == env.objc.lookup_selector("startMovie:").unwrap() || sel == env.objc.lookup_selector("stopMovie:").unwrap() {
+            log!("Applying game-specific hack for HOS2: ignoring performSelectorOnMainThread:SEL({}) waitUntilDone:true", sel.as_str(&env.mem));
+            return;
+        }
+    }
+
     // Background thread → schedule on main thread via run loop.
     // `wait:YES` from a background thread would require thread
     // synchronisation which touchHLE doesn't support;
-    // we schedule
-    // without waiting and log once at debug level.
+    // we schedule without waiting and log once at debug level.
     log_dbg!(
         "performSelectorOnMainThread:{} from background thread {} (wait={}) — scheduling",
         sel.as_str(&env.mem), env.current_thread, wait
