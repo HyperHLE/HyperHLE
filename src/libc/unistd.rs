@@ -351,11 +351,9 @@ fn rmdir(env: &mut Environment, path: ConstPtr<u8>) -> i32 {
 
     log_dbg!("rmdir({:?})", path_str);
 
-    // Check that the path exists and is a directory first.
     let guest_path = GuestPath::new(&path_str);
     if !env.fs.is_dir(guest_path) {
         if env.fs.exists(guest_path) {
-            // Path exists but is not a directory.
             set_errno(env, ENOTDIR);
         } else {
             set_errno(env, ENOENT);
@@ -369,7 +367,7 @@ fn rmdir(env: &mut Environment, path: ConstPtr<u8>) -> i32 {
             log_dbg!("rmdir({:?}) => 0", path_str);
             0
         }
-        Err(()) => {
+        Err(_) => {
             set_errno(env, ENOENT);
             log!("Warning: rmdir({:?}) failed, returning -1", path_str);
             -1
