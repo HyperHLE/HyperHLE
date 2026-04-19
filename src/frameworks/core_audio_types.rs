@@ -114,6 +114,34 @@ impl AudioStreamBasicDescription {
                     _reserved: 0,
                 }
             }
+            AudioFormat::AppleIma4 => {
+                // IMA4 ADPCM: сжатый формат, bytes_per_frame не имеет смысла
+                AudioStreamBasicDescription {
+                    sample_rate,
+                    format_id: kAudioFormatAppleIMA4,
+                    format_flags: 0,
+                    bytes_per_packet,
+                    frames_per_packet,
+                    bytes_per_frame: 0,
+                    channels_per_frame,
+                    bits_per_channel,
+                    _reserved: 0,
+                }
+            }
+            AudioFormat::Mpeg4Aac => {
+                // AAC: сжатый формат, bytes_per_frame не имеет смысла
+                AudioStreamBasicDescription {
+                    sample_rate,
+                    format_id: kAudioFormatMPEG4AAC,
+                    format_flags: 0,
+                    bytes_per_packet,
+                    frames_per_packet,
+                    bytes_per_frame: 0,
+                    channels_per_frame,
+                    bits_per_channel,
+                    _reserved: 0,
+                }
+            }
         }
     }
 }
@@ -148,6 +176,8 @@ unsafe impl SafeRead for AudioTimeStamp {}
 pub type AudioFormatID = u32;
 pub const kAudioFormatLinearPCM: AudioFormatID = fourcc(b"lpcm");
 pub const kAudioFormatAppleIMA4: AudioFormatID = fourcc(b"ima4");
+/// MPEG-4 AAC: FourCC `'aac '` (0x61616320)
+pub const kAudioFormatMPEG4AAC: AudioFormatID = fourcc(b"aac ");
 
 pub type AudioFormatFlags = u32;
 pub const kAudioFormatFlagIsFloat: AudioFormatFlags = 1 << 0;
@@ -155,3 +185,4 @@ pub const kAudioFormatFlagIsBigEndian: AudioFormatFlags = 1 << 1;
 pub const kAudioFormatFlagIsSignedInteger: AudioFormatFlags = 1 << 2;
 pub const kAudioFormatFlagIsPacked: AudioFormatFlags = 1 << 3;
 pub const kAudioFormatFlagIsAlignedHigh: AudioFormatFlags = 1 << 4;
+

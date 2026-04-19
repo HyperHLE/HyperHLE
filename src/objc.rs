@@ -46,7 +46,6 @@ pub use selectors::{selector, SEL};
 use crate::mem::ConstVoidPtr;
 use crate::Environment;
 use classes::{ClassHostObject, FakeClass, UnimplementedClass};
-pub(crate) use messages::objc_msgSend;
 use messages::{
     objc_msgSendSuper2, objc_msgSend_stret, objc_msgSendSuper2_stret, MsgSendSignature, MsgSendSuperSignature,
 };
@@ -55,6 +54,12 @@ use objects::{objc_object, HostObjectEntry};
 use properties::{ivar_list_t, objc_copyStruct, objc_getProperty, objc_setProperty};
 use selectors::sel_registerName;
 use synchronization::{objc_sync_enter, objc_sync_exit};
+
+/// Публичная обёртка над `messages::objc_msgSend` (которая `pub(super)`),
+/// экспортируемая внутри крейта.
+pub(crate) fn objc_msgSend(env: &mut Environment, receiver: id, selector: SEL) {
+    messages::objc_msgSend(env, receiver, selector)
+}
 
 /// Typedef for `NSZone *`. This is a [fossil type] found in the signature of
 /// `allocWithZone:` and similar methods. Its value is always ignored.
@@ -157,7 +162,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_sync_exit(_)),
     export_c_func!(sel_registerName(_)),
     export_c_func!(objc_getClass(_)),
-    export_c_func!(objc_getMetaClass(_, _)), // <-- ИСПРАВЛЕНИЕ: Добавлен второй _
+    export_c_func!(objc_getMetaClass(_, _)),
     export_c_func!(object_getClassName(_)),
     export_c_func!(object_getClass(_)),
     export_c_func!(objc_retainAutoreleasedReturnValue(_)),

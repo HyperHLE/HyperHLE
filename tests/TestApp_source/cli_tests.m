@@ -538,7 +538,7 @@ int test_sscanf() {
   short c, d;
   float f;
   double lf;
-  char str[256], str1[4];
+  char str[256], str1[16];
   int matched = sscanf("1.23", "%d.%d", &a, &b);
   if (!(matched == 2 && a == 1 && b == 23))
     return -1;
@@ -673,7 +673,46 @@ int test_sscanf() {
   matched = sscanf("123.", "%g", &f);
   if (!(matched == 1 && f == 123.0f))
     return -44;
-
+  // max_width for %[ specifier
+  matched = sscanf("hello", "%3[a-z]", str);
+  if (!(matched == 1 && strcmp(str, "hel") == 0))
+    return -45;
+  matched = sscanf("abcXYZ", "%3[a-z]%3[A-Z]", str, str1);
+  if (!(matched == 2 && strcmp(str, "abc") == 0 && strcmp(str1, "XYZ") == 0))
+    return -46;
+  matched = sscanf("abc,def", "%3[^,],%3[^,]", str, str1);
+  if (!(matched == 2 && strcmp(str, "abc") == 0 && strcmp(str1, "def") == 0))
+    return -47;
+  matched = sscanf("abcdef", "%3[a-z]", str);
+  if (!(matched == 1 && strcmp(str, "abc") == 0))
+    return -48;
+  matched = sscanf("ab", "%5[a-z]", str);
+  if (!(matched == 1 && strcmp(str, "ab") == 0))
+    return -49;
+  // width of 1
+  matched = sscanf("abc", "%1[a-z]", str);
+  if (!(matched == 1 && strcmp(str, "a") == 0))
+    return -50;
+  // negated set stopped by width, not by excluded char
+  matched = sscanf("abcde", "%3[^X]", str);
+  if (!(matched == 1 && strcmp(str, "abc") == 0))
+    return -51;
+  // negated set stopped by excluded char before width is reached
+  matched = sscanf("abXde", "%5[^X]", str);
+  if (!(matched == 1 && strcmp(str, "ab") == 0))
+    return -52;
+  // input length exactly equals width
+  matched = sscanf("abc", "%3[a-z]", str);
+  if (!(matched == 1 && strcmp(str, "abc") == 0))
+    return -53;
+  // width limits %[ leaving remainder for next conversion
+  matched = sscanf("abcdef", "%3[a-z]%s", str, str1);
+  if (!(matched == 2 && strcmp(str, "abc") == 0 && strcmp(str1, "def") == 0))
+    return -54;
+  // first char not in set with width: no match
+  matched = sscanf("123", "%3[a-z]", str);
+  if (matched != 0)
+    return -55;
   return 0;
 }
 
@@ -4397,6 +4436,292 @@ int test_strftime() {
   return 0;
 }
 
+@interface InvocationTarget : NSObject {
+@public
+  id receivedValue;
+  const char *cstringValue;
+  int intValue;
+}
+- (void)storeValue:(id)value;
+- (void)clearValue;
+- (void)storeCString:(const char *)str;
+- (void)storeIntPtr:(int *)ptr;
+@end
+
+@implementation InvocationTarget
+- (void)storeValue:(id)value {
+  receivedValue = value;
+}
+- (void)clearValue {
+  receivedValue = nil;
+}
+- (void)storeCString:(const char *)str {
+  cstringValue = str;
+}
+- (void)storeIntPtr:(int *)ptr {
+  intValue = *ptr;
+}
+@end
+
+static BOOL g_deallocTrackerDidDealloc = NO;
+
+@interface DeallocTracker : NSObject
+@end
+
+@implementation DeallocTracker
+- (void)dealloc {
+  g_deallocTrackerDidDealloc = YES;
+  [super dealloc];
+}
+@end
+
+int test_NSMethodSignature() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  // "v12@0:4@8" = void return, 3 args: self(@), _cmd(:), one id(@)
+  NSMethodSignature *sig =
+      [NSMethodSignature signatureWithObjCTypes:"v12@0:4@8"];
+
+  if ([sig numberOfArguments] != 3) {
+    [pool drain];
+    return -1;
+  }
+
+  // methodReturnType should be "v"
+  if (strcmp([sig methodReturnType], "v") != 0) {
+    [pool drain];
+    return -2;
+  }
+
+  // arg 0 = "@" (self)
+  if (strcmp([sig getArgumentTypeAtIndex:0], "@") != 0) {
+    [pool drain];
+    return -3;
+  }
+
+  // arg 1 = ":" (SEL)
+  if (strcmp([sig getArgumentTypeAtIndex:1], ":") != 0) {
+    [pool drain];
+    return -4;
+  }
+
+  // arg 2 = "@" (id argument)
+  if (strcmp([sig getArgumentTypeAtIndex:2], "@") != 0) {
+    [pool drain];
+    return -5;
+  }
+
+  // "v8@0:4" = void return, 2 args: self, _cmd (no extra args)
+  NSMethodSignature *sig2 = [NSMethodSignature signatureWithObjCTypes:"v8@0:4"];
+  if ([sig2 numberOfArguments] != 2) {
+    [pool drain];
+    return -6;
+  }
+  if (strcmp([sig2 methodReturnType], "v") != 0) {
+    [pool drain];
+    return -7;
+  }
+
+  // "v12@0:4^i8" = void return, 3 args: self(@), _cmd(:), pointer-to-int(^i)
+  NSMethodSignature *sig3 =
+      [NSMethodSignature signatureWithObjCTypes:"v12@0:4^i8"];
+  if ([sig3 numberOfArguments] != 3) {
+    [pool drain];
+    return -8;
+  }
+  if (strcmp([sig3 methodReturnType], "v") != 0) {
+    [pool drain];
+    return -9;
+  }
+  if (strcmp([sig3 getArgumentTypeAtIndex:2], "^i") != 0) {
+    [pool drain];
+    return -10;
+  }
+
+  [pool drain];
+  return 0;
+}
+
+int test_NSInvocation() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  InvocationTarget *target = [InvocationTarget new];
+  NSMethodSignature *sig =
+      [NSMethodSignature signatureWithObjCTypes:"v12@0:4@8"];
+  NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+
+  [inv setTarget:target];
+  SEL sel = NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+  [inv setSelector:sel];
+
+  // setArgument:atIndex: takes a pointer to the argument value
+  NSObject *val = [NSObject new];
+  [inv setArgument:&val atIndex:2];
+  [inv invoke];
+
+  if (target->receivedValue != val) {
+    [pool drain];
+    return -1;
+  }
+
+  [pool drain];
+  return 0;
+}
+
+int test_NSInvocation_invokeWithTarget() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  InvocationTarget *target1 = [InvocationTarget new];
+  InvocationTarget *target2 = [InvocationTarget new];
+  NSMethodSignature *sig =
+      [NSMethodSignature signatureWithObjCTypes:"v12@0:4@8"];
+  NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+
+  [inv setTarget:target1];
+  SEL sel = NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+  [inv setSelector:sel];
+
+  NSObject *val = [NSObject new];
+  [inv setArgument:&val atIndex:2];
+
+  // invokeWithTarget: should use target2, not target1
+  [inv invokeWithTarget:target2];
+
+  if (target2->receivedValue != val) {
+    [pool drain];
+    return -1;
+  }
+
+  [pool drain];
+  return 0;
+}
+
+int test_NSInvocation_retainArguments() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  // Test 1: object argument is retained by the invocation.
+  {
+    InvocationTarget *target = [InvocationTarget new];
+    NSMethodSignature *sig =
+        [NSMethodSignature signatureWithObjCTypes:"v12@0:4@8"];
+    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+    [inv setTarget:target];
+    SEL sel =
+        NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+    [inv setSelector:sel];
+
+    NSObject *val = [[NSObject alloc] init]; // retainCount = 1
+    NSUInteger before = [val retainCount];
+    [inv setArgument:&val atIndex:2];
+    [inv retainArguments]; // invocation must retain val
+    if ([val retainCount] != before + 1) {
+      [pool drain];
+      return -1;
+    }
+    // Invoke still works; val is alive because the invocation holds it.
+    [inv invoke];
+    if (target->receivedValue != val) {
+      [pool drain];
+      return -2;
+    }
+    [val release]; // balance our alloc; invocation still holds one ref
+  }
+
+  // Test 2: C string argument is copied so the invocation owns the bytes.
+  {
+    InvocationTarget *target = [InvocationTarget new];
+    // "v12@0:4*8" = void, self(@), _cmd(:), const char *(*)
+    NSMethodSignature *sig =
+        [NSMethodSignature signatureWithObjCTypes:"v12@0:4*8"];
+    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+    [inv setTarget:target];
+    SEL sel =
+        NSSelectorFromString([NSString stringWithUTF8String:"storeCString:"]);
+    [inv setSelector:sel];
+
+    char buf[16];
+    strcpy(buf, "hello");
+    const char *ptr = buf;
+    [inv setArgument:&ptr atIndex:2];
+    [inv retainArguments]; // must copy "hello" into invocation-owned memory
+
+    // Overwrite original buffer; invocation must pass its copy, not buf.
+    strcpy(buf, "world");
+
+    [inv invoke];
+    if (strcmp(target->cstringValue, "hello") != 0) {
+      [pool drain];
+      return -3;
+    }
+  }
+
+  // Test 3: invocation keeps @ arg alive after caller drops its reference.
+  {
+    InvocationTarget *target = [InvocationTarget new];
+    NSMethodSignature *sig =
+        [NSMethodSignature signatureWithObjCTypes:"v12@0:4@8"];
+    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+    [inv setTarget:target];
+    SEL sel =
+        NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+    [inv setSelector:sel];
+
+    g_deallocTrackerDidDealloc = NO;
+    DeallocTracker *val = [[DeallocTracker alloc] init];
+    DeallocTracker *weakVal = val; // un-retained alias
+    [inv setArgument:&val atIndex:2];
+    [inv retainArguments]; // invocation owns its own reference now
+    [val release];         // caller drops its reference
+    val = nil;
+
+    // Without the invocation's retain, val would now be deallocated.
+    if (g_deallocTrackerDidDealloc) {
+      [pool drain];
+      return -4;
+    }
+    [inv invoke];
+    if (target->receivedValue != weakVal) {
+      [pool drain];
+      return -5;
+    }
+    if (g_deallocTrackerDidDealloc) {
+      [pool drain];
+      return -6;
+    }
+  }
+
+  [pool drain];
+  return 0;
+}
+
+int test_NSInvocation_pointer() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  InvocationTarget *target = [InvocationTarget new];
+  // "v12@0:4^i8" = void, self(@), _cmd(:), int *(^i)
+  NSMethodSignature *sig =
+      [NSMethodSignature signatureWithObjCTypes:"v12@0:4^i8"];
+  NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+
+  [inv setTarget:target];
+  SEL sel =
+      NSSelectorFromString([NSString stringWithUTF8String:"storeIntPtr:"]);
+  [inv setSelector:sel];
+
+  int x = 42;
+  int *ptr = &x;
+  [inv setArgument:&ptr atIndex:2];
+  [inv invoke];
+
+  if (target->intValue != 42) {
+    [pool drain];
+    return -1;
+  }
+
+  [pool drain];
+  return 0;
+}
+
 @interface CharBufferObject : NSObject {
 @public
   char *buffer;
@@ -4811,6 +5136,11 @@ struct {
     FUNC_DEF(test_NSKeyedArchiver_NSKeyedUnarchiver),
     FUNC_DEF(test_AutoreleasePool),
     FUNC_DEF(test_NSNumber_stringValue),
+    FUNC_DEF(test_NSMethodSignature),
+    FUNC_DEF(test_NSInvocation),
+    FUNC_DEF(test_NSInvocation_invokeWithTarget),
+    FUNC_DEF(test_NSInvocation_retainArguments),
+    FUNC_DEF(test_NSInvocation_pointer),
 };
 // clang-format on
 
