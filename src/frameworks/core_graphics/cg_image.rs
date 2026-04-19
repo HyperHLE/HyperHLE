@@ -344,14 +344,272 @@ fn CGImageIsMask(_env: &mut Environment, _image: CGImageRef) -> bool {
     false
 }
 
-fn CGImageGetUTType(_env: &mut Environment, _image: CGImageRef) -> CFTypeRef {
-    // Return nil — we don't track the original file type.
+fn CGImageCreate(
+    env: &mut Environment,
+    width: GuestUSize,
+    height: GuestUSize,
+    bits_per_component: GuestUSize,
+    bits_per_pixel: GuestUSize,
+    bytes_per_row: GuestUSize,
+    _color_space: CGColorSpaceRef,
+    bitmap_info: CGBitmapInfo,
+    provider: CGDataProviderRef,
+    decode: ConstPtr<CGFloat>,
+    _should_interpolate: bool,
+    _intent: i32,
+) -> CGImageRef {
+    if provider.is_null() { return nil; }
+
+    let bytes = cg_data_provider::borrow_bytes(env, provider);
+
+    // Try to decode as a standard image format first (PNG / JPEG).
+    if let Ok(image) = Image::from_bytes(bytes) {
+        return from_image(env, image);
+    }
+
+    // Fall back: treat as raw RGBA / BGRA bitmap data.
+    if bits_per_pixel == 32 && bytes_per_row >= width * 4 {
+        let alpha_info = bitmap_info & kCGBitmapAlphaInfoMask;
+        let byte_order = bitmap_info & kCGBitmapByteOrderMask;
+
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for row in 0..height {
+            let row_start = (row * bytes_per_row) as usize;
+            for col in 0..width as usize {
+                let p = row_start + col * 4;
+                if p + 4 > bytes.len() { break; }
+                let (r, g, b, a) = match alpha_info {
+                    // BGRA / BGRX
+                    x if x == kCGImageAlphaNoneSkipFirst
+                        || x == kCGImageAlphaPremultipliedFirst
+                        || x == kCGImageAlphaFirst => {
+                        (bytes[p+1], bytes[p+2], bytes[p+3], bytes[p])
+                    }
+                    _ => (bytes[p], bytes[p+1], bytes[p+2], bytes[p+3]),
+                };
+                rgba.extend_from_slice(&[r, g, b, a]);
+            }
+        }
+        let image = Image::from_pixels(width, height, rgba);
+        return from_image(env, image);
+    }
+
+    // Grayscale 8-bit
+    if bits_per_pixel == 8 && bytes_per_row >= width {
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for row in 0..height {
+            let row_start = (row * bytes_per_row) as usize;
+            for col in 0..width as usize {
+                let p = row_start + col;
+                if p >= bytes.len() { break; }
+                let v = bytes[p];
+                rgba.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let image = Image::from_pixels(width, height, rgba);
+        return from_image(env, image);
+    }
+
+    log!(
+        "CGImageCreate: unsupported format bitsPerPixel={} bytesPerRow={}, returning nil",
+        bits_per_pixel, bytes_per_row
+    );
     nil
 }
 
-// =========================================================================
-// MARK: - FUNCTIONS
-// =========================================================================
+// MARK: - CGImageMaskCreate
+
+fn CGImageMaskCreate(
+    env: &mut Environment,
+    width: GuestUSize,
+    height: GuestUSize,
+    _bits_per_component: GuestUSize,
+    _bits_per_pixel: GuestUSize,
+    bytes_per_row: GuestUSize,
+    provider: CGDataProviderRef,
+    _decode: ConstPtr<CGFloat>,
+    _should_interpolate: bool,
+) -> CGImageRef {
+    if provider.is_null() { return nil; }
+    let bytes = cg_data_provider::borrow_bytes(env, provider);
+
+    // Build a greyscale→alpha mask image.
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for row in 0..height {
+        let row_start = (row * bytes_per_row) as usize;
+        for col in 0..width as usize {
+            let p = row_start + col;
+            let a = if p < bytes.len() { 255 - bytes[p] } else { 0 };
+            rgba.extend_from_slice(&[0, 0, 0, a]);
+        }
+    }
+    let image = Image::from_pixels(width, height, rgba);
+    from_image(env, image)
+}
+
+// MARK: - CGImageCreateWithDataProvider (generic)
+
+fn CGImageCreateWithDataProvider(
+    env: &mut Environment,
+    provider: CGDataProviderRef,
+    decode: ConstPtr<CGFloat>,
+    should_interpolate: bool,
+    intent: i32,
+    _color_space: CGColorSpaceRef,
+    bitmap_info: CGBitmapInfo,
+    bits_per_component: GuestUSize,
+    bits_per_pixel: GuestUSize,
+    width: GuestUSize,
+    bytes_per_row: GuestUSize,
+    height: GuestUSize,
+) -> CGImageRef {
+    // Delegate to CGImageCreate with the arguments re-ordered.
+    CGImageCreate(
+        env,
+        width, height,
+        bits_per_component, bits_per_pixel, bytes_per_row,
+        nil, bitmap_info,
+        provider, decode,
+        should_interpolate, intent,
+    )
+}
+
+// MARK: - Additional accessors
+
+fn CGImageGetNumberOfComponents(_env: &mut Environment, image: CGImageRef) -> GuestUSize {
+    if image.is_null() { return 0; }
+    4 // RGBA
+}
+
+// Returns a CFString UTType for the image — always PNG for our purposes.
+fn CGImageGetUTType(env: &mut Environment, image: CGImageRef) -> crate::objc::id {
+    if image.is_null() { return nil; }
+    // "public.png" — caller must not release (returns borrowed string).
+    let s = ns_string::get_static_str(env, "public.png");
+    s
+}
+
+// CGImagePixelFormatInfo — 0 = packed (standard).
+fn CGImageGetPixelFormatInfo(_env: &mut Environment, image: CGImageRef) -> u32 {
+    if image.is_null() { return 0; }
+    0 // kCGImagePixelFormatPacked
+}
+
+// MARK: - CGImageCreateCopyByMaskingColors
+
+// Mask out pixels whose components fall within `[min[i], max[i]]`.
+// Components are expected as a flat array: `[r_min, r_max, g_min, g_max, b_min, b_max]`.
+fn CGImageCreateCopyByMaskingColors(
+    env: &mut Environment,
+    image: CGImageRef,
+    color_components: ConstPtr<CGFloat>,
+    _num_components: GuestUSize,
+) -> CGImageRef {
+    if image.is_null() { return nil; }
+
+    let (w, h) = env.objc.borrow::<CGImageHostObject>(image).image.dimensions();
+    let src_pixels = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+
+    // Read min/max pairs — 3 pairs for RGB.
+    let r_min = (env.mem.read(color_components)     * 255.0) as u8;
+    let r_max = (env.mem.read(color_components + 1) * 255.0) as u8;
+    let g_min = (env.mem.read(color_components + 2) * 255.0) as u8;
+    let g_max = (env.mem.read(color_components + 3) * 255.0) as u8;
+    let b_min = (env.mem.read(color_components + 4) * 255.0) as u8;
+    let b_max = (env.mem.read(color_components + 5) * 255.0) as u8;
+
+    let mut dst = src_pixels.clone();
+    for i in (0..dst.len()).step_by(4) {
+        let r = dst[i]; let g = dst[i+1]; let b = dst[i+2];
+        if r >= r_min && r <= r_max
+            && g >= g_min && g <= g_max
+            && b >= b_min && b <= b_max
+        {
+            dst[i+3] = 0; // mask out — set alpha to 0
+        }
+    }
+
+    let new_image = Image::from_pixels(w, h, dst);
+    from_image(env, new_image)
+}
+
+// MARK: - CGImageFlipVertically / rotation
+
+// Returns a vertically flipped copy of the image.
+fn CGImageFlipVertically(env: &mut Environment, image: CGImageRef) -> CGImageRef {
+    if image.is_null() { return nil; }
+    let (w, h) = env.objc.borrow::<CGImageHostObject>(image).image.dimensions();
+    let src = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+    let row_bytes = w as usize * 4;
+    let mut dst = vec![0u8; src.len()];
+    for row in 0..h as usize {
+        let src_row = &src[(h as usize - 1 - row) * row_bytes..][..row_bytes];
+        let dst_row = &mut dst[row * row_bytes..][..row_bytes];
+        dst_row.copy_from_slice(src_row);
+    }
+    let new_image = Image::from_pixels(w, h, dst);
+    from_image(env, new_image)
+}
+
+// Rotate image by multiples of 90 degrees.
+// `angle_degrees` should be 0, 90, 180, or 270.
+fn CGImageCreateWithRotation(
+    env: &mut Environment,
+    image: CGImageRef,
+    angle_degrees: i32,
+) -> CGImageRef {
+    if image.is_null() { return nil; }
+    let normalized = ((angle_degrees % 360) + 360) % 360;
+    if normalized == 0 {
+        return CGImageCreateCopy(env, image);
+    }
+    let (w, h) = env.objc.borrow::<CGImageHostObject>(image).image.dimensions();
+    let src = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+
+    let (new_w, new_h, dst) = match normalized {
+        90 => {
+            // 90° clockwise: (x, y) → (h-1-y, x)
+            let mut dst = vec![0u8; src.len()];
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let src_off = (y * w as usize + x) * 4;
+                    let dst_x = h as usize - 1 - y;
+                    let dst_y = x;
+                    let dst_off = (dst_y * h as usize + dst_x) * 4;
+                    dst[dst_off..dst_off+4].copy_from_slice(&src[src_off..src_off+4]);
+                }
+            }
+            (h, w, dst)
+        }
+        180 => {
+            let mut dst = vec![0u8; src.len()];
+            let total = (w * h) as usize;
+            for i in 0..total {
+                let src_off = i * 4;
+                let dst_off = (total - 1 - i) * 4;
+                dst[dst_off..dst_off+4].copy_from_slice(&src[src_off..src_off+4]);
+            }
+            (w, h, dst)
+        }
+        270 => {
+            // 270° clockwise = 90° counter-clockwise: (x, y) → (y, w-1-x)
+            let mut dst = vec![0u8; src.len()];
+            for y in 0..h as usize {
+                for x in 0..w as usize {
+                    let src_off = (y * w as usize + x) * 4;
+                    let dst_x = y;
+                    let dst_y = w as usize - 1 - x;
+                    let dst_off = (dst_y * w as usize + dst_x) * 4;
+                    dst[dst_off..dst_off+4].copy_from_slice(&src[src_off..src_off+4]);
+                }
+            }
+            (h, w, dst)
+        }
+        _ => return CGImageCreateCopy(env, image),
+    };
+    let new_image = Image::from_pixels(new_w, new_h, dst);
+    from_image(env, new_image)
+}
 
 pub const FUNCTIONS: FunctionExports = &[
     // Retain / release
@@ -380,5 +638,13 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGImageGetShouldInterpolate(_)),
     export_c_func!(CGImageGetRenderingIntent(_)),
     export_c_func!(CGImageIsMask(_)),
+    export_c_func!(CGImageCreate(_, _, _, _, _, _, _, _, _, _, _, _)),
+    export_c_func!(CGImageMaskCreate(_, _, _, _, _, _, _)),
+    export_c_func!(CGImageCreateWithDataProvider(_, _, _, _, _, _, _, _, _, _)),
+    export_c_func!(CGImageGetNumberOfComponents(_)),
     export_c_func!(CGImageGetUTType(_)),
+    export_c_func!(CGImageGetPixelFormatInfo(_)),
+    export_c_func!(CGImageCreateCopyByMaskingColors(_, _, _)),
+    export_c_func!(CGImageFlipVertically(_)),
+    export_c_func!(CGImageCreateWithRotation(_, _)),
 ];
