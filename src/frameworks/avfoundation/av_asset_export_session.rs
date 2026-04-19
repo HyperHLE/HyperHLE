@@ -91,14 +91,43 @@ pub const CLASSES: ClassExports = objc_classes! {
 // MARK: - Constructors
 // =========================================================================
 
-/// `+exportSessionWithAsset:presetName:`
+// `+exportSessionWithAsset:presetName:`
 + (id)exportSessionWithAsset:(id)asset presetName:(id)preset_name {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithAsset:asset presetName:preset_name];
     crate::objc::autorelease(env, new)
 }
 
-/// `-initWithAsset:presetName:`
++ (id)allExportPresets { // NSArray<NSString*>*
+    let presets = [
+        "AVAssetExportPresetLowQuality",
+        "AVAssetExportPresetMediumQuality",
+        "AVAssetExportPresetHighestQuality",
+        "AVAssetExportPreset640x480",
+        "AVAssetExportPreset960x540",
+        "AVAssetExportPreset1280x720",
+        "AVAssetExportPreset1920x1080",
+        "AVAssetExportPresetAppleM4A",
+        "AVAssetExportPresetPassthrough",
+    ];
+    let arr: id = msg_class![env; NSMutableArray new];
+    for &p in &presets {
+        let s = ns_string::get_static_str(env, p);
+        let _: () = msg![env; arr addObject:s];
+    }
+    crate::objc::autorelease(env, arr)
+}
+
++ (id)exportPresetsCompatibleWithAsset:(id)_asset { // NSArray<NSString*>*
+    msg_class![env; AVAssetExportSession allExportPresets]
+}
+
++ (id)exportPresetsCompatibleWithAsset:(id)_asset
+              outputFileType:(id)_file_type { // NSArray<NSString*>*
+    msg_class![env; AVAssetExportSession allExportPresets]
+}
+    
+// `-initWithAsset:presetName:`
 - (id)initWithAsset:(id)asset presetName:(id)preset_name {
     retain(env, asset);
     retain(env, preset_name);
@@ -262,43 +291,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         _ => 0.0,
     }
 }
-
-// =========================================================================
-// MARK: - Supported presets
-// =========================================================================
-
-+ (id)allExportPresets { // NSArray<NSString*>*
-    let presets = [
-        "AVAssetExportPresetLowQuality",
-        "AVAssetExportPresetMediumQuality",
-        "AVAssetExportPresetHighestQuality",
-        "AVAssetExportPreset640x480",
-        "AVAssetExportPreset960x540",
-        "AVAssetExportPreset1280x720",
-        "AVAssetExportPreset1920x1080",
-        "AVAssetExportPresetAppleM4A",
-        "AVAssetExportPresetPassthrough",
-    ];
-    let arr: id = msg_class![env; NSMutableArray new];
-    for &p in &presets {
-        let s = ns_string::get_static_str(env, p);
-        let _: () = msg![env; arr addObject:s];
-    }
-    crate::objc::autorelease(env, arr)
-}
-
-+ (id)exportPresetsCompatibleWithAsset:(id)_asset { // NSArray<NSString*>*
-    msg_class![env; AVAssetExportSession allExportPresets]
-}
-
-+ (id)exportPresetsCompatibleWithAsset:(id)_asset
-              outputFileType:(id)_file_type { // NSArray<NSString*>*
-    msg_class![env; AVAssetExportSession allExportPresets]
-}
-
-// =========================================================================
-// MARK: - Supported file types
-// =========================================================================
 
 - (id)supportedFileTypes { // NSArray<NSString*>*
     let types = [
