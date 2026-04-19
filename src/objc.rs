@@ -46,8 +46,9 @@ pub use selectors::{selector, SEL};
 use crate::mem::ConstVoidPtr;
 use crate::Environment;
 use classes::{ClassHostObject, FakeClass, UnimplementedClass};
+pub(crate) use messages::objc_msgSend;
 use messages::{
-    objc_msgSend, objc_msgSendSuper2, objc_msgSend_stret, objc_msgSendSuper2_stret, MsgSendSignature, MsgSendSuperSignature,
+    objc_msgSendSuper2, objc_msgSend_stret, objc_msgSendSuper2_stret, MsgSendSignature, MsgSendSuperSignature,
 };
 use methods::method_list_t;
 use objects::{objc_object, HostObjectEntry};
@@ -178,4 +179,3 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(method_getTypeEncoding(_, _)),
     export_c_func!(_Block_object_dispose(_, _)),
 ];
-

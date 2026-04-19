@@ -5,6 +5,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Handling of Objective-C classes and metaclasses.
+//!
+//! Note that metaclasses are just a special case of classes.
+//!
+//! Resources:
+//! - [[objc explain]: Classes and metaclasses](http://www.sealiesoftware.com/blog/archive/2009/04/14/objc_explain_Classes_and_metaclasses.html), especially [the PDF diagram](http://www.sealiesoftware.com/blog/class%20diagram.pdf)
 
 use super::{
     id, ivar_list_t, method_list_t, nil, objc_object, AnyHostObject, HostIMP, HostObject, ObjC,
@@ -14,35 +19,66 @@ use crate::mach_o::MachO;
 use crate::mem::{guest_size_of, ConstPtr, ConstVoidPtr, GuestUSize, Mem, Ptr, SafeRead};
 use std::collections::{HashMap, VecDeque};
 
+/// Generic pointer to an Objective-C class or metaclass.
+///
+/// The name is standard Objective-C.
+///
+/// Apple's runtime has a `objc_classes` definition similar to `objc_object`.
+/// We could do the same thing here, but it doesn't seem worth it, as we can't
+/// get the same unidirectional type safety.
 pub type Class = id;
 
+/// Our internal representation of a class, e.g. this is where `objc_msgSend`
+/// will look up method implementations.
+///
+/// Note: `superclass` can be `nil`!
 pub(super) struct ClassHostObject {
     pub(super) name: String,
     pub(super) is_metaclass: bool,
     pub(super) superclass: Class,
     pub(super) methods: HashMap<SEL, IMP>,
+    pub(super) guest_method_signatures: HashMap<SEL, ConstPtr<u8>>,
+    /// Maps ivar name to a tuple of an offset (as pointer) and an alignment.
+    /// (Alignment is used during ivar reconciliation.)
     pub(super) ivars: HashMap<String, (ConstPtr<GuestUSize>, u32)>,
+    /// Offset into the allocated memory for the object where the ivars of
+    /// instances of this class or metaclass (respectively: normal objects or
+    /// classes) should live. This is always >= the value in the superclass.
     pub(super) instance_start: GuestUSize,
+    /// Size of the allocated memory for instances of this class or metaclass.
+    /// This is always >= the value in the superclass.
     pub(super) instance_size: GuestUSize,
 }
 impl HostObject for ClassHostObject {}
 
+/// Placeholder object for classes and metaclasses referenced by the app that
+/// we don't have an implementation for.
+///
+/// This lets us delay errors about missing implementations until the first
+/// time the app actually uses them (e.g. when a message is sent).
 pub(super) struct UnimplementedClass {
     pub(super) name: String,
     pub(super) is_metaclass: bool,
 }
 impl HostObject for UnimplementedClass {}
 
+/// Substitute object for classes and metaclasses from the guest app that we do
+/// not want to support (see [substitute_classes]).
+///
+/// Messages sent to this class will behave as if messaging [nil].
 pub(super) struct FakeClass {
     pub(super) name: String,
     pub(super) is_metaclass: bool,
 }
 impl HostObject for FakeClass {}
 
+/// The layout of a class in an app binary.
+///
+/// The name, field names and field layout are based on what Ghidra outputs.
 #[repr(C, packed)]
 #[allow(dead_code)]
 struct class_t {
-    isa: Class,
+    isa: Class, // note that this matches objc_object
     superclass: Class,
     _cache: ConstVoidPtr,
     _vtable: ConstVoidPtr,
@@ -50,6 +86,9 @@ struct class_t {
 }
 unsafe impl SafeRead for class_t {}
 
+/// The layout of the main class data in an app binary.
+///
+/// The name, field names and field layout are based on what Ghidra's output.
 #[repr(C, packed)]
 #[allow(dead_code)]
 struct class_rw_t {
@@ -59,24 +98,32 @@ struct class_rw_t {
     _reserved: u32,
     name: ConstPtr<u8>,
     base_methods: ConstPtr<method_list_t>,
-    _base_protocols: ConstVoidPtr,
+    _base_protocols: ConstVoidPtr, // protocol list (TODO)
     ivars: ConstPtr<ivar_list_t>,
     _weak_ivar_layout: u32,
-    _base_properties: ConstVoidPtr,
+    _base_properties: ConstVoidPtr, // property list (TODO)
 }
 unsafe impl SafeRead for class_rw_t {}
 
+/// The layout of a category in an app binary.
+///
+/// The name, field names and field layout are based on what Ghidra outputs.
 #[repr(C, packed)]
 struct category_t {
     name: ConstPtr<u8>,
     class: Class,
     instance_methods: ConstPtr<method_list_t>,
     class_methods: ConstPtr<method_list_t>,
-    _protocols: ConstVoidPtr,
-    _property_list: ConstVoidPtr,
+    _protocols: ConstVoidPtr,     // protocol list (TODO)
+    _property_list: ConstVoidPtr, // property list (TODO)
 }
 unsafe impl SafeRead for category_t {}
 
+/// A template for a class defined with [objc_classes].
+///
+/// Host implementations of libraries can use these to expose classes to the
+/// application. The runtime will create the actual class ([ClassHostObject]
+/// etc) from the template on-demand. See also [ClassExports].
 pub struct ClassTemplate {
     pub name: &'static str,
     pub superclass: Option<&'static str>,
@@ -84,6 +131,17 @@ pub struct ClassTemplate {
     pub instance_methods: &'static [(&'static str, &'static dyn HostIMP)],
 }
 
+/// Type for lists of classes exported by host implementations of frameworks.
+///
+/// Each module that wants to expose functions to guest code should export a
+/// constant using this type. See [objc_classes] for an example.
+///
+/// All the constants like this can then be collected into a
+/// [crate::dyld::HostDylib].
+///
+/// The strings are the class names.
+///
+/// See also [crate::dyld::ConstantExports] and [crate::dyld::FunctionExports].
 pub type ClassExports = &'static [(&'static str, ClassTemplate)];
 
 #[doc(hidden)]
@@ -110,6 +168,9 @@ macro_rules! _objc_method {
         $(, $ty:ty, $arg:ident)*
         $(, ...$va_arg:ident: $va_type:ty)?
     ) => {
+        // The closure must be explicitly casted because a bare closure defaults
+        // to a different type than a pure fn pointer, which is the type that
+        // HostIMP and CallFromGuest are implemented on.
         &((|
             #[allow(unused_variables)]
             $env: &mut $crate::Environment,
@@ -132,6 +193,8 @@ macro_rules! _objc_method {
     }
 }
 
+/// Macro for creating a list of [ClassTemplate]s (i.e. [ClassExports]).
+/// It imitates the Objective-C class definition syntax.
 #[macro_export]
 macro_rules! objc_classes {
     {
@@ -200,7 +263,7 @@ macro_rules! objc_classes {
         ]
     }
 }
-pub use crate::objc_classes;
+pub use crate::objc_classes; // #[macro_export] is weird...
 
 impl ClassHostObject {
     fn from_template(
@@ -209,6 +272,9 @@ impl ClassHostObject {
         superclass: Class,
         objc: &ObjC,
     ) -> Self {
+        // For our host implementations we store all data in host objects, so
+        // there are no ivars and the size is always just the isa pointer.
+        // This is true for both classes and normal objects.
         let size = guest_size_of::<objc_object>();
         ClassHostObject {
             name: template.name.to_string(),
@@ -222,9 +288,14 @@ impl ClassHostObject {
                 })
                 .iter()
                 .map(|&(name, host_imp)| {
+                    // The selector should already have been registered by
+                    // [ObjC::register_host_selectors], so we can panic
+                    // if it hasn't been.
                     (objc.selectors[name], IMP::Host(host_imp))
                 }),
             ),
+            guest_method_signatures: HashMap::default(),
+            // maybe this should be 0 for NSObject? does it matter?
             instance_start: size,
             instance_size: size,
             ivars: HashMap::default(),
@@ -243,6 +314,7 @@ impl ClassHostObject {
             ivars,
             ..
         } = mem.read(data);
+
         let name = mem.cstr_at_utf8(name).unwrap().to_string();
 
         let mut host_object = ClassHostObject {
@@ -250,6 +322,7 @@ impl ClassHostObject {
             is_metaclass,
             superclass,
             methods: HashMap::new(),
+            guest_method_signatures: HashMap::new(),
             instance_start,
             instance_size,
             ivars: HashMap::new(),
@@ -265,8 +338,12 @@ impl ClassHostObject {
 
         host_object
     }
+
+    // See methods.rs for binary method parsing
 }
 
+/// Decide whether a certain class/metaclass pair from the guest app should use
+/// fake class host objects and return the substitutions if so.
 fn substitute_classes(
     mem: &Mem,
     class: Class,
@@ -276,10 +353,12 @@ fn substitute_classes(
     let class_rw_t { name, .. } = mem.read(data);
     let name = mem.cstr_at_utf8(name).unwrap();
     
+    // Substitute classes that seem to be from various third-party advertising 
+    // or social network SDKs.
     if !(name.starts_with("AdMob")
         || name.starts_with("AltAds")
         || name.starts_with("Mobclix")
-        || name.starts_with("FB")
+        || name.starts_with("FB") // Facebook
         || name.starts_with("Flurry")
         || name.starts_with("OpenFeint")
         || name.starts_with("Tapjoy")
@@ -303,6 +382,7 @@ fn substitute_classes(
         "Note: substituting fake class for {} to improve compatibility",
         name
     );
+
     let class_host_object = Box::new(FakeClass {
         name: name.to_string(),
         is_metaclass: false,
@@ -329,10 +409,15 @@ impl ObjC {
             .map(|&(_name, ref template)| template)
     }
 
+    /// For use by [crate::dyld]: get the class or metaclass referenced by an
+    /// external relocation in the app binary. If we don't have an
+    /// implementation of the class, a placeholder is used.
     pub fn link_class(&mut self, name: &str, is_metaclass: bool, mem: &mut Mem) -> Class {
         self.link_class_inner(name, is_metaclass, mem, true)
     }
 
+    /// For use by host functions: get a particular class. If we don't have an
+    /// implementation of the class, panic.
     pub fn get_known_class(&mut self, name: &str, mem: &mut Mem) -> Class {
         self.link_class_inner(name, /* is_metaclass: */ false, mem, false)
     }
@@ -344,6 +429,11 @@ impl ObjC {
         mem: &mut Mem,
         use_placeholder: bool,
     ) -> Class {
+        // The class and metaclass must be created together and tracked
+        // together, so even though this function only returns one pointer, it
+        // must create both. The function must not care whether the metaclass
+        // is requested first, or if the class is requested first.
+
         if let Some(class) = self.get_class(name, is_metaclass, mem) {
             return class;
         };
@@ -351,25 +441,36 @@ impl ObjC {
         let class_host_object: Box<dyn AnyHostObject>;
         let metaclass_host_object: Box<dyn AnyHostObject>;
         if let Some(template) = Self::find_template(name) {
+            // We have a template (host implementation) for this class, use it.
+
             if let Some(superclass_name) = template.superclass {
+                // Make sure we actually have a template for the superclass
+                // before we try to link it, else we might get an unimplemented
+                // class back and have weird problems down the line
                 assert!(Self::find_template(superclass_name).is_some());
             }
 
             class_host_object = Box::new(ClassHostObject::from_template(
                 template,
-                false,
+                /* is_metaclass: */ false,
+                /* superclass: */
                 template
                     .superclass
-                    .map(|name| self.link_class(name, false, mem))
+                    .map(|name| {
+                        self.link_class(name, /* is_metaclass: */ false, mem)
+                    })
                     .unwrap_or(nil),
                 self,
             ));
             metaclass_host_object = Box::new(ClassHostObject::from_template(
                 template,
-                true,
+                /* is_metaclass: */ true,
+                /* superclass: */
                 template
                     .superclass
-                    .map(|name| self.link_class(name, true, mem))
+                    .map(|name| {
+                        self.link_class(name, /* is_metaclass: */ true, mem)
+                    })
                     .unwrap_or(nil),
                 self,
             ));
@@ -399,6 +500,7 @@ impl ObjC {
                     is_metaclass: true,
                 });
             } else {
+                // We don't have a real implementation for this class, use a placeholder.
                 class_host_object = Box::new(UnimplementedClass {
                     name: name.to_string(),
                     is_metaclass: false,
@@ -410,22 +512,29 @@ impl ObjC {
             }
         }
 
+        // NSObject's metaclass is special: it is its own metaclass, and it's
+        // the superclass of all other metaclasses.
+        // (FIXME: this actually should apply to any class hiearchy root.)
+        // This creates a chicken-and-egg problem so it has a special path.
         let metaclass = if name == "NSObject" {
             let metaclass = mem.alloc_and_write(objc_object { isa: nil });
             mem.write(metaclass, objc_object { isa: metaclass });
             self.register_static_object(metaclass, metaclass_host_object);
             metaclass
         } else {
-            let isa = self.link_class("NSObject", true, mem);
+            let isa = self.link_class("NSObject", /* is_metaclass: */ true, mem);
             self.alloc_static_object(isa, metaclass_host_object, mem)
         };
 
         let class = self.alloc_static_object(metaclass, class_host_object, mem);
+
         if name == "NSObject" {
+            // NSObject's metaclass has its class as the superclass.
             self.borrow_mut::<ClassHostObject>(metaclass).superclass = class;
         }
 
         self.classes.insert(name.to_string(), class);
+
         if is_metaclass {
             metaclass
         } else {
@@ -433,6 +542,8 @@ impl ObjC {
         }
     }
 
+    /// For use by [crate::dyld]: register all the classes from the application
+    /// binary.
     pub fn register_bin_classes(&mut self, bin: &MachO, mem: &mut Mem) {
         let Some(list) = bin.get_section("__objc_classlist") else {
             return;
@@ -446,29 +557,38 @@ impl ObjC {
 
             let name = if let Some(fakes) = substitute_classes(mem, class, metaclass) {
                 let (class_host_object, metaclass_host_object) = fakes;
+
+                assert!(class_host_object.name == metaclass_host_object.name);
                 let name = class_host_object.name.clone();
+
                 self.register_static_object(class, class_host_object);
                 self.register_static_object(metaclass, metaclass_host_object);
                 name
             } else {
                 let class_host_object = Box::new(ClassHostObject::from_bin(
-                    class, false, mem, self,
+                    class, /* is_metaclass: */ false, mem, self,
                 ));
                 let metaclass_host_object = Box::new(ClassHostObject::from_bin(
-                    metaclass, true, mem, self,
+                    metaclass, /* is_metaclass: */ true, mem, self,
                 ));
+
+                assert!(class_host_object.name == metaclass_host_object.name);
                 let name = class_host_object.name.clone();
+
                 self.register_static_object(class, class_host_object);
                 self.register_static_object(metaclass, metaclass_host_object);
                 name
             };
+
             self.classes.insert(name.to_string(), class);
         }
 
         let mut queue = VecDeque::<Class>::new();
         let mut found_ns_object = false;
+        // Second pass to build an inverted inheritance graph
         let mut inverted_inheritance = HashMap::<Class, Vec<Class>>::new();
         for (name, class) in self.classes.iter() {
+            log_dbg!("class name {}", name);
             if name == "NSObject" {
                 assert!(!found_ns_object);
                 found_ns_object = true;
@@ -479,6 +599,7 @@ impl ObjC {
                 .as_any()
                 .downcast_ref();
             let Some(ClassHostObject { superclass, .. }) = class_host_object else {
+                // Skip FakeClass or UnimplementedClass
                 continue;
             };
 
@@ -488,20 +609,42 @@ impl ObjC {
                     .and_modify(|v| v.push(*class))
                     .or_insert(vec![*class]);
             } else {
+                assert!(!queue.contains(class));
                 queue.push_back(*class);
             }
         }
+        // At least NSObject should be found as a root object
         assert!(found_ns_object);
+
+        // Third pass to ensure no superclass has "grown into" any of its
+        // subclasses.
+        // (https://alwaysprocessing.blog/2023/03/12/objc-ivar-abi)
+
+        // BFS starting from root(s) for ivar reconciliation
+        //
+        // It is required to be traversed in this order,
+        // as one overgrown class potentially implies
+        // reconciliation for _all of subclasses_
         while !queue.is_empty() {
             let next = queue.pop_front().unwrap();
             let (need, mut diff) = self.need_ivar_reconciliation(next);
             if need {
+                let ClassHostObject {
+                    name, superclass, ..
+                } = self.borrow(next);
+                log_dbg!(
+                    "Class {} need ivar reconciliation with superclass {}!",
+                    name,
+                    &self.borrow::<ClassHostObject>(*superclass).name
+                );
+
                 let ClassHostObject {
                     ref mut instance_start,
                     ref mut instance_size,
                     ref mut ivars,
                     ..
                 } = self.borrow_mut(next);
+
                 if !ivars.is_empty() {
                     let mut max_alignment: u32 = 1;
                     for (offset, align) in ivars.values() {
@@ -530,116 +673,177 @@ impl ObjC {
     }
 
     fn need_ivar_reconciliation(&mut self, class: Class) -> (bool, u32) {
-        let host_obj = self.get_host_object(class).unwrap().as_any();
+        let class_host_object = self.get_host_object(class).unwrap().as_any().downcast_ref();
         let Some(ClassHostObject {
+            name,
             superclass,
             instance_start,
+            instance_size,
             ..
-        }) = host_obj.downcast_ref::<ClassHostObject>()
+        }) = class_host_object
         else {
+            // The class might be a FakeClass or UnimplementedClass
+            // In those cases we move on as they don't have ivars
             return (false, 0);
         };
+        log_dbg!(
+            "Checking need_ivar_reconciliation for {}, start {}, size {}",
+            name,
+            instance_start,
+            instance_size
+        );
 
         if *superclass == nil {
             return (false, 0);
         }
 
-        let super_host = self.get_host_object(*superclass).unwrap().as_any();
+        let superclass_host_object = self
+            .get_host_object(*superclass)
+            .unwrap()
+            .as_any()
+            .downcast_ref();
         let Some(ClassHostObject {
-            instance_size: super_size,
+            instance_size: superclass_instance_size,
             ..
-        }) = super_host.downcast_ref::<ClassHostObject>()
+        }) = superclass_host_object
         else {
+            // Superclass could also be a FakeClass or UnimplementedClass
             return (false, 0);
         };
 
-        let need = instance_start < super_size;
-        let diff = if need { super_size - instance_start } else { 0 };
+        let need = instance_start < superclass_instance_size;
+        let diff = if need {
+            superclass_instance_size - instance_start
+        } else {
+            0
+        };
         (need, diff)
     }
 
+    /// Dumps all classes available to the emulator in JSON to stdout.
+    ///
+    /// The JSON has the following form:
+    /// ```json
+    /// {
+    ///     "object": "classes",
+    ///     "classes": [
+    ///         {
+    ///             "name": ((name of class)),
+    ///             "super": ((name of superclass, if available)),
+    ///             "class_type": (("normal" | "unimplemented" | "fake"))
+    ///         },
+    ///         ...
+    ///     ]
+    /// }
+    /// ```
     pub fn dump_classes(&self, file: &mut std::fs::File) -> Result<(), std::io::Error> {
         use std::io::Write;
         writeln!(file, "{{\n    \"object\": \"classes\",\n    \"classes\": [")?;
         for (i, (_, o)) in self.classes.iter().enumerate() {
+            // Why doesn't json allow trailing commas...
             let comma = if i == self.classes.len() - 1 { "" } else { "," };
+
             let host_obj = self.get_host_object(*o).unwrap();
 
-            if let Some(ClassHostObject { name, superclass: sup, .. }) =
-                host_obj.as_any().downcast_ref()
+            if let Some(ClassHostObject {
+                name,
+                superclass: sup,
+                ..
+            }) = host_obj.as_any().downcast_ref()
             {
                 if *sup == nil {
                     writeln!(
                         file,
-                        "        {{ \"name\": \"{name}\", \
-                         \"class_type\": \"normal\" }}{comma}"
+                        "        {{ \"name\": \"{name}\", \"class_type\": \"normal\" }}{comma}"
                     )?;
                 } else {
                     writeln!(
                         file,
-                        "        {{ \"name\": \"{}\", \"super\": \"{}\", \
-                         \"class_type\": \"normal\" }}{}",
-                        name,
-                        self.get_class_name(*sup),
-                        comma
+                        "        {{ \"name\": \"{}\", \"super\": \"{}\", \"class_type\": \"normal\" }}{}",
+                        name, self.get_class_name(*sup), comma
                     )?;
                 }
-            } else if let Some(UnimplementedClass { name, .. }) =
-                host_obj.as_any().downcast_ref()
-            {
+            } else if let Some(UnimplementedClass { name, .. }) = host_obj.as_any().downcast_ref() {
                 writeln!(
                     file,
-                    "        {{ \"name\": \"{name}\", \
-                     \"class_type\": \"unimplemented\" }}{comma}"
+                    "        {{ \"name\": \"{name}\", \"class_type\": \"unimplemented\" }}{comma}"
                 )?;
             } else if let Some(FakeClass { name, .. }) = host_obj.as_any().downcast_ref() {
                 writeln!(
                     file,
-                    "        {{ \"name\": \"{name}\", \
-                     \"class_type\": \"fake\" }}{comma}"
+                    "        {{ \"name\": \"{name}\", \"class_type\": \"fake\" }}{comma}"
                 )?;
+            } else {
+                panic!("Unrecognized class type!");
             }
         }
         writeln!(file, "    ]\n}}")
     }
 
+    /// For use by [crate::dyld]: register all the categories from the
+    /// application binary.
     pub fn register_bin_categories(&mut self, bin: &MachO, mem: &mut Mem) {
         let Some(list) = bin.get_section("__objc_catlist") else {
             return;
         };
+
         assert!(list.size % 4 == 0);
         let base: ConstPtr<ConstPtr<category_t>> = Ptr::from_bits(list.addr);
         for i in 0..(list.size / 4) {
             let cat_ptr = mem.read(base + i);
             let data = mem.read(cat_ptr);
+
+            let name = mem.cstr_at_utf8(data.name).unwrap();
             let class = data.class;
             let metaclass = Self::read_isa(class, mem);
-            for (target_class, methods) in [
+
+            for (class, methods) in [
                 (class, data.instance_methods),
                 (metaclass, data.class_methods),
             ] {
                 if methods.is_null() {
                     continue;
                 }
-                let any = self.get_host_object(target_class).unwrap().as_any();
+
+                let any = self.get_host_object(class).unwrap().as_any();
                 if any.is::<FakeClass>() || any.is::<UnimplementedClass>() {
                     continue;
                 }
 
+                // Horrible workaround to avoid double-borrowing self:
+                // temporarily replace the class object.
                 let mut host_obj = std::mem::replace(
-                    self.borrow_mut::<ClassHostObject>(target_class),
+                    self.borrow_mut::<ClassHostObject>(class),
                     ClassHostObject {
                         name: Default::default(),
                         is_metaclass: Default::default(),
                         superclass: nil,
                         methods: Default::default(),
+                        guest_method_signatures: Default::default(),
                         instance_start: Default::default(),
                         instance_size: Default::default(),
                         ivars: Default::default(),
                     },
                 );
+                log_dbg!(
+                    "Adding {} methods from guest app category \"{}\" {:?} to {} \"{}\" {:?}",
+                    if host_obj.is_metaclass {
+                        "class"
+                    } else {
+                        "instance"
+                    },
+                    name,
+                    cat_ptr,
+                    if host_obj.is_metaclass {
+                        "metaclass"
+                    } else {
+                        "class"
+                    },
+                    host_obj.name,
+                    class,
+                );
                 host_obj.add_methods_from_bin(methods, mem, self);
-                *self.borrow_mut::<ClassHostObject>(target_class) = host_obj;
+                *self.borrow_mut::<ClassHostObject>(class) = host_obj;
             }
         }
     }
@@ -648,21 +852,25 @@ impl ObjC {
         if class == superclass {
             return true;
         }
-        let mut curr = class;
+
+        let mut class = class;
         loop {
-            let &ClassHostObject { superclass: next, .. } = self.borrow(curr);
+            let &ClassHostObject {
+                superclass: next, ..
+            } = self.borrow(class);
             if next == nil {
                 return false;
-            }
-            if next == superclass {
+            } else if next == superclass {
                 return true;
+            } else {
+                class = next;
             }
-            curr = next;
         }
     }
 
     pub fn get_class_name(&self, class: Class) -> &str {
-        self.try_get_class_name(class).expect("Could not get class name!")
+        self.try_get_class_name(class)
+            .expect("Could not get class name!")
     }
 
     pub fn get_superclass(&self, class: Class) -> Class {
@@ -672,13 +880,12 @@ impl ObjC {
 
     pub fn try_get_class_name(&self, class: Class) -> Option<&str> {
         let host_object = self.get_host_object(class)?;
-        let any = host_object.as_any();
-        if let Some(c) = any.downcast_ref::<ClassHostObject>() {
-            Some(&c.name)
-        } else if let Some(u) = any.downcast_ref::<UnimplementedClass>() {
-            Some(&u.name)
-        } else if let Some(f) = any.downcast_ref::<FakeClass>() {
-            Some(&f.name)
+        if let Some(ClassHostObject { name, .. }) = host_object.as_any().downcast_ref() {
+            Some(name)
+        } else if let Some(UnimplementedClass { name, .. }) = host_object.as_any().downcast_ref() {
+            Some(name)
+        } else if let Some(FakeClass { name, .. }) = host_object.as_any().downcast_ref() {
+            Some(name)
         } else {
             None
         }
@@ -690,24 +897,19 @@ pub fn objc_getClass(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class 
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -716,24 +918,19 @@ pub fn objc_begin_catch(env: &mut crate::Environment, name: ConstPtr<u8>) -> Cla
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -742,24 +939,19 @@ pub fn objc_end_catch(env: &mut crate::Environment, name: ConstPtr<u8>) -> Class
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -768,24 +960,19 @@ pub fn objc_exception_throw(env: &mut crate::Environment, name: ConstPtr<u8>) ->
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -794,9 +981,6 @@ pub fn object_getClassName(env: &mut crate::Environment, obj: id) -> Class {
         return nil;
     }
     
-    // В Objective-C любой объект в памяти (id) начинается с указателя isa.
-    // Приводим указатель, читаем из памяти гостя структуру objc_object 
-    // и просто возвращаем её поле isa.
     let objc_obj: objc_object = env.mem.read(obj.cast());
     objc_obj.isa
 }
@@ -806,9 +990,6 @@ pub fn object_getClass(env: &mut crate::Environment, obj: id) -> Class {
         return nil;
     }
     
-    // В Objective-C любой объект в памяти (id) начинается с указателя isa.
-    // Приводим указатель, читаем из памяти гостя структуру objc_object 
-    // и просто возвращаем её поле isa.
     let objc_obj: objc_object = env.mem.read(obj.cast());
     objc_obj.isa
 }
@@ -818,24 +999,19 @@ pub fn objc_retainAutoreleasedReturnValue(env: &mut crate::Environment, name: Co
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -844,24 +1020,19 @@ pub fn objc_autoreleaseReturnValue(env: &mut crate::Environment, name: ConstPtr<
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -870,24 +1041,19 @@ pub fn objc_retainAutoreleaseReturnValue(env: &mut crate::Environment, name: Con
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -896,24 +1062,19 @@ pub fn objc_autoreleasePoolPush(env: &mut crate::Environment, name: ConstPtr<u8>
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
@@ -922,300 +1083,192 @@ pub fn objc_setProperty_nonatomic(env: &mut crate::Environment, name: ConstPtr<u
         return nil;
     }
     
-    // Читаем C-строку имени класса из памяти гостя и КОПИРУЕМ её в String (.to_string()),
-    // чтобы освободить неизменяемое заимствование (borrow) env.mem.
     let name_str = match env.mem.cstr_at_utf8(name) {
         Ok(s) => s.to_string(),
         Err(_) => return nil,
     };
-    // Проверяем, зарегистрирован ли уже этот класс (среди известных)
-    // Обратите внимание на амперсанд & перед name_str
+
     if let Some(class) = env.objc.get_class(&name_str, false, &env.mem) {
         return class;
     }
 
-    // Если класса еще нет, но у нас есть для него хост-шаблон, линкуем его
     if ObjC::find_template(&name_str).is_some() {
         return env.objc.link_class(&name_str, false, &mut env.mem);
     }
 
-    // Стандартное поведение objc_getClass: если класс не найден, возвращаем nil
     nil
 }
 
 pub fn class_getSuperclass(env: &mut crate::Environment, cls: Class) -> Class {
-    // По спецификации Objective-C, если передать nil, возвращается nil.
     if cls.is_null() {
         return nil;
     }
-    
-    // В touchHLE уже есть внутренняя функция для получения суперкласса, 
-    // просто проксируем вызов в неё:
     env.objc.get_superclass(cls)
 }
 
 pub fn class_getInstanceSize(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
     if cls.is_null() {
         return ConstVoidPtr::null();
     }
 
     let mut curr = cls;
     while !curr.is_null() {
-        // Достаём хост-объект класса, чтобы получить доступ к списку методов
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                // Если селектор зарегистрирован в данном классе
                 if class_obj.methods.contains_key(&name) {
-                    // Возвращаем non-null указатель.
-                    // В реальном iOS/macOS это указатель на структуру `method_t`.
-                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
-                    // и не выделяет под них память в гостевом пространстве, 
-                    // возврат указателя на сам класс — это безопасный способ дать 
-                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
                     return curr.cast_const().cast();
                 }
             }
         }
-        
-        // Поднимаемся вверх по иерархии к суперклассу
         let next = env.objc.get_superclass(curr);
-        // Защита от бесконечного цикла, если иерархия зациклена
         if next == curr {
             break;
         }
         curr = next;
     }
-
-    // Если прошли всю цепочку и ничего не нашли, метод не существует
     ConstVoidPtr::null()
 }
 
 pub fn class_getInstanceMethod(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
     if cls.is_null() {
         return ConstVoidPtr::null();
     }
 
     let mut curr = cls;
     while !curr.is_null() {
-        // Достаём хост-объект класса, чтобы получить доступ к списку методов
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                // Если селектор зарегистрирован в данном классе
                 if class_obj.methods.contains_key(&name) {
-                    // Возвращаем non-null указатель.
-                    // В реальном iOS/macOS это указатель на структуру `method_t`.
-                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
-                    // и не выделяет под них память в гостевом пространстве, 
-                    // возврат указателя на сам класс — это безопасный способ дать 
-                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
                     return curr.cast_const().cast();
                 }
             }
         }
-        
-        // Поднимаемся вверх по иерархии к суперклассу
         let next = env.objc.get_superclass(curr);
-        // Защита от бесконечного цикла, если иерархия зациклена
         if next == curr {
             break;
         }
         curr = next;
     }
-
-    // Если прошли всю цепочку и ничего не нашли, метод не существует
     ConstVoidPtr::null()
 }
 
 pub fn method_getImplementation(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
     if cls.is_null() {
         return ConstVoidPtr::null();
     }
 
     let mut curr = cls;
     while !curr.is_null() {
-        // Достаём хост-объект класса, чтобы получить доступ к списку методов
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                // Если селектор зарегистрирован в данном классе
                 if class_obj.methods.contains_key(&name) {
-                    // Возвращаем non-null указатель.
-                    // В реальном iOS/macOS это указатель на структуру `method_t`.
-                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
-                    // и не выделяет под них память в гостевом пространстве, 
-                    // возврат указателя на сам класс — это безопасный способ дать 
-                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
                     return curr.cast_const().cast();
                 }
             }
         }
-        
-        // Поднимаемся вверх по иерархии к суперклассу
         let next = env.objc.get_superclass(curr);
-        // Защита от бесконечного цикла, если иерархия зациклена
         if next == curr {
             break;
         }
         curr = next;
     }
-
-    // Если прошли всю цепочку и ничего не нашли, метод не существует
     ConstVoidPtr::null()
 }
 
 pub fn method_setImplementation(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
     if cls.is_null() {
         return ConstVoidPtr::null();
     }
 
     let mut curr = cls;
     while !curr.is_null() {
-        // Достаём хост-объект класса, чтобы получить доступ к списку методов
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                // Если селектор зарегистрирован в данном классе
                 if class_obj.methods.contains_key(&name) {
-                    // Возвращаем non-null указатель.
-                    // В реальном iOS/macOS это указатель на структуру `method_t`.
-                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
-                    // и не выделяет под них память в гостевом пространстве, 
-                    // возврат указателя на сам класс — это безопасный способ дать 
-                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
                     return curr.cast_const().cast();
                 }
             }
         }
-        
-        // Поднимаемся вверх по иерархии к суперклассу
         let next = env.objc.get_superclass(curr);
-        // Защита от бесконечного цикла, если иерархия зациклена
         if next == curr {
             break;
         }
         curr = next;
     }
-
-    // Если прошли всю цепочку и ничего не нашли, метод не существует
     ConstVoidPtr::null()
 }
 
 pub fn method_getTypeEncoding(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
     if cls.is_null() {
         return ConstVoidPtr::null();
     }
 
     let mut curr = cls;
     while !curr.is_null() {
-        // Достаём хост-объект класса, чтобы получить доступ к списку методов
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                // Если селектор зарегистрирован в данном классе
                 if class_obj.methods.contains_key(&name) {
-                    // Возвращаем non-null указатель.
-                    // В реальном iOS/macOS это указатель на структуру `method_t`.
-                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
-                    // и не выделяет под них память в гостевом пространстве, 
-                    // возврат указателя на сам класс — это безопасный способ дать 
-                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
                     return curr.cast_const().cast();
                 }
             }
         }
-        
-        // Поднимаемся вверх по иерархии к суперклассу
         let next = env.objc.get_superclass(curr);
-        // Защита от бесконечного цикла, если иерархия зациклена
         if next == curr {
             break;
         }
         curr = next;
     }
-
-    // Если прошли всю цепочку и ничего не нашли, метод не существует
     ConstVoidPtr::null()
 }
 
 pub fn objc_getMetaClass(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
     if cls.is_null() {
         return ConstVoidPtr::null();
     }
 
     let mut curr = cls;
     while !curr.is_null() {
-        // Достаём хост-объект класса, чтобы получить доступ к списку методов
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                // Если селектор зарегистрирован в данном классе
                 if class_obj.methods.contains_key(&name) {
-                    // Возвращаем non-null указатель.
-                    // В реальном iOS/macOS это указатель на структуру `method_t`.
-                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
-                    // и не выделяет под них память в гостевом пространстве, 
-                    // возврат указателя на сам класс — это безопасный способ дать 
-                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
                     return curr.cast_const().cast();
                 }
             }
         }
-        
-        // Поднимаемся вверх по иерархии к суперклассу
         let next = env.objc.get_superclass(curr);
-        // Защита от бесконечного цикла, если иерархия зациклена
         if next == curr {
             break;
         }
         curr = next;
     }
-
-    // Если прошли всю цепочку и ничего не нашли, метод не существует
     ConstVoidPtr::null()
 }
 
 pub fn class_replaceMethod(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    // Согласно спецификации Objective-C, если передан nil класс, возвращаем nil
     if cls.is_null() {
         return ConstVoidPtr::null();
     }
 
     let mut curr = cls;
     while !curr.is_null() {
-        // Достаём хост-объект класса, чтобы получить доступ к списку методов
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                // Если селектор зарегистрирован в данном классе
                 if class_obj.methods.contains_key(&name) {
-                    // Возвращаем non-null указатель.
-                    // В реальном iOS/macOS это указатель на структуру `method_t`.
-                    // Но поскольку touchHLE абстрагирует методы в хостовый `HashMap`
-                    // и не выделяет под них память в гостевом пространстве, 
-                    // возврат указателя на сам класс — это безопасный способ дать 
-                    // приложению "валидный" (читаемый) адрес, означающий, что метод существует.
                     return curr.cast_const().cast();
                 }
             }
         }
-        
-        // Поднимаемся вверх по иерархии к суперклассу
         let next = env.objc.get_superclass(curr);
-        // Защита от бесконечного цикла, если иерархия зациклена
         if next == curr {
             break;
         }
         curr = next;
     }
-
-    // Если прошли всю цепочку и ничего не нашли, метод не существует
     ConstVoidPtr::null()
 }
 
 pub fn objc_retain(env: &mut crate::Environment, obj: id) -> id {
     if !obj.is_null() {
-        // Честно вызываем внутренний механизм удержания объекта эмулятором
         crate::objc::retain(env, obj);
     }
     obj
@@ -1223,7 +1276,6 @@ pub fn objc_retain(env: &mut crate::Environment, obj: id) -> id {
 
 pub fn objc_release(env: &mut crate::Environment, obj: id) -> id {
     if !obj.is_null() {
-        // Честно вызываем внутренний механизм удержания объекта эмулятором
         crate::objc::release(env, obj);
     }
     obj

@@ -78,19 +78,17 @@ impl State {
 fn get_preferred_languages(env: &mut Environment) -> Vec<String> {
     let options = env.options.as_ref();
     if let Some(ref preferred_languages) = options.preferred_languages {
-        log!(
-            "Preferred languages ({:?}) from --preferred-languages= option.",
-            preferred_languages
-        );
+        log!("The app requested your preferred languages. {:?} will reported based on your --preferred-languages= option.", preferred_languages);
         return preferred_languages.clone();
     }
+
     let languages = get_preferred_language_codes(env);
     if languages.is_empty() {
         let lang = "en".to_string();
-        log!("No language info available, reporting {:?} (English).", lang);
+        log!("The app requested your preferred languages. No information could be retrieved, so {:?} (English) will be reported.", lang);
         vec![lang]
     } else {
-        log!("Reporting preferred languages {:?} from system.", languages);
+        log!("The app requested your preferred languages. {:?} will be reported based on your system language preferences.", languages);
         languages
     }
 }
@@ -98,10 +96,11 @@ fn get_preferred_languages(env: &mut Environment) -> Vec<String> {
 fn get_preferred_countries(env: &mut Environment) -> Vec<String> {
     let countries = get_preferred_country_codes(env);
     if countries.is_empty() {
-        log!("No country info available, reporting \"US\".");
-        vec!["US".to_string()]
+        let country = "US".to_string();
+        log!("The app requested your current locale. No country information could be retrieved, so {:?} will be reported.", country);
+        vec![country]
     } else {
-        log!("Reporting country {:?} from system.", countries);
+        log!("The app requested your current locale. {:?} will be reported based on your system region settings.", countries);
         countries
     }
 }
@@ -307,7 +306,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithLocaleIdentifier:(id)string { // NSString*
     let str = ns_string::to_rust_string(env, string).into_owned();
-    log_dbg!("NSLocale initWithLocaleIdentifier:'{}'", str);
+    log_dbg!("[(NSLocale *){:?} initWithLocaleIdentifier:'{}']", this, str);
     let lang    = language_from_locale_identifier(&str).to_string();
     let country = country_from_locale_identifier(&str).unwrap_or("").to_string();
     let lang_ns    = ns_string::from_rust_string(env, lang);

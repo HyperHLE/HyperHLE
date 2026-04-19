@@ -425,13 +425,20 @@ pub fn AudioFileReadPackets(
     in_audio_file: AudioFileID,
     _in_use_cache: bool,
     out_num_bytes: MutPtr<u32>,
-    _out_packet_descriptions: MutVoidPtr,
+    out_packet_descriptions: MutVoidPtr,
     in_starting_packet: i64,
     io_num_packets: MutPtr<u32>,
     out_buffer: MutVoidPtr,
 ) -> OSStatus {
     return_if_null!(in_audio_file);
     if io_num_packets.is_null() { return paramErr; }
+
+    // Логирование из оригинала:
+    // Variable-size packets are not implemented currently. When they are,
+    // this parameter should be a `MutPtr<AudioStreamPacketDescription>`.
+    if !out_packet_descriptions.is_null() {
+        log!("Warning: ignoring non-null out_packet_descriptions in AudioFileReadPackets()");
+    }
 
     let host_object = match State::get(&mut env.framework_state).audio_files.get_mut(&in_audio_file) {
         Some(obj) => obj,
@@ -497,6 +504,10 @@ pub fn AudioFileClose(env: &mut Environment, in_audio_file: AudioFileID) -> OSSt
         return kAudioFileUnspecifiedError;
     };
     env.mem.free(in_audio_file.cast());
+    
+    // Логирование из оригинала
+    log_dbg!("AudioFileClose() destroyed audio file handle: {:?}", in_audio_file);
+    
     kAudioFileSuccess
 }
 

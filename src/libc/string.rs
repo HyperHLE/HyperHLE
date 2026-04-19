@@ -184,7 +184,7 @@ fn __strcat_chk(
 fn strcspn(env: &mut Environment, s: ConstPtr<u8>, charset: ConstPtr<u8>) -> GuestUSize {
     GenericChar::<u8>::strcspn(env, s, charset)
 }
-pub(super) fn strncpy(
+pub(crate) fn strncpy(
     env: &mut Environment,
     dest: MutPtr<u8>,
     src: ConstPtr<u8>,
@@ -231,7 +231,7 @@ fn strsep(env: &mut Environment, stringp: MutPtr<MutPtr<u8>>, delim: ConstPtr<u8
     }
     orig
 }
-pub(super) fn strdup(env: &mut Environment, src: ConstPtr<u8>) -> MutPtr<u8> {
+pub(crate) fn strdup(env: &mut Environment, src: ConstPtr<u8>) -> MutPtr<u8> {
     GenericChar::<u8>::strdup(env, src)
 }
 pub fn strcmp(env: &mut Environment, a: ConstPtr<u8>, b: ConstPtr<u8>) -> i32 {
@@ -672,4 +672,3 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(strnlen(_, _)),
     export_c_func!(strcasestr(_, _)),
 ];
-

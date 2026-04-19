@@ -299,7 +299,7 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
         
         _ => (ptr, 0, 1),
     }
-                }
+}
                 
 pub const STUB_CONSTANTS: ConstantExports = &[
     ("_NSLocalizedFailureReasonErrorKey", HostConstant::NSString("NSLocalizedFailureReasonErrorKey")),
@@ -347,7 +347,6 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_number_formatter::CLASSES,
         ns_object::CLASSES,
         ns_operation::CLASSES,
-       
         ns_persistent_store_coordinator::CLASSES,
         ns_predicate::CLASSES,
         ns_process_info::CLASSES,
@@ -376,7 +375,6 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_exception::CONSTANTS,
         ns_file_manager::CONSTANTS,
         ns_keyed_unarchiver::CONSTANTS,
-      
         ns_locale::CONSTANTS,
         ns_run_loop::CONSTANTS,
         STUB_CONSTANTS,
@@ -464,10 +462,11 @@ pub type unichar = u16;
 
 /// Utility to help with implementing the `hash` method, which various classes
 /// in Foundation have to do.
-
 fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     use std::hash::Hasher;
 
+    // Rust documentation says DefaultHasher::new() should always return the
+    // same instance, so this should give consistent hashes.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     hashable.hash(&mut hasher);
 
@@ -480,4 +479,3 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSGetSizeAndAlignment(_, _, _)),
     export_c_func!(CFStringGetCharactersPtr(_)),
 ];
-

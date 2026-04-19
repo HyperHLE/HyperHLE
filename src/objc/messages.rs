@@ -79,8 +79,8 @@ fn objc_msgSend_inner(
                 ..
             } = class_host_object.as_any().downcast_ref().unwrap();
             
-            // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: заменили panic! на log! ---
-            panic!(
+            // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: заменили panic! на log! (мягкий фейл форка) ---
+            log!(
                 "Warning: {} {:?} ({}class \"{}\", {:?}){} does not respond to selector \"{}\"! Returning 0.",
                 if is_metaclass { "Class" } else { "Object" },
                 receiver,
@@ -101,14 +101,15 @@ fn objc_msgSend_inner(
             // ------------------------------------------------------------------------
         }
 
-let Some(host_object) = env.objc.get_host_object(class) else {
-    log_dbg!(
-        "Warning: class {:?} in superclass chain of {:?} has no host object — stopping dispatch",
-        class, receiver
-    );
-    env.cpu.regs_mut()[0..2].fill(0);
-    return;
-};
+        let Some(host_object) = env.objc.get_host_object(class) else {
+            log_dbg!(
+                "Warning: class {:?} in superclass chain of {:?} has no host object — stopping dispatch",
+                class, receiver
+            );
+            env.cpu.regs_mut()[0..2].fill(0);
+            return;
+        };
+
         if let Some(&super::ClassHostObject {
             superclass,
             ref methods,
@@ -150,7 +151,7 @@ Type mismatch when sending message {} to {:?}!
                                 if tolerate_type_mismatch {
                                     log!("Warning: {}", msg);
                                 } else {
-                                    log_dbg!("{}", msg);
+                                    log_dbg!("{}", msg); // Мягкий фейл, чтобы не падать
                                 }
                             }
                         }
@@ -169,13 +170,15 @@ Type mismatch when sending message {} to {:?}!
             is_metaclass,
         }) = host_object.as_any().downcast_ref()
         {
-            panic!(
+            log!(
                 "Class \"{}\" ({:?}) is unimplemented. Call to {} method \"{}\".",
                  name,
                 class,
                 if is_metaclass { "class" } else { "instance" },
                 selector.as_str(&env.mem),
             );
+            env.cpu.regs_mut()[0..2].fill(0);
+            return;
         } else if let Some(&super::FakeClass {
             ref name,
             is_metaclass,
@@ -194,6 +197,8 @@ Type mismatch when sending message {} to {:?}!
             log!(
                 "Item {class:?} in superclass chain of object {receiver:?}'s class {orig_class:?} has an unexpected host object type."
             );
+            env.cpu.regs_mut()[0..2].fill(0);
+            return;
         }
     }
 }
@@ -233,6 +238,18 @@ pub(super) fn objc_msgSend_stret(
 ) {
     objc_msgSend_inner(
         env, receiver, selector, /* super2: */ None, /* tolerate_type_mismatch: */ false,
+    )
+}
+
+#[allow(non_snake_case)]
+pub(crate) fn _touchHLE_objc_msgSend_stret_tolerant(
+    env: &mut Environment,
+    _stret: MutVoidPtr,
+    receiver: id,
+    selector: SEL,
+) {
+    objc_msgSend_inner(
+        env, receiver, selector, /* super2: */ None, /* tolerate_type_mismatch: */ true,
     )
 }
 
@@ -346,10 +363,12 @@ where
     (R, P): MsgSendSignature,
     R: GuestRet,
 {
-    // Provide type info for dynamic type checking.
-    env.objc.message_type_info = Some(<(R, P) as MsgSendSignature>::type_info());
-    assert!(R::SIZE_IN_MEM.is_none());
-    (_touchHLE_objc_msgSend_tolerant as fn(&mut Environment, id, SEL)).call_from_host(env, args)
+    if R::SIZE_IN_MEM.is_some() {
+        (_touchHLE_objc_msgSend_stret_tolerant as fn(&mut Environment, MutVoidPtr, id, SEL))
+            .call_from_host(env, args)
+    } else {
+        (_touchHLE_objc_msgSend_tolerant as fn(&mut Environment, id, SEL)).call_from_host(env, args)
+    }
 }
 
 /// Counterpart of [MsgSendSignature] for [msg_send_super2].
@@ -533,4 +552,3 @@ pub fn autorelease(env: &mut Environment, object: id) -> id {
     }
     msg![env; object autorelease]
 }
-

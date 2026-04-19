@@ -1164,7 +1164,30 @@ where
                 match length_modifier {
                     Some(lm) => {
                         match lm {
-                            "h" => { /* existing code */ }
+                            "h" => {
+                                // signed short*
+                                let res = str_to_int_inner_generic(
+                                    env,
+                                    &getc_fn,
+                                    &ungetc_fn,
+                                    subject,
+                                    src_char_idx,
+                                    base,
+                                    if max_width > 0 { max_width } else { u32::MAX },
+                                    |s, base| i16::from_str_radix(s, base).unwrap_or(i16::MAX),
+                                    |num| num.checked_mul(-1).unwrap_or(i16::MIN),
+                                );
+                                match res {
+                                    Ok((val, len)) => {
+                                        src_char_idx += len;
+                                        if !suppress_assignment {
+                                            let ptr: ConstPtr<i16> = args.next(env);
+                                            env.mem.write(ptr.cast_mut(), val);
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
                             "hh" => {
                                 let res = str_to_int_inner_generic(
                                     env, &getc_fn, &ungetc_fn, subject, src_char_idx, base,
@@ -1273,7 +1296,7 @@ where
                 match length_modifier {
                     Some(lm) => {
                         match lm {
-                            "h" => { /* existing code */ }
+                            "h" => { /* same as below generally */ }
                             "hh" => {
                                 let res = str_to_int_inner_generic(
                                     env, &getc_fn, &ungetc_fn, subject, src_char_idx, base,
@@ -1766,4 +1789,4 @@ pub fn isspace(env: &mut Environment, src: ConstPtr<u8>) -> bool {
 pub fn isspace_inner(c: u8) -> bool {
     // Rust's definition of whitespace excludes vertical tab, unlike C's
     c.is_ascii_whitespace() || c == b'\x0b'
-} // ЗДЕСЬ БЫЛА ЛИШНЯЯ СКОБКА
+            }
