@@ -11,6 +11,7 @@ use crate::export_c_func;
 use crate::libc::sys::socket::{sockaddr, AF_INET, SOCK_DGRAM, SOCK_STREAM};
 use crate::mem::{guest_size_of, ConstPtr, MutPtr, MutVoidPtr, Ptr, SafeRead};
 use crate::Environment;
+use libc::hostent;
 use std::ops::Add;
 
 const AI_PASSIVE:    i32 = 0x1;
