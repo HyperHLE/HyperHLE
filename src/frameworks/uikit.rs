@@ -40,6 +40,7 @@ pub mod ui_screen_mode;
 pub mod ui_split_view_controller;
 pub mod ui_tab_bar_item;
 pub mod ui_tab_bar_controller;
+pub mod ui_text_selection_view;
 pub mod ui_touch;
 pub mod ui_view;
 pub mod ui_view_controller;
@@ -143,6 +144,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_split_view_controller::CLASSES,
         ui_tab_bar_item::CLASSES,
         ui_tab_bar_controller::CLASSES,
+        ui_text_selection_view::CLASSES,
         ui_touch::CLASSES,
         ui_view::CLASSES,
         ui_view::ui_alert_view::CLASSES,
