@@ -25,10 +25,6 @@ pub struct ifaddrs {
 }
 unsafe impl SafeRead for ifaddrs {}
 
-// ---------------------------------------------------------------------------
-// getifaddrs / freeifaddrs
-// ---------------------------------------------------------------------------
-
 /// `int getifaddrs(struct ifaddrs **ifap)`
 fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
     if ifap.is_null() {
@@ -38,14 +34,15 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
     let name_str = "lo0\0";
     let name_len = name_str.len() as u32;
     
-    // In your version, as_mut() returns &mut Mem directly. No unwrap needed.
     let mem = env.mem.as_mut();
 
-    let name_ptr: MutPtr<u8> = mem.guest_alloc(name_len);
-    mem.write_bytes(name_ptr, name_str.as_bytes());
+    // Use .alloc() instead of .guest_alloc()
+    let name_ptr: MutPtr<u8> = mem.alloc(name_len).cast();
+    // Use .write_slice() instead of .write_bytes()
+    mem.write_slice(name_ptr, name_str.as_bytes());
 
     let ifa_size = std::mem::size_of::<ifaddrs>() as u32;
-    let ifa_ptr: MutPtr<ifaddrs> = mem.guest_alloc(ifa_size);
+    let ifa_ptr: MutPtr<ifaddrs> = mem.alloc(ifa_size).cast();
     
     let dummy_ifa = ifaddrs {
         ifa_next: MutPtr::null(),
@@ -64,27 +61,17 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
     0 
 }
 
-/// `void freeifaddrs(struct ifaddrs *ifa)`
 fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {}
 
-// ---------------------------------------------------------------------------
-// net/if.h – interface index / name mapping
-// ---------------------------------------------------------------------------
-
-/// `unsigned int if_nametoindex(const char *ifname)`
 fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
-    // In your version, as_ref() returns &Mem directly.
     let name = env.mem.as_ref().cstr_at_utf8(ifname).unwrap_or("");
-    
     if name == "en0" || name == "en1" || name == "lo0" {
         return 1;
     }
-    
     set_errno(env, ENXIO);
     0
 }
 
-/// `char *if_indextoname(unsigned int ifindex, char *ifname)`
 fn if_indextoname(_env: &mut Environment, ifindex: u32, ifname: MutPtr<u8>) -> MutPtr<u8> {
     if ifindex == 1 {
         return ifname; 
