@@ -12,7 +12,6 @@ use crate::mem::{ConstPtr, MutPtr, SafeRead};
 use crate::Environment;
 use crate::log;
 
-// Mirrors the POSIX `struct ifaddrs` layout as seen by 32-bit ARM guests.
 #[allow(non_camel_case_types)]
 #[repr(C, packed)]
 pub struct ifaddrs {
@@ -36,19 +35,15 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         return -1;
     }
 
-    // Access the underlying memory by unwrapping the NullableBox
-    let mem = env.mem.as_mut().expect("Memory not initialized");
-
     let name_str = "lo0\0";
     let name_len = name_str.len() as u32;
     
-    // Allocate guest memory for the interface name string
-    let name_ptr: MutPtr<u8> = mem.guest_alloc(name_len);
-    mem.write_bytes(name_ptr, name_str.as_bytes());
+    // In your version, env.mem is used directly:
+    let name_ptr: MutPtr<u8> = env.mem.guest_alloc(name_len);
+    env.mem.write_bytes(name_ptr, name_str.as_bytes());
 
-    // Allocate guest memory for the ifaddrs struct (28 bytes)
     let ifa_size = std::mem::size_of::<ifaddrs>() as u32;
-    let ifa_ptr: MutPtr<ifaddrs> = mem.guest_alloc(ifa_size);
+    let ifa_ptr: MutPtr<ifaddrs> = env.mem.guest_alloc(ifa_size);
     
     let dummy_ifa = ifaddrs {
         ifa_next: MutPtr::null(),
@@ -60,18 +55,15 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         ifa_data: 0,
     };
 
-    // Write the struct and the pointer to guest memory
-    mem.write(ifa_ptr, dummy_ifa);
-    mem.write(ifap, ifa_ptr);
+    env.mem.write(ifa_ptr, dummy_ifa);
+    env.mem.write(ifap, ifa_ptr);
 
-    log!("getifaddrs(): Successfully reported fake lo0 interface to app.");
+    log!("getifaddrs(): Reported fake lo0 interface to satisfy app.");
     0 
 }
 
 /// `void freeifaddrs(struct ifaddrs *ifa)`
-fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {
-    // Stub implementation: we leak the tiny bit of guest memory to avoid complexity.
-}
+fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {}
 
 // ---------------------------------------------------------------------------
 // net/if.h – interface index / name mapping
@@ -79,9 +71,8 @@ fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {
 
 /// `unsigned int if_nametoindex(const char *ifname)`
 fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
-    let name = env.mem.as_ref().unwrap().cstr_at_utf8(ifname).unwrap_or("");
+    let name = env.mem.cstr_at_utf8(ifname).unwrap_or("");
     
-    // Satisfy common app checks for en0 (Wi-Fi), en1 (Cellular), or lo0 (Loopback)
     if name == "en0" || name == "en1" || name == "lo0" {
         return 1;
     }
@@ -93,15 +84,10 @@ fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
 /// `char *if_indextoname(unsigned int ifindex, char *ifname)`
 fn if_indextoname(_env: &mut Environment, ifindex: u32, ifname: MutPtr<u8>) -> MutPtr<u8> {
     if ifindex == 1 {
-        // Return the pointer provided by the guest for success
         return ifname; 
     }
     MutPtr::null()
 }
-
-// ---------------------------------------------------------------------------
-// Export table
-// ---------------------------------------------------------------------------
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(getifaddrs(_)),
