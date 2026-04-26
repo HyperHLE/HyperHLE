@@ -4,18 +4,26 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use crate::objc::{Id, Sel, Class};
+use crate::objc::{Id, Sel, Class, ClassExports, ClassMethod};
 use crate::log;
 
-/// Registers the NSRegularExpression class methods.
-pub fn add_methods(class: &mut Class) {
+/// This is what foundation.rs needs to see to actually "load" the class.
+pub const CLASSES: ClassExports = &[
+    ClassMethod {
+        class_name: "NSRegularExpression",
+        parent_class_name: "NSObject",
+        add_methods,
+    },
+];
+
+fn add_methods(class: &mut Class) {
     // + (id)alloc
     class.add_class_method(sel!(alloc), alloc as _);
     
-    // - (id)initWithPattern:(id)pattern options:(unsigned long long)options error:(id *)error
+    // - (id)initWithPattern:options:error:
     class.add_method(sel!(initWithPattern:options:error:), init_with_pattern as _);
     
-    // - (id)matchesInString:(id)string options:(unsigned long long)options range:(NSRange)range
+    // - (id)matchesInString:options:range:
     class.add_method(sel!(matchesInString:options:range:), matches_in_string as _);
 }
 
@@ -27,12 +35,10 @@ extern "C" fn alloc(class: &Class, _sel: Sel) -> Id {
 
 extern "C" fn init_with_pattern(this: Id, _sel: Sel, _pattern: Id, _options: u64, _error: Id) -> Id {
     log!("NSRegularExpression: initWithPattern called (Stubbing success).");
-    // In Objective-C, init methods must return 'self' (this)
     this
 }
 
 extern "C" fn matches_in_string(_this: Id, _sel: Sel, _string: Id, _options: u64, _range: [usize; 2]) -> Id {
     log!("NSRegularExpression: matchesInString called. Returning empty array.");
-    // We return an empty NSArray so the game doesn't crash when it tries to count the matches.
     crate::frameworks::foundation::ns_array::empty_array()
 }
