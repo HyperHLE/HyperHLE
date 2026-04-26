@@ -7,13 +7,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     @implementation NSRegularExpression: NSObject
 
-        + (id)allocWithZone:(NSZonePtr)_zone {
-        // Use as_deref_mut() to reach through the NullableBox
-        let instance = env.objc.as_deref_mut().unwrap().alloc_instance(this, &mut env.mem);
+    + (id)allocWithZone:(NSZonePtr)_zone {
+        let instance = env.objc.alloc_object(this, (), &mut env.mem);
         log!("NSRegularExpression: Created instance {:?}.", instance);
         instance
-        }
-    
+    }
+
     - (id)initWithPattern:(id)_pattern options:(u64)_options error:(id)_error {
         log!("NSRegularExpression: initWithPattern stubbed.");
         this
