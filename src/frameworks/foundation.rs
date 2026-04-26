@@ -64,6 +64,7 @@ pub mod ns_persistent_store_coordinator;
 pub mod ns_predicate;
 pub mod ns_process_info;
 pub mod ns_property_list_serialization;
+pub mod ns_regular_expression; // Added module
 pub mod ns_run_loop;
 pub mod ns_scanner;
 pub mod ns_set;
@@ -136,7 +137,8 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
         
         // Указатель на другой тип: размер всегда 4, но нужно "проглотить" тип, на который он указывает
         '^' => {
-            let (next_ptr, _, _) = parse_objc_type(env, ptr);
+            let (next_ptr, _, _) =
+                parse_objc_type(env, ptr);
 
             (next_ptr, 4, 4)
         }
@@ -282,7 +284,8 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
             let mut bits = 0;
 
             loop {
-                let c = env.mem.read(ptr) as char;
+                let c =
+                   env.mem.read(ptr) as char;
 
                 if c.is_ascii_digit() {
                     bits = bits * 10 + c.to_digit(10).unwrap();
@@ -351,6 +354,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_predicate::CLASSES,
         ns_process_info::CLASSES,
         ns_property_list_serialization::CLASSES,
+        ns_regular_expression::CLASSES, // Exported NSRegularExpression
         ns_run_loop::CLASSES,
         ns_scanner::CLASSES,
         ns_set::CLASSES,
@@ -410,7 +414,6 @@ pub struct State {
 pub type NSInteger = i32;
 
 pub type NSUInteger = u32;
-
 // this should be equal to NSIntegerMax
 pub const NSNotFound: i32 = 0x7fffffff;
 
