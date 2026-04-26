@@ -4,21 +4,20 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use crate::objc::{id, SEL, ClassExports};
+use crate::objc::{id, SEL, ClassExports, ClassTemplate};
 use crate::selector; 
 use crate::log;
 use crate::Environment;
 
 pub const CLASSES: ClassExports = &[
-    crate::objc::Class {
-        class_name: "NSRegularExpression",
+    ("NSRegularExpression", ClassTemplate {
         parent_class_name: "NSObject",
         add_methods,
-    },
+    }),
 ];
 
 fn add_methods(env: &mut Environment, class: id) {
-    // The macro in your build requires the 'env' and a semicolon
+    // Using the semicolon style we discovered earlier
     env.objc.add_class_method(class, selector!(env; alloc), alloc as _);
     env.objc.add_method(class, selector!(env; initWithPattern, options, error), init_with_pattern as _);
     env.objc.add_method(class, selector!(env; matchesInString, options, range), matches_in_string as _);
@@ -37,5 +36,5 @@ extern "C" fn init_with_pattern(_env: &mut Environment, this: id, _sel: SEL, _pa
 
 extern "C" fn matches_in_string(_env: &mut Environment, _this: id, _sel: SEL, _string: id, _options: u64, _range: crate::frameworks::foundation::NSRange) -> id {
     log!("NSRegularExpression: matchesInString returning nil.");
-    0 // Return nil (0)
+    0 
 }
