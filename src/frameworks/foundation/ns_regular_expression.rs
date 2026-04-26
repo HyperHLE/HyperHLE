@@ -5,34 +5,34 @@
  */
 
 use crate::objc::{id, SEL, ClassExports, ClassTemplate};
-use crate::selector; // Explicitly imported as requested
+use crate::selector; 
 use crate::log;
 use crate::Environment;
-use crate::dyld::host_imp; // Helper for the method casting error
+use crate::dyld::host_imp;
 
 pub const CLASSES: ClassExports = &[
     ("NSRegularExpression", ClassTemplate {
         name: "NSRegularExpression",
-        superclass: Some("NSObject"), // Wrap in Some() to fix mismatched types
+        superclass: Some("NSObject"),
         class_methods: &[
-            (selector!("alloc"), host_imp!(alloc)),
+            // The macro expects: (dummy_token; identifier)
+            (selector!(_; alloc), host_imp!(alloc)),
         ],
         instance_methods: &[
-            (selector!("initWithPattern:options:error:"), host_imp!(init_with_pattern)),
-            (selector!("matchesInString:options:range:"), host_imp!(matches_in_string)),
+            (selector!(_; initWithPattern, options, error), host_imp!(init_with_pattern)),
+            (selector!(_; matchesInString, options, range), host_imp!(matches_in_string)),
         ],
     }),
 ];
 
 extern "C" fn alloc(env: &mut Environment, class: id, _sel: SEL) -> id {
-    // In your build, as_mut() returns the engine directly, no unwrap needed
     let instance = env.objc.as_mut().alloc_instance(class);
     log!("NSRegularExpression: Created stub instance {:?}.", instance);
     instance
 }
 
 extern "C" fn init_with_pattern(_env: &mut Environment, this: id, _sel: SEL, _pattern: id, _options: u64, _error: id) -> id {
-    log!("NSRegularExpression: initWithPattern called.");
+    log!("NSRegularExpression: initWithPattern stub called.");
     this
 }
 
