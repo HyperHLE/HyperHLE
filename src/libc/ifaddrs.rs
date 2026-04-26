@@ -38,12 +38,14 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
     let name_str = "lo0\0";
     let name_len = name_str.len() as u32;
     
-    // In your version, env.mem is used directly:
-    let name_ptr: MutPtr<u8> = env.mem.guest_alloc(name_len);
-    env.mem.write_bytes(name_ptr, name_str.as_bytes());
+    // We use .as_mut().unwrap() to get a &mut Mem from the NullableBox<Mem>
+    let mem = env.mem.as_mut().unwrap();
+
+    let name_ptr: MutPtr<u8> = mem.guest_alloc(name_len);
+    mem.write_bytes(name_ptr, name_str.as_bytes());
 
     let ifa_size = std::mem::size_of::<ifaddrs>() as u32;
-    let ifa_ptr: MutPtr<ifaddrs> = env.mem.guest_alloc(ifa_size);
+    let ifa_ptr: MutPtr<ifaddrs> = mem.guest_alloc(ifa_size);
     
     let dummy_ifa = ifaddrs {
         ifa_next: MutPtr::null(),
@@ -55,8 +57,8 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         ifa_data: 0,
     };
 
-    env.mem.write(ifa_ptr, dummy_ifa);
-    env.mem.write(ifap, ifa_ptr);
+    mem.write(ifa_ptr, dummy_ifa);
+    mem.write(ifap, ifa_ptr);
 
     log!("getifaddrs(): Reported fake lo0 interface to satisfy app.");
     0 
@@ -71,7 +73,12 @@ fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {}
 
 /// `unsigned int if_nametoindex(const char *ifname)`
 fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
-    let name = env.mem.cstr_at_utf8(ifname).unwrap_or("");
+    // Accessing cstr_at_utf8 through the NullableBox
+    let name = if let Some(mem) = env.mem.as_ref() {
+        mem.cstr_at_utf8(ifname).unwrap_or("")
+    } else {
+        ""
+    };
     
     if name == "en0" || name == "en1" || name == "lo0" {
         return 1;
