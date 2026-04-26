@@ -11,20 +11,20 @@ use crate::Environment;
 
 pub const CLASSES: ClassExports = &[
     ("NSRegularExpression", ClassTemplate {
-        parent_class_name: "NSObject",
-        add_methods,
+        name: "NSRegularExpression",
+        superclass: "NSObject",
+        class_methods: &[
+            (selector!(alloc), alloc as _),
+        ],
+        instance_methods: &[
+            (selector!(initWithPattern, options, error), init_with_pattern as _),
+            (selector!(matchesInString, options, range), matches_in_string as _),
+        ],
     }),
 ];
 
-fn add_methods(env: &mut Environment, class: id) {
-    // Using the semicolon style we discovered earlier
-    env.objc.add_class_method(class, selector!(env; alloc), alloc as _);
-    env.objc.add_method(class, selector!(env; initWithPattern, options, error), init_with_pattern as _);
-    env.objc.add_method(class, selector!(env; matchesInString, options, range), matches_in_string as _);
-}
-
 extern "C" fn alloc(env: &mut Environment, class: id, _sel: SEL) -> id {
-    let instance = env.objc.alloc_instance(class);
+    let instance = env.objc.as_mut().unwrap().alloc_instance(class);
     log!("NSRegularExpression: Created stub instance {:?}.", instance);
     instance
 }
@@ -36,5 +36,5 @@ extern "C" fn init_with_pattern(_env: &mut Environment, this: id, _sel: SEL, _pa
 
 extern "C" fn matches_in_string(_env: &mut Environment, _this: id, _sel: SEL, _string: id, _options: u64, _range: crate::frameworks::foundation::NSRange) -> id {
     log!("NSRegularExpression: matchesInString returning nil.");
-    0 
+    id::null() // This replaces the "0" error
 }
