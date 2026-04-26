@@ -4,30 +4,35 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use crate::objc::{id, SEL, ClassExports, objc_classes, NSZonePtr};
+use crate::objc::{id, SEL, ClassExports, objc_classes, NSZonePtr, HostObject}; // Added HostObject
 use crate::log;
 use crate::Environment;
 use crate::frameworks::foundation::NSRange;
+
+// Define a dummy struct to hold the "nothing" this class needs
+struct NSRegularExpressionHostObject;
+impl HostObject for NSRegularExpressionHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
 
     @implementation NSRegularExpression: NSObject
 
-        + (id)allocWithZone:(NSZonePtr)_zone {
-        // Wrap () in a Box to satisfy the AnyHostObject requirement
-        let instance = (*env.objc).alloc_object(this, Box::new(()), &mut env.mem);
+    + (id)allocWithZone:(NSZonePtr)_zone {
+        // Use our new struct instead of ()
+        let host_obj = Box::new(NSRegularExpressionHostObject);
+        let instance = (*env.objc).alloc_object(this, host_obj, &mut env.mem);
         log!("NSRegularExpression: Created instance {:?}.", instance);
         instance
-        }
-    
+    }
+
     - (id)initWithPattern:(id)_pattern options:(u64)_options error:(id)_error {
-        log!("NSRegularExpression: initWithPattern called.");
+        log!("NSRegularExpression: initWithPattern stubbed.");
         this
     }
 
     - (id)matchesInString:(id)_string options:(u64)_options range:(NSRange)_range {
-        log!("NSRegularExpression: matchesInString called. Returning nil.");
+        log!("NSRegularExpression: matchesInString returning nil.");
         crate::objc::nil
     }
 
