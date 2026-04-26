@@ -27,26 +27,28 @@ unsafe impl SafeRead for ifaddrs {}
 
 /// `int getifaddrs(struct ifaddrs **ifap)`
 fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
-    if ifap.is_null() {
-        return -1;
-    }
+    if ifap.is_null() { return -1; }
+
+    let mem = env.mem.as_mut();
 
     let name_str = "lo0\0";
     let name_len = name_str.len() as u32;
     
-    let mem = env.mem.as_mut();
-
-    // Use .alloc() instead of .guest_alloc()
+    // Step 1: Allocate and write interface name byte-by-byte
     let name_ptr: MutPtr<u8> = mem.alloc(name_len).cast();
-    // Use .write_slice() instead of .write_bytes()
-    mem.write_slice(name_ptr, name_str.as_bytes());
+    for (i, &byte) in name_str.as_bytes().iter().enumerate() {
+        mem.write(name_ptr.offset(i as i32), byte);
+    }
 
+    // Step 2: Allocate the ifaddrs struct
     let ifa_size = std::mem::size_of::<ifaddrs>() as u32;
     let ifa_ptr: MutPtr<ifaddrs> = mem.alloc(ifa_size).cast();
     
+    // Step 3: Create the dummy interface data
     let dummy_ifa = ifaddrs {
         ifa_next: MutPtr::null(),
-        ifa_name: name_ptr.to_const(),
+        // .into() is the safest way to convert MutPtr to ConstPtr in touchHLE
+        ifa_name: name_ptr.into(),
         ifa_flags: 0x1 | 0x8, // IFF_UP | IFF_LOOPBACK
         ifa_addr: 0,
         ifa_netmask: 0,
@@ -54,10 +56,11 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         ifa_data: 0,
     };
 
+    // Step 4: Write to guest memory
     mem.write(ifa_ptr, dummy_ifa);
     mem.write(ifap, ifa_ptr);
 
-    log!("getifaddrs(): Reported fake lo0 interface to satisfy app.");
+    log!("getifaddrs(): Reported fake lo0 interface.");
     0 
 }
 
@@ -73,9 +76,7 @@ fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
 }
 
 fn if_indextoname(_env: &mut Environment, ifindex: u32, ifname: MutPtr<u8>) -> MutPtr<u8> {
-    if ifindex == 1 {
-        return ifname; 
-    }
+    if ifindex == 1 { return ifname; }
     MutPtr::null()
 }
 
