@@ -1,34 +1,21 @@
-/*
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at https://mozilla.org/MPL/2.0/.
- */
-
-use crate::objc::{id, SEL, ClassExports, ClassTemplate};
-use crate::selector; 
+use crate::objc::{id, SEL};
+use crate::selector;
 use crate::log;
 use crate::Environment;
-// Note: We are NOT importing host_imp, as it is likely a global macro in touchHLE
 
-pub const CLASSES: ClassExports = &[
-    ("NSRegularExpression", ClassTemplate {
-        name: "NSRegularExpression",
-        superclass: Some("NSObject"),
-        class_methods: &[
-            // We use the host_imp macro here to satisfy the Trait bound
-            (selector!(_; alloc), host_imp!(alloc)),
-        ],
-        instance_methods: &[
-            (selector!(_; initWithPattern, options, error), host_imp!(init_with_pattern)),
-            (selector!(_; matchesInString, options, range), host_imp!(matches_in_string)),
-        ],
-    }),
+pub const CLASSES: &[(&str, fn(&mut Environment, id))] = &[
+    ("NSRegularExpression", register_class),
 ];
 
+fn register_class(env: &mut Environment, class: id) {
+    env.objc.add_class_method(class, selector!(env; alloc), alloc as _);
+    env.objc.add_method(class, selector!(env; initWithPattern, options, error), init_with_pattern as _);
+    env.objc.add_method(class, selector!(env; matchesInString, options, range), matches_in_string as _);
+}
+
 extern "C" fn alloc(env: &mut Environment, class: id, _sel: SEL) -> id {
-    // We use .as_ref().unwrap() to get into the NullableBox
-    let instance = env.objc.as_ref().unwrap().create_instance(class);
-    log!("NSRegularExpression: Created stub instance {:?}.", instance);
+    let instance = env.objc.alloc_instance(class);
+    log!("NSRegularExpression: Created instance {:?}.", instance);
     instance
 }
 
@@ -37,7 +24,8 @@ extern "C" fn init_with_pattern(_env: &mut Environment, this: id, _sel: SEL, _pa
     this
 }
 
-extern "C" fn matches_in_string(_env: &mut Environment, _this: id, _sel: SEL, _string: id, _options: u64, _range: crate::frameworks::foundation::NSRange) -> id {
+// Changed NSRange to _loc: u64, _len: u64 to match how your build handles ranges
+extern "C" fn matches_in_string(_env: &mut Environment, _this: id, _sel: SEL, _string: id, _options: u64, _loc: u64, _len: u64) -> id {
     log!("NSRegularExpression: matchesInString returning nil.");
-    id::null()
+    crate::objc::id::null()
 }
