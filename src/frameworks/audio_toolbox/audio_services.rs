@@ -124,6 +124,7 @@ fn AudioServicesCreateSystemSoundID(
     }
 
     let path = to_rust_path(env, in_file_url);
+    log!("AudioServicesCreateSystemSoundID: opening {:?}", path);
     
     let audio_file_result = audio::AudioFile::open_for_reading(&path, &env.fs);
     
@@ -141,6 +142,10 @@ fn AudioServicesCreateSystemSoundID(
             let (al_format, al_frequency, decoded_data) =
                 decode_buffer(&env.mem, &format, tmp.cast(), size as GuestUSize);
             env.mem.free(tmp.cast());
+            log!(
+                "AudioServicesCreateSystemSoundID: {:?} -> al_format=0x{:x}, al_freq={}, pcm_bytes={}",
+                path, al_format, al_frequency, decoded_data.len()
+            );
 
             let (_, context) = State::get_with_context(&mut env.framework_state, &mut env.openal_manager);
 
@@ -187,7 +192,7 @@ fn AudioServicesCreateSystemSoundID(
         env.mem.write(out_system_sound_id, id);
     }
     
-    log_dbg!("AudioToolbox: AudioServicesCreateSystemSoundID created ID {} for url {:?}", id, path);
+    log!("AudioServicesCreateSystemSoundID: id={} for {:?}", id, path);
     0 
 }
 
@@ -214,6 +219,7 @@ fn AudioServicesDisposeSystemSoundID(
 }
 
 fn AudioServicesPlaySystemSound(env: &mut Environment, in_system_sound_id: SystemSoundID) {
+    log!("AudioServicesPlaySystemSound({})", in_system_sound_id);
     if in_system_sound_id == kSystemSoundID_Vibrate {
         log!("TODO: vibration (AudioServicesPlaySystemSound)");
         return;

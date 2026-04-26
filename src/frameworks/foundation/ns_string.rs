@@ -841,7 +841,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)stringByAppendingString:(id)other {
-    assert!(other != nil);
+    // ЧЕСТНЫЙ ФИКС: Вместо жесткого assert, который убивает эмулятор, 
+    // эмулируем обработку исключения NSInvalidArgumentException.
+    if other == nil {
+        log!("Warning: [NSString stringByAppendingString:nil] called. This would throw NSInvalidArgumentException on iOS. Returning original string to prevent crash.");
+        return this;
+    }
+
     let this_len: NSUInteger = msg![env; this length];
     let other_len: NSUInteger = msg![env; other length];
     let mut new_utf16 = Vec::with_capacity((this_len + other_len) as usize);
@@ -1153,7 +1159,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setString:(id)a_string {
-    assert_ne!(a_string, nil);
+    // Убираем assert_ne!(a_string, nil);
+    if a_string == nil {
+        log!("Warning: [NSMutableString setString:nil] called. This would throw NSInvalidArgumentException on iOS. Ignoring.");
+        return;
+    }
     let length: NSUInteger = msg![env; this length];
     let range = NSRange { location: 0, length };
     () = msg![env; this replaceCharactersInRange:range withString:a_string];

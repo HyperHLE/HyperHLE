@@ -67,7 +67,7 @@ pub struct AudioBuffer {
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 struct AudioUnitConnection {
-    source_audio_unit:  AudioUnit,
+    source_audio_unit:    AudioUnit,
     source_output_number: u32,
     dest_input_number:    u32,
 }
@@ -136,15 +136,16 @@ const kAudioUnitProperty_SpatializationAlgorithm:AudioUnitPropertyID = fourcc(b"
 const kAudioUnitProperty_3DMixerRenderingFlags:  AudioUnitPropertyID = fourcc(b"3drf");
 
 // 3D Mixer Parameter IDs
-const k3DMixerParam_Azimuth: AudioUnitParameterID = 0;
+const k3DMixerParam_Azimuth:   AudioUnitParameterID = 0;
 const k3DMixerParam_Elevation: AudioUnitParameterID = 1;
-const k3DMixerParam_Distance: AudioUnitParameterID = 2;
+const k3DMixerParam_Distance:  AudioUnitParameterID = 2;
 
 // =========================================================================
 // MARK: - Инициализация / Деинициализация AudioUnit
 // =========================================================================
 
 fn AudioUnitInitialize(env: &mut Environment, in_unit: AudioUnit) -> OSStatus {
+    log!("AudioUnitInitialize({:?})", in_unit);
     let run_loop = CFRunLoopGetMain(env);
     ns_run_loop::add_audio_unit(env, run_loop, in_unit);
     0
@@ -169,8 +170,13 @@ fn AudioUnitSetProperty(
     in_scope: AudioUnitScope,
     in_element: AudioUnitElement,
     in_data: ConstVoidPtr,
-    _in_data_size: u32,
+    in_data_size: u32,
 ) -> OSStatus {
+    log!(
+        "AudioUnitSetProperty(unit={:?}, prop={}, scope={}, element={}, \
+         data={:?}, size={})",
+        in_unit, in_id, in_scope, in_element, in_data, in_data_size
+    );
     let mut update_al_distance = None;
 
     // Ограничиваем область видимости заимствования
@@ -184,69 +190,162 @@ fn AudioUnitSetProperty(
 
         match in_id {
             kAudioUnitProperty_3DMixerDistanceParams => {
-                let params = env.mem.read::<audio_components::MixerDistanceParams, false>(in_data.cast());
+                let params = env.mem
+                    .read::<audio_components::MixerDistanceParams, false>(
+                        in_data.cast(),
+                    );
                 let bus = host_object.mixer_buses.entry(in_element).or_default();
                 bus.distance_params = params;
 
-                // Сохраняем значения для OpenAL, чтобы применить их после завершения borrow
+                // Сохраняем значения для OpenAL, чтобы применить их после
+                // завершения borrow
                 if let Some(source) = bus.al_source {
                     update_al_distance = Some((source, params));
                 }
             }
             kAudioUnitProperty_MatrixLevels => {
-                log_dbg!("Заглушка для kAudioUnitProperty_MatrixLevels на шине {}", in_element);
+                log_dbg!(
+                    "Заглушка для kAudioUnitProperty_MatrixLevels \
+                     на шине {}",
+                    in_element
+                );
             }
             kAudioUnitProperty_SpatializationAlgorithm |
             kAudioUnitProperty_3DMixerRenderingFlags => {
-                log_dbg!("AudioUnitSetProperty: флаги spatialization/rendering проигнорированы");
+                log_dbg!(
+                    "AudioUnitSetProperty: флаги \
+                     spatialization/rendering проигнорированы"
+                );
             }
             kAudioUnitProperty_SetRenderCallback => {
-                let render_callback = env.mem.read::<AURenderCallbackStruct, false>(in_data.cast());
-                host_object.render_callback = Some(render_callback);
+                let render_callback = env.mem
+                    .read::<AURenderCallbackStruct, false>(in_data.cast());
+                if in_scope == kAudioUnitScope_Input {
+                    let bus =
+                        host_object.mixer_buses.entry(in_element).or_default();
+                    bus.render_callback = Some(render_callback);
+                } else {
+                    host_object.render_callback = Some(render_callback);
+                }
+                let proc_copy    = render_callback.input_proc;
+                let ref_con_copy = render_callback.input_proc_ref_con;
+                log!(
+                    "AudioUnitSetProperty(SetRenderCallback) \
+                     unit={:?} scope={} element={} proc={:?} ref_con={:?}",
+                    in_unit, in_scope, in_element, proc_copy, ref_con_copy
+                );
             }
             kAudioOutputUnitProperty_SetInputCallback => {
-                let cb = env.mem.read::<AURenderCallbackStruct, false>(in_data.cast());
+                let cb = env.mem
+                    .read::<AURenderCallbackStruct, false>(in_data.cast());
                 host_object.render_callback = Some(cb);
+                let proc_copy    = cb.input_proc;
+                let ref_con_copy = cb.input_proc_ref_con;
+                log!(
+                    "AudioUnitSetProperty(SetInputCallback) \
+                     unit={:?} scope={} element={} proc={:?} ref_con={:?}",
+                    in_unit, in_scope, in_element, proc_copy, ref_con_copy
+                );
             }
             kAudioUnitProperty_StreamFormat => {
-                let stream_format = env.mem.read::<AudioStreamBasicDescription, false>(in_data.cast());
+                let stream_format = env.mem
+                    .read::<AudioStreamBasicDescription, false>(in_data.cast());
                 log_if_broken_audio_format(&stream_format);
+                let (sf_id, sf_sr, sf_ch, sf_bc, sf_bpf, sf_flags) = (
+                    stream_format.format_id,
+                    stream_format.sample_rate,
+                    stream_format.channels_per_frame,
+                    stream_format.bits_per_channel,
+                    stream_format.bytes_per_frame,
+                    stream_format.format_flags,
+                );
+                log!(
+                    "AudioUnitSetProperty(StreamFormat) \
+                     unit={:?} scope={} element={} \
+                     format_id=0x{:x} sr={} ch={} bits={} bpf={} flags=0x{:x}",
+                    in_unit, in_scope, in_element,
+                    sf_id, sf_sr, sf_ch, sf_bc, sf_bpf, sf_flags
+                );
                 match in_scope {
-                    kAudioUnitScope_Global => host_object.global_stream_format = stream_format,
-                    kAudioUnitScope_Output => host_object.output_stream_format = Some(stream_format),
-                    kAudioUnitScope_Input  => host_object.input_stream_format  = Some(stream_format),
-                    _ => log_dbg!("AudioUnitSetProperty StreamFormat: неподдерживаемая область (scope) {}", in_scope),
+                    kAudioUnitScope_Global => {
+                        host_object.global_stream_format = stream_format;
+                    }
+                    kAudioUnitScope_Output => {
+                        host_object.output_stream_format = Some(stream_format);
+                    }
+                    kAudioUnitScope_Input => {
+                        host_object.input_stream_format = Some(stream_format);
+                        // Для 3D Mixer: формат шины N задаётся
+                        // scope=Input, element=N.
+                        let bus = host_object
+                            .mixer_buses
+                            .entry(in_element)
+                            .or_default();
+                        bus.stream_format = Some(stream_format);
+                    }
+                    _ => log_dbg!(
+                        "AudioUnitSetProperty StreamFormat: \
+                         неподдерживаемая область (scope) {}",
+                        in_scope
+                    ),
                 }
             }
             kAudioUnitProperty_SampleRate => {
-                let rate: f64 = env.mem.read::<f64, false>(in_data.cast());
+                let rate: f64 =
+                    env.mem.read::<f64, false>(in_data.cast());
                 host_object.global_stream_format.sample_rate = rate;
             }
             kAudioUnitProperty_MaximumFramesPerSlice => {
-                let frames: u32 = env.mem.read::<u32, false>(in_data.cast());
+                let frames: u32 =
+                    env.mem.read::<u32, false>(in_data.cast());
                 host_object.maximum_frames_per_slice = frames;
             }
             kAudioUnitProperty_MakeConnection => {
-                let _conn = env.mem.read::<AudioUnitConnection, false>(in_data.cast());
+                let conn = env.mem
+                    .read::<AudioUnitConnection, false>(in_data.cast());
+                let src_unit = conn.source_audio_unit;
+                let src_out  = conn.source_output_number;
+                let dst_in   = conn.dest_input_number;
+                log!(
+                    "AudioUnitSetProperty(MakeConnection) \
+                     dest_unit={:?} dest_input={} \
+                     src_unit={:?} src_output={}",
+                    in_unit, dst_in, src_unit, src_out
+                );
             }
             kAudioOutputUnitProperty_EnableIO => {
-                // Из оригинала: Ввод/Вывод включен по умолчанию. Игнорируем или возвращаем успех.
-                let enabled = env.mem.read::<u32, false>(in_data.cast());
-                log_dbg!("AudioUnitSetProperty EnableIO: {}", enabled);
+                // Ввод/Вывод включен по умолчанию. Игнорируем.
+                let enabled: u32 =
+                    env.mem.read::<u32, false>(in_data.cast());
+                log!(
+                    "AudioUnitSetProperty(EnableIO) \
+                     unit={:?} scope={} element={} enabled={}",
+                    in_unit, in_scope, in_element, enabled
+                );
             }
             _ => {
-                log_dbg!("AudioUnitSetProperty: свойство {} проигнорировано", in_id);
+                log!(
+                    "AudioUnitSetProperty: UNHANDLED property {} \
+                     (unit={:?}, scope={}, element={}, size={})",
+                    in_id, in_unit, in_scope, in_element, in_data_size
+                );
             }
         }
     } // Конец заимствования host_object и env.framework_state
 
     // Теперь безопасно вызываем OpenAL
     if let Some((source, params)) = update_al_distance {
-        let context = env.framework_state.audio_toolbox.make_al_context_current(&mut env.openal_manager);
+        let context = env
+            .framework_state
+            .audio_toolbox
+            .make_al_context_current(&mut env.openal_manager);
         unsafe {
-            context.Sourcef(source, AL_REFERENCE_DISTANCE, params.reference_distance);
-            context.Sourcef(source, AL_MAX_DISTANCE, params.maximum_distance);
-            context.Sourcef(source, AL_ROLLOFF_FACTOR, params.rolloff_factor);
+            context.Sourcef(source, AL_REFERENCE_DISTANCE,
+                            params.reference_distance);
+            context.Sourcef(source, AL_MAX_DISTANCE,
+                            params.maximum_distance);
+            context.Sourcef(source, AL_ROLLOFF_FACTOR,
+                            params.rolloff_factor);
         }
     }
 
@@ -257,15 +356,31 @@ fn AudioUnitSetProperty(
 // MARK: - Получение свойств AudioUnit
 // =========================================================================
 
+/// Вспомогательная функция: безопасная запись значения в гостевую память.
+/// Если указатель нулевой — запись пропускается (API допускает NULL).
+fn write_if_nonnull<T: crate::mem::SafeWrite>(
+    env: &mut Environment,
+    ptr: MutPtr<T>,
+    value: T,
+) {
+    if !ptr.is_null() {
+        env.mem.write(ptr, value);
+    }
+}
+
 fn AudioUnitGetProperty(
     env: &mut Environment,
     in_unit: AudioUnit,
     in_id: AudioUnitPropertyID,
     in_scope: AudioUnitScope,
-    _in_element: AudioUnitElement,
+    in_element: AudioUnitElement,
     out_data: MutVoidPtr,
     io_data_size: MutPtr<u32>,
 ) -> OSStatus {
+    log!(
+        "AudioUnitGetProperty(unit={:?}, prop={}, scope={}, element={})",
+        in_unit, in_id, in_scope, in_element
+    );
     let Some(host_object) = audio_components::State::get(&mut env.framework_state)
         .audio_component_instances
         .get_mut(&in_unit)
@@ -276,31 +391,96 @@ fn AudioUnitGetProperty(
     match in_id {
         kAudioUnitProperty_MaximumFramesPerSlice => {
             let v = host_object.maximum_frames_per_slice;
-            env.mem.write(out_data.cast(), v);
-            env.mem.write(io_data_size, guest_size_of::<u32>());
+            write_if_nonnull(env, out_data.cast(), v);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<u32>());
         }
         kAudioUnitProperty_StreamFormat => {
+            // Для scope=Input сначала смотрим per-bus формат
+            // (element=N соответствует шине N у MultiChannelMixer/3DMixer),
+            // затем input_stream_format, затем global_stream_format.
+            // Для любых других scope — аналогично, но без bus-lookup.
             let fmt = match in_scope {
-                kAudioUnitScope_Output => host_object.output_stream_format
+                kAudioUnitScope_Input => {
+                    host_object
+                        .mixer_buses
+                        .get(&in_element)
+                        .and_then(|b| b.stream_format)
+                        .or(host_object.input_stream_format)
+                        .unwrap_or(host_object.global_stream_format)
+                }
+                kAudioUnitScope_Output => host_object
+                    .output_stream_format
                     .unwrap_or(host_object.global_stream_format),
-                kAudioUnitScope_Input  => host_object.input_stream_format
-                    .unwrap_or(host_object.global_stream_format),
-                _                      => host_object.global_stream_format,
+                _ => host_object.global_stream_format,
             };
-            env.mem.write(out_data.cast(), fmt);
-            env.mem.write(io_data_size, guest_size_of::<AudioStreamBasicDescription>());
+            // out_data может быть NULL — в таком случае игра просто
+            // запрашивает размер (см. документацию AudioUnitGetProperty).
+            write_if_nonnull(env, out_data.cast(), fmt);
+            write_if_nonnull(
+                env,
+                io_data_size,
+                guest_size_of::<AudioStreamBasicDescription>(),
+            );
         }
         kAudioUnitProperty_SampleRate => {
             let rate = host_object.global_stream_format.sample_rate;
-            env.mem.write(out_data.cast(), rate);
-            env.mem.write(io_data_size, guest_size_of::<f64>());
+            write_if_nonnull(env, out_data.cast(), rate);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<f64>());
+        }
+        kAudioUnitProperty_ElementCount => {
+            // Возвращаем количество шин микшера или 1 как дефолт.
+            let count = if !host_object.mixer_buses.is_empty() {
+                host_object.mixer_buses.len() as u32
+            } else {
+                1u32
+            };
+            write_if_nonnull(env, out_data.cast(), count);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<u32>());
         }
         kAudioOutputUnitProperty_IsRunning => {
             let running: u32 = if host_object.started { 1 } else { 0 };
-            env.mem.write(out_data.cast(), running);
-            env.mem.write(io_data_size, guest_size_of::<u32>());
+            write_if_nonnull(env, out_data.cast(), running);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<u32>());
         }
-        _ => return -1,
+        kAudioUnitProperty_Latency => {
+            // Возвращаем нулевую задержку как заглушку.
+            write_if_nonnull(env, out_data.cast(), 0.0f64);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<f64>());
+        }
+        kAudioUnitProperty_LastRenderError => {
+            write_if_nonnull(env, out_data.cast(), 0u32);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<u32>());
+        }
+        kAudioUnitProperty_ShouldAllocateBuffer |
+        kAudioUnitProperty_InPlaceProcessing |
+        kAudioUnitProperty_BypassEffect => {
+            // Булевые свойства — возвращаем 1 (да/включено) как заглушку.
+            write_if_nonnull(env, out_data.cast(), 1u32);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<u32>());
+        }
+        kAudioOutputUnitProperty_HasIO => {
+            // IO активен по умолчанию.
+            write_if_nonnull(env, out_data.cast(), 1u32);
+            write_if_nonnull(env, io_data_size,
+                             guest_size_of::<u32>());
+        }
+        _ => {
+            log!(
+                "AudioUnitGetProperty: UNHANDLED property {} \
+                 (unit={:?}, scope={}, element={})",
+                in_id, in_unit, in_scope, in_element
+            );
+            // Записываем размер 0, чтобы гость не читал мусор.
+            write_if_nonnull(env, io_data_size, 0u32);
+            return -1;
+        }
     }
     0
 }
@@ -315,14 +495,50 @@ fn AudioUnitGetPropertyInfo(
     out_writable: MutPtr<bool>,
 ) -> OSStatus {
     let (size, writable) = match in_id {
-        kAudioUnitProperty_StreamFormat => (guest_size_of::<AudioStreamBasicDescription>(), true),
-        kAudioUnitProperty_SampleRate   => (guest_size_of::<f64>(), true),
-        kAudioOutputUnitProperty_IsRunning => (guest_size_of::<u32>(), false),
-        _ => return -1,
+        kAudioUnitProperty_StreamFormat => {
+            (guest_size_of::<AudioStreamBasicDescription>(), true)
+        }
+        kAudioUnitProperty_SampleRate => {
+            (guest_size_of::<f64>(), true)
+        }
+        kAudioUnitProperty_MaximumFramesPerSlice => {
+            (guest_size_of::<u32>(), true)
+        }
+        kAudioUnitProperty_ElementCount => {
+            (guest_size_of::<u32>(), true)
+        }
+        kAudioOutputUnitProperty_IsRunning => {
+            (guest_size_of::<u32>(), false)
+        }
+        kAudioOutputUnitProperty_HasIO => {
+            (guest_size_of::<u32>(), true)
+        }
+        kAudioUnitProperty_Latency => {
+            (guest_size_of::<f64>(), false)
+        }
+        kAudioUnitProperty_LastRenderError => {
+            (guest_size_of::<u32>(), false)
+        }
+        kAudioUnitProperty_ShouldAllocateBuffer |
+        kAudioUnitProperty_InPlaceProcessing |
+        kAudioUnitProperty_BypassEffect => {
+            (guest_size_of::<u32>(), true)
+        }
+        _ => {
+            log_dbg!(
+                "AudioUnitGetPropertyInfo: unknown property {}",
+                in_id
+            );
+            return -1;
+        }
     };
 
-    if !out_data_size.is_null() { env.mem.write(out_data_size, size); }
-    if !out_writable.is_null() { env.mem.write(out_writable, writable); }
+    if !out_data_size.is_null() {
+        env.mem.write(out_data_size, size);
+    }
+    if !out_writable.is_null() {
+        env.mem.write(out_writable, writable);
+    }
     0
 }
 
@@ -334,11 +550,16 @@ fn AudioUnitSetParameter(
     env: &mut Environment,
     in_unit: AudioUnit,
     in_id: AudioUnitParameterID,
-    _in_scope: AudioUnitScope,
+    in_scope: AudioUnitScope,
     in_element: AudioUnitElement,
     in_value: AudioUnitParameterValue,
     _in_offset: u32,
 ) -> OSStatus {
+    log!(
+        "AudioUnitSetParameter(unit={:?}, param={}, scope={}, \
+         element={}, value={})",
+        in_unit, in_id, in_scope, in_element, in_value
+    );
     let mut update_al_pos = None;
 
     // Ограничиваем область видимости заимствования
@@ -351,20 +572,25 @@ fn AudioUnitSetParameter(
         };
 
         match in_id {
-            k3DMixerParam_Azimuth | k3DMixerParam_Elevation | k3DMixerParam_Distance => {
-                let bus = host_object.mixer_buses.entry(in_element).or_default();
+            k3DMixerParam_Azimuth |
+            k3DMixerParam_Elevation |
+            k3DMixerParam_Distance => {
+                let bus = host_object
+                    .mixer_buses
+                    .entry(in_element)
+                    .or_default();
                 if in_id == k3DMixerParam_Azimuth {
-                     let radians = in_value.to_radians();
-                     bus.position[0] = radians.sin();
-                     bus.position[2] = -radians.cos();
+                    let radians = in_value.to_radians();
+                    bus.position[0] = radians.sin();
+                    bus.position[2] = -radians.cos();
                 } else if in_id == k3DMixerParam_Elevation {
-                     let radians = in_value.to_radians();
-                     bus.position[1] = radians.sin();
+                    let radians = in_value.to_radians();
+                    bus.position[1] = radians.sin();
                 }
-                
+
                 // Сохраняем значения для OpenAL
                 if let Some(source) = bus.al_source {
-                     update_al_pos = Some((source, bus.position));
+                    update_al_pos = Some((source, bus.position));
                 }
             }
             _ => {}
@@ -373,9 +599,12 @@ fn AudioUnitSetParameter(
 
     // Теперь безопасно вызываем OpenAL
     if let Some((source, pos)) = update_al_pos {
-        let context = env.framework_state.audio_toolbox.make_al_context_current(&mut env.openal_manager);
+        let context = env
+            .framework_state
+            .audio_toolbox
+            .make_al_context_current(&mut env.openal_manager);
         unsafe {
-             context.Source3f(source, AL_POSITION, pos[0], pos[1], pos[2]);
+            context.Source3f(source, AL_POSITION, pos[0], pos[1], pos[2]);
         }
     }
 
@@ -384,22 +613,41 @@ fn AudioUnitSetParameter(
 
 fn AudioUnitGetParameter(
     env: &mut Environment,
-    _in_unit: AudioUnit,
-    _in_id: AudioUnitParameterID,
-    _in_scope: AudioUnitScope,
-    _in_element: AudioUnitElement,
+    in_unit: AudioUnit,
+    in_id: AudioUnitParameterID,
+    in_scope: AudioUnitScope,
+    in_element: AudioUnitElement,
     out_value: MutPtr<AudioUnitParameterValue>,
 ) -> OSStatus {
+    log!(
+        "AudioUnitGetParameter(unit={:?}, param={}, scope={}, element={})",
+        in_unit, in_id, in_scope, in_element
+    );
     if !out_value.is_null() {
         env.mem.write(out_value, 1.0);
     }
     0
 }
 
-fn AudioUnitScheduleParameters(_e: &mut Environment, _u: AudioUnit, _p: ConstVoidPtr, _n: u32) -> OSStatus { 0 }
+fn AudioUnitScheduleParameters(
+    _e: &mut Environment,
+    _u: AudioUnit,
+    _p: ConstVoidPtr,
+    _n: u32,
+) -> OSStatus {
+    0
+}
 
-fn AudioUnitReset(env: &mut Environment, in_unit: AudioUnit, _s: AudioUnitScope, _e: AudioUnitElement) -> OSStatus {
-    if let Some(obj) = audio_components::State::get(&mut env.framework_state).audio_component_instances.get_mut(&in_unit) {
+fn AudioUnitReset(
+    env: &mut Environment,
+    in_unit: AudioUnit,
+    _s: AudioUnitScope,
+    _e: AudioUnitElement,
+) -> OSStatus {
+    if let Some(obj) = audio_components::State::get(&mut env.framework_state)
+        .audio_component_instances
+        .get_mut(&in_unit)
+    {
         obj.last_render_time = None;
     }
     0
@@ -410,28 +658,117 @@ fn AudioUnitReset(env: &mut Environment, in_unit: AudioUnit, _s: AudioUnitScope,
 // =========================================================================
 
 fn AudioOutputUnitStart(env: &mut Environment, ci: AudioUnit) -> OSStatus {
-    let context = env.framework_state.audio_toolbox.make_al_context_current(&mut env.openal_manager);
-    let mut source: ALuint = 0;
-    unsafe {
-        context.GenSources(1, &mut source);
-        context.SourcePlay(source);
-    }
-
-    let audio_components_state = audio_components::State::get(&mut env.framework_state);
-    let Some(audio_unit_state) = audio_components_state.audio_component_instances.get_mut(&ci) else {
-        return paramErr;
-    };
-    audio_unit_state.al_source = Some(source);
-    audio_unit_state.last_render_time = Some(Instant::now());
-    audio_unit_state.started = true;
+    let has_callback = audio_components::State::get(&mut env.framework_state)
+        .audio_component_instances
+        .get(&ci)
+        .map(|o| o.render_callback.is_some())
+        .unwrap_or(false);
+    log!(
+        "AudioOutputUnitStart({:?}) render_callback_set={}",
+        ci, has_callback
+    );
+    setup_audio_unit_for_render(env, ci);
     0
 }
 
-fn AudioOutputUnitStop(env: &mut Environment, ci: AudioUnit) -> OSStatus {
-    let at_state = &mut env.framework_state.audio_toolbox;
-    let context = at_state.al_context.make_al_context_current(&mut env.openal_manager);
+/// Подготовить AudioUnit к работе в run-loop'e: завести OpenAL-источник для
+/// прямого render-callback'а (если он есть) и/или для каждой input-шины
+/// 3D-Mixer'а (если callback'и заданы через
+/// `AUGraphSetNodeInputCallback`).
+/// Используется как из `AudioOutputUnitStart`, так и из `AUGraphStart`.
+pub fn setup_audio_unit_for_render(env: &mut Environment, ci: AudioUnit) {
+    // Сначала собираем номера шин, у которых есть callback, но ещё нет
+    // OpenAL-источника, чтобы обойтись без двойного `&mut`.
+    let bus_ids_needing_source: Vec<u32> = {
+        let state = audio_components::State::get(&mut env.framework_state);
+        let Some(obj) = state.audio_component_instances.get(&ci) else {
+            return;
+        };
+        obj.mixer_buses
+            .iter()
+            .filter_map(|(id, bus)| {
+                if bus.render_callback.is_some() && bus.al_source.is_none() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
 
-    if let Some(audio_unit_state) = at_state.audio_components.audio_component_instances.get_mut(&ci) {
+    let need_unit_source = {
+        let state = audio_components::State::get(&mut env.framework_state);
+        let Some(obj) = state.audio_component_instances.get(&ci) else {
+            return;
+        };
+        obj.al_source.is_none()
+    };
+
+    let context = env
+        .framework_state
+        .audio_toolbox
+        .al_context
+        .make_al_context_current(&mut env.openal_manager);
+
+    let unit_source: Option<ALuint> = if need_unit_source {
+        let mut s: ALuint = 0;
+        unsafe {
+            context.GenSources(1, &mut s);
+            context.SourcePlay(s);
+        }
+        Some(s)
+    } else {
+        None
+    };
+
+    let mut bus_sources: Vec<(u32, ALuint)> =
+        Vec::with_capacity(bus_ids_needing_source.len());
+    for bus_id in &bus_ids_needing_source {
+        let mut s: ALuint = 0;
+        unsafe {
+            context.GenSources(1, &mut s);
+            context.SourcePlay(s);
+        }
+        bus_sources.push((*bus_id, s));
+    }
+    drop(context);
+
+    let now = Instant::now();
+    let state = audio_components::State::get(&mut env.framework_state);
+    let Some(obj) = state.audio_component_instances.get_mut(&ci) else {
+        return;
+    };
+    if let Some(s) = unit_source {
+        obj.al_source = Some(s);
+    }
+    for (bus_id, src) in bus_sources {
+        if let Some(bus) = obj.mixer_buses.get_mut(&bus_id) {
+            bus.al_source = Some(src);
+            if bus.last_render_time.is_none() {
+                bus.last_render_time = Some(now);
+            }
+        }
+    }
+    if obj.last_render_time.is_none() {
+        obj.last_render_time = Some(now);
+    }
+    obj.started = true;
+}
+
+fn AudioOutputUnitStop(
+    env: &mut Environment,
+    ci: AudioUnit,
+) -> OSStatus {
+    let at_state = &mut env.framework_state.audio_toolbox;
+    let context = at_state
+        .al_context
+        .make_al_context_current(&mut env.openal_manager);
+
+    if let Some(audio_unit_state) = at_state
+        .audio_components
+        .audio_component_instances
+        .get_mut(&ci)
+    {
         audio_unit_state.started = false;
         if let Some(al_source) = audio_unit_state.al_source {
             unsafe { context.DeleteSources(1, &al_source); }
@@ -447,136 +784,540 @@ fn AudioOutputUnitStop(env: &mut Environment, ci: AudioUnit) -> OSStatus {
 // MARK: - Рендеринг (Render)
 // =========================================================================
 
-fn AudioUnitAddRenderNotify(_e: &mut Environment, _u: AudioUnit, _p: ConstVoidPtr, _r: ConstVoidPtr) -> OSStatus { 0 }
-fn AudioUnitRemoveRenderNotify(_e: &mut Environment, _u: AudioUnit, _p: ConstVoidPtr, _r: ConstVoidPtr) -> OSStatus { 0 }
+fn AudioUnitAddRenderNotify(
+    _e: &mut Environment,
+    u: AudioUnit,
+    p: ConstVoidPtr,
+    r: ConstVoidPtr,
+) -> OSStatus {
+    log!(
+        "AudioUnitAddRenderNotify(unit={:?}, proc={:?}, ref_con={:?})",
+        u, p, r
+    );
+    0
+}
+fn AudioUnitRemoveRenderNotify(
+    _e: &mut Environment,
+    u: AudioUnit,
+    p: ConstVoidPtr,
+    r: ConstVoidPtr,
+) -> OSStatus {
+    log!(
+        "AudioUnitRemoveRenderNotify(unit={:?}, proc={:?}, ref_con={:?})",
+        u, p, r
+    );
+    0
+}
 
-fn AudioUnitRender(env: &mut Environment, in_unit: AudioUnit, _f: MutPtr<u32>, _t: ConstVoidPtr, _b: u32, _n: u32, _d: MutVoidPtr) -> OSStatus {
+fn AudioUnitRender(
+    env: &mut Environment,
+    in_unit: AudioUnit,
+    _f: MutPtr<u32>,
+    _t: ConstVoidPtr,
+    _b: u32,
+    _n: u32,
+    _d: MutVoidPtr,
+) -> OSStatus {
     render_audio_unit(env, in_unit);
     0
 }
 
-fn AudioUnitProcess(env: &mut Environment, in_unit: AudioUnit, _f: MutPtr<u32>, _t: ConstVoidPtr, _n: u32, _d: MutVoidPtr) -> OSStatus {
+fn AudioUnitProcess(
+    env: &mut Environment,
+    in_unit: AudioUnit,
+    _f: MutPtr<u32>,
+    _t: ConstVoidPtr,
+    _n: u32,
+    _d: MutVoidPtr,
+) -> OSStatus {
     render_audio_unit(env, in_unit);
     0
 }
 
-fn AudioUnitProcessMultiple(_e: &mut Environment, _u: AudioUnit, _f: MutPtr<u32>, _t: ConstVoidPtr, _n: u32, _in_b: u32, _in_bl: ConstVoidPtr, _out_bl: MutVoidPtr) -> OSStatus { 0 }
-fn AudioUnitComplexRender(_e: &mut Environment, _u: AudioUnit, _f: MutPtr<u32>, _t: ConstVoidPtr, _b: u32, _n: u32, _p: MutPtr<u32>, _pd: MutVoidPtr, _d: MutVoidPtr) -> OSStatus { 0 }
+fn AudioUnitProcessMultiple(
+    _e: &mut Environment,
+    _u: AudioUnit,
+    _f: MutPtr<u32>,
+    _t: ConstVoidPtr,
+    _n: u32,
+    _in_b: u32,
+    _in_bl: ConstVoidPtr,
+    _out_bl: MutVoidPtr,
+) -> OSStatus {
+    0
+}
+fn AudioUnitComplexRender(
+    _e: &mut Environment,
+    _u: AudioUnit,
+    _f: MutPtr<u32>,
+    _t: ConstVoidPtr,
+    _b: u32,
+    _n: u32,
+    _p: MutPtr<u32>,
+    _pd: MutVoidPtr,
+    _d: MutVoidPtr,
+) -> OSStatus {
+    0
+}
 
-pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
-    if env.bundle.bundle_identifier().starts_with("com.ea.simcity") { 
-        // Применяем хак специфичный для SimCity: пропускаем рендеринг
-        return; 
+/// Per-bus рендеринг для 3D Mixer / любого юнита, в котором через
+/// `AUGraphSetNodeInputCallback` (или эквивалент) задан input render
+/// callback на отдельные шины. Для каждой такой шины вызывает гостевой
+/// callback, получает PCM и складывает его в свой OpenAL-источник.
+/// OpenAL Soft сам микширует все источники вместе.
+fn render_audio_unit_buses(env: &mut Environment, audio_unit: AudioUnit) {
+    use crate::frameworks::core_audio_types::{
+        kAudioFormatFlagIsPacked,
+        kAudioFormatFlagIsSignedInteger,
+        kAudioFormatLinearPCM,
+    };
+
+    // Готовим план: список
+    // (bus_id, callback, al_source, last_render_time, format).
+    let plan: Vec<(
+        u32,
+        AURenderCallbackStruct,
+        ALuint,
+        Instant,
+        AudioStreamBasicDescription,
+    )> = {
+        let at = &mut env.framework_state.audio_toolbox;
+        let hardware_sr = at.audio_session.current_hardware_sample_rate;
+        let Some(obj) =
+            at.audio_components.audio_component_instances.get(&audio_unit)
+        else {
+            return;
+        };
+        if obj.mixer_buses.is_empty() {
+            return;
+        }
+        // Дефолтный формат шины 3D Mixer, если игра его явно не задавала:
+        // 16-bit signed integer LE PCM, моно, текущая частота железа.
+        let default_format = AudioStreamBasicDescription {
+            sample_rate: if hardware_sr > 0.0 { hardware_sr } else { 22050.0 },
+            format_id: kAudioFormatLinearPCM,
+            format_flags: kAudioFormatFlagIsSignedInteger
+                | kAudioFormatFlagIsPacked,
+            bytes_per_packet: 2,
+            frames_per_packet: 1,
+            bytes_per_frame: 2,
+            channels_per_frame: 1,
+            bits_per_channel: 16,
+            _reserved: 0,
+        };
+        let mut v = Vec::new();
+        for (bus_id, bus) in obj.mixer_buses.iter() {
+            let (Some(cb), Some(src), Some(last)) =
+                (bus.render_callback, bus.al_source, bus.last_render_time)
+            else {
+                continue;
+            };
+            let fmt = bus.stream_format.unwrap_or(default_format);
+            v.push((*bus_id, cb, src, last, fmt));
+        }
+        v
+    };
+    if plan.is_empty() {
+        return;
     }
 
-    let (sample_rate, started, is_running, stream_format, has_input_format, al_source, last_render_time, callback) = {
+    log_once!(
+        "render_audio_unit_buses: rendering bus callback(s) \
+         on first iteration"
+    );
+
+    let now = Instant::now();
+    for (bus_id, callback, al_source, last_render_time, fmt) in plan {
+        let elapsed = now.duration_since(last_render_time);
+        let frames =
+            ((elapsed.as_secs_f64() * fmt.sample_rate) as u32)
+                .clamp(64, 4096);
+        let buffer_size =
+            frames * fmt.channels_per_frame * (fmt.bits_per_channel / 8);
+        if buffer_size == 0 {
+            continue;
+        }
+
+        // Дренируем уже отыгранные буферы.
+        let mut free_buffers: Vec<ALuint> = Vec::new();
+        {
+            let context = env
+                .framework_state
+                .audio_toolbox
+                .al_context
+                .make_al_context_current(&mut env.openal_manager);
+            unsafe {
+                let mut processed = 0;
+                context.GetSourcei(
+                    al_source,
+                    AL_BUFFERS_PROCESSED,
+                    &mut processed,
+                );
+                while processed > 0 {
+                    let mut b = 0;
+                    context.SourceUnqueueBuffers(al_source, 1, &mut b);
+                    free_buffers.push(b);
+                    context.GetSourcei(
+                        al_source,
+                        AL_BUFFERS_PROCESSED,
+                        &mut processed,
+                    );
+                }
+            }
+        }
+
+        // Готовим AudioBufferList<1> и вызываем гостевой callback.
+        let action_flags = env.mem.alloc_and_write(0u32);
+        let buffer_data  = env.mem.alloc(buffer_size);
+        let abl = env.mem.alloc_and_write(AudioBufferList::<1> {
+            number_buffers: 1,
+            buffers: [AudioBuffer {
+                number_channels: fmt.channels_per_frame,
+                data_byte_size:  buffer_size,
+                data:            buffer_data,
+            }],
+        });
+
+        let input_proc     = callback.input_proc;
+        let input_proc_ref = callback.input_proc_ref_con;
+
+        let _: OSStatus = input_proc.call_from_host(
+            env,
+            (
+                input_proc_ref,
+                action_flags,
+                nil.cast_void().cast_const(),
+                bus_id,
+                frames,
+                abl.cast::<std::ffi::c_void>(),
+            ),
+        );
+
+        let (al_fmt, _, processed) =
+            decode_buffer(&env.mem, &fmt, buffer_data.cast(), buffer_size);
+
+        if !processed.is_empty() {
+            let context = env
+                .framework_state
+                .audio_toolbox
+                .al_context
+                .make_al_context_current(&mut env.openal_manager);
+            unsafe {
+                let b = free_buffers.pop().unwrap_or_else(|| {
+                    let mut x = 0;
+                    context.GenBuffers(1, &mut x);
+                    x
+                });
+                context.BufferData(
+                    b,
+                    al_fmt,
+                    processed.as_ptr() as *const ALvoid,
+                    processed.len() as i32,
+                    fmt.sample_rate as i32,
+                );
+                context.SourceQueueBuffers(al_source, 1, &b);
+                let mut state = 0;
+                context.GetSourcei(al_source, AL_SOURCE_STATE, &mut state);
+                if state != AL_PLAYING {
+                    context.SourcePlay(al_source);
+                }
+                if !free_buffers.is_empty() {
+                    context.DeleteBuffers(
+                        free_buffers.len() as i32,
+                        free_buffers.as_ptr(),
+                    );
+                }
+            }
+        } else {
+            // Если callback ничего не записал — освобождаем оставшиеся
+            // буферы, чтобы они не утекли.
+            if !free_buffers.is_empty() {
+                let context = env
+                    .framework_state
+                    .audio_toolbox
+                    .al_context
+                    .make_al_context_current(&mut env.openal_manager);
+                unsafe {
+                    context.DeleteBuffers(
+                        free_buffers.len() as i32,
+                        free_buffers.as_ptr(),
+                    );
+                }
+            }
+        }
+
+        env.mem.free(action_flags.cast_void());
+        env.mem.free(buffer_data.cast_void());
+        env.mem.free(abl.cast_void().cast());
+
+        // Обновляем last_render_time для шины.
+        if let Some(obj) = audio_components::State::get(&mut env.framework_state)
+            .audio_component_instances
+            .get_mut(&audio_unit)
+        {
+            if let Some(bus) = obj.mixer_buses.get_mut(&bus_id) {
+                bus.last_render_time = Some(now);
+            }
+        }
+    }
+}
+
+pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
+    if env.bundle.bundle_identifier().starts_with("com.ea.simcity") {
+        // Применяем хак специфичный для SimCity: пропускаем рендеринг
+        return;
+    }
+
+    // Прокачиваем все input-шины (3D Mixer / AUGraph): каждой шине свой
+    // OpenAL-источник.
+    render_audio_unit_buses(env, audio_unit);
+
+    let (
+        sample_rate,
+        started,
+        is_running,
+        stream_format,
+        has_input_format,
+        al_source,
+        last_render_time,
+        callback,
+    ) = {
         let at = &mut env.framework_state.audio_toolbox;
-        let Some(obj) = at.audio_components.audio_component_instances.get_mut(&audio_unit) else { return; };
+        let Some(obj) = at
+            .audio_components
+            .audio_component_instances
+            .get_mut(&audio_unit)
+        else {
+            log_once!("render_audio_unit: instance not found");
+            return;
+        };
         (
-            obj.input_stream_format.map(|f| f.sample_rate).unwrap_or(at.audio_session.current_hardware_sample_rate),
-            obj.started, obj.is_running_handler,
-            obj.input_stream_format.unwrap_or(obj.output_stream_format.unwrap_or(obj.global_stream_format)),
+            obj.input_stream_format
+                .map(|f| f.sample_rate)
+                .unwrap_or(at.audio_session.current_hardware_sample_rate),
+            obj.started,
+            obj.is_running_handler,
+            obj.input_stream_format
+                .unwrap_or(
+                    obj.output_stream_format
+                        .unwrap_or(obj.global_stream_format),
+                ),
             obj.input_stream_format.is_some(),
-            obj.al_source, obj.last_render_time, obj.render_callback,
+            obj.al_source,
+            obj.last_render_time,
+            obj.render_callback,
         )
     };
 
-    if !started || is_running { return; }
+    if !started {
+        log_once!("render_audio_unit: skipped (started=false)");
+        return;
+    }
+    if is_running {
+        log_once!("render_audio_unit: skipped (already running handler)");
+        return;
+    }
 
-    if let Some(obj) = env.framework_state.audio_toolbox.audio_components.audio_component_instances.get_mut(&audio_unit) {
+    if let Some(obj) = env
+        .framework_state
+        .audio_toolbox
+        .audio_components
+        .audio_component_instances
+        .get_mut(&audio_unit)
+    {
         obj.is_running_handler = true;
     }
 
-    let Some(al_source) = al_source else { return; };
-    let Some(last_render_time) = last_render_time else { return; };
-    let Some(callback) = callback else { return; };
+    let Some(al_source) = al_source else {
+        log_once!("render_audio_unit: skipped (al_source = None)");
+        if let Some(obj) = env
+            .framework_state
+            .audio_toolbox
+            .audio_components
+            .audio_component_instances
+            .get_mut(&audio_unit)
+        {
+            obj.is_running_handler = false;
+        }
+        return;
+    };
+    let Some(last_render_time) = last_render_time else {
+        log_once!("render_audio_unit: skipped (last_render_time = None)");
+        if let Some(obj) = env
+            .framework_state
+            .audio_toolbox
+            .audio_components
+            .audio_component_instances
+            .get_mut(&audio_unit)
+        {
+            obj.is_running_handler = false;
+        }
+        return;
+    };
+    let Some(callback) = callback else {
+        // Без unit-level callback'а просто молча выходим: бус-рендер уже
+        // сделан, а 3D Mixer / RemoteIO без своего собственного callback'а
+        // — это нормальный кейс при работе через AUGraph.
+        if let Some(obj) = env
+            .framework_state
+            .audio_toolbox
+            .audio_components
+            .audio_component_instances
+            .get_mut(&audio_unit)
+        {
+            obj.is_running_handler = false;
+        }
+        return;
+    };
+    log_once!(
+        "render_audio_unit: entering callback for the first time"
+    );
 
     let mut al_buffers = Vec::new();
     {
-        let context = env.framework_state.audio_toolbox.al_context.make_al_context_current(&mut env.openal_manager);
+        let context = env
+            .framework_state
+            .audio_toolbox
+            .al_context
+            .make_al_context_current(&mut env.openal_manager);
         unsafe {
             let mut processed = 0;
-            context.GetSourcei(al_source, AL_BUFFERS_PROCESSED, &mut processed);
+            context.GetSourcei(
+                al_source,
+                AL_BUFFERS_PROCESSED,
+                &mut processed,
+            );
             while processed > 0 {
                 let mut b = 0;
                 context.SourceUnqueueBuffers(al_source, 1, &mut b);
                 al_buffers.push(b);
-                context.GetSourcei(al_source, AL_BUFFERS_PROCESSED, &mut processed);
+                context.GetSourcei(
+                    al_source,
+                    AL_BUFFERS_PROCESSED,
+                    &mut processed,
+                );
             }
         }
     }
 
-    let now = Instant::now();
+    let now     = Instant::now();
     let elapsed = now.duration_since(last_render_time);
-    let frames = ((elapsed.as_secs_f64() * sample_rate) as u32).min(2048);
-    let buffer_size = frames * stream_format.channels_per_frame * (stream_format.bits_per_channel / 8);
+    let frames  =
+        ((elapsed.as_secs_f64() * sample_rate) as u32).min(2048);
+    let buffer_size = frames
+        * stream_format.channels_per_frame
+        * (stream_format.bits_per_channel / 8);
 
     let action_flags = env.mem.alloc_and_write(0u32);
-    
+
     // Восстанавливаем логику из оригинала: Resident Evil 4 ожидает 2 буфера
-    let (audio_buffer_list, buffer1Data, buffer2Data): (MutVoidPtr, MutVoidPtr, Option<MutVoidPtr>) = if has_input_format {
-        let bufferData = env.mem.alloc(buffer_size);
+    let (audio_buffer_list, buffer1_data, buffer2_data): (
+        MutVoidPtr,
+        MutVoidPtr,
+        Option<MutVoidPtr>,
+    ) = if has_input_format {
+        let buf = env.mem.alloc(buffer_size);
         let abl = env.mem.alloc_and_write(AudioBufferList::<1> {
             number_buffers: 1,
             buffers: [AudioBuffer {
                 number_channels: stream_format.channels_per_frame,
                 data_byte_size:  buffer_size,
-                data:            bufferData,
+                data:            buf,
             }],
         });
-        (abl.cast(), bufferData, None)
+        (abl.cast(), buf, None)
     } else {
-        let buffer1Data = env.mem.alloc(buffer_size);
-        let buffer2Data = env.mem.alloc(buffer_size);
-        let abl = env.mem.alloc_and_write(AudioBufferList::<2> {
+        let buf1 = env.mem.alloc(buffer_size);
+        let buf2 = env.mem.alloc(buffer_size);
+        let abl  = env.mem.alloc_and_write(AudioBufferList::<2> {
             number_buffers: 2,
             buffers: [
                 AudioBuffer {
                     number_channels: stream_format.channels_per_frame,
                     data_byte_size:  buffer_size,
-                    data:            buffer1Data,
+                    data:            buf1,
                 },
                 AudioBuffer {
                     number_channels: stream_format.channels_per_frame,
                     data_byte_size:  buffer_size,
-                    data:            buffer2Data,
+                    data:            buf2,
                 },
             ],
         });
-        (abl.cast(), buffer1Data, Some(buffer2Data))
+        (abl.cast(), buf1, Some(buf2))
     };
 
-    let input_proc = callback.input_proc;
-    let input_proc_ref_con = callback.input_proc_ref_con;
+    let input_proc     = callback.input_proc;
+    let input_proc_ref = callback.input_proc_ref_con;
 
-    let _: OSStatus = input_proc.call_from_host(env, (
-        input_proc_ref_con, action_flags, nil.cast_void().cast_const(), 0u32, frames, audio_buffer_list,
-    ));
+    let _: OSStatus = input_proc.call_from_host(
+        env,
+        (
+            input_proc_ref,
+            action_flags,
+            nil.cast_void().cast_const(),
+            0u32,
+            frames,
+            audio_buffer_list,
+        ),
+    );
 
-    let (al_fmt, _, processed) = decode_buffer(&env.mem, &stream_format, buffer1Data.cast(), buffer_size);
+    let (al_fmt, _, processed) = decode_buffer(
+        &env.mem,
+        &stream_format,
+        buffer1_data.cast(),
+        buffer_size,
+    );
     {
-        let context = env.framework_state.audio_toolbox.al_context.make_al_context_current(&mut env.openal_manager);
+        let context = env
+            .framework_state
+            .audio_toolbox
+            .al_context
+            .make_al_context_current(&mut env.openal_manager);
         unsafe {
-            let b = al_buffers.pop().unwrap_or_else(|| { let mut x = 0; context.GenBuffers(1, &mut x); x });
-            context.BufferData(b, al_fmt, processed.as_ptr() as *const ALvoid, processed.len() as i32, sample_rate as i32);
+            let b = al_buffers.pop().unwrap_or_else(|| {
+                let mut x = 0;
+                context.GenBuffers(1, &mut x);
+                x
+            });
+            context.BufferData(
+                b,
+                al_fmt,
+                processed.as_ptr() as *const ALvoid,
+                processed.len() as i32,
+                sample_rate as i32,
+            );
             context.SourceQueueBuffers(al_source, 1, &b);
             let mut state = 0;
             context.GetSourcei(al_source, AL_SOURCE_STATE, &mut state);
-            if state != AL_PLAYING { context.SourcePlay(al_source); }
-            if !al_buffers.is_empty() { context.DeleteBuffers(al_buffers.len() as i32, al_buffers.as_ptr()); }
+            if state != AL_PLAYING {
+                context.SourcePlay(al_source);
+            }
+            if !al_buffers.is_empty() {
+                context.DeleteBuffers(
+                    al_buffers.len() as i32,
+                    al_buffers.as_ptr(),
+                );
+            }
         }
     }
 
     env.mem.free(action_flags.cast_void());
-    env.mem.free(buffer1Data.cast_void());
-    if let Some(b2) = buffer2Data {
+    env.mem.free(buffer1_data.cast_void());
+    if let Some(b2) = buffer2_data {
         env.mem.free(b2.cast_void());
     }
     env.mem.free(audio_buffer_list.cast_void());
 
-    if let Some(obj) = env.framework_state.audio_toolbox.audio_components.audio_component_instances.get_mut(&audio_unit) {
-        obj.last_render_time = Some(now);
-        obj.is_running_handler = false;
+    if let Some(obj) = env
+        .framework_state
+        .audio_toolbox
+        .audio_components
+        .audio_component_instances
+        .get_mut(&audio_unit)
+    {
+        obj.last_render_time    = Some(now);
+        obj.is_running_handler  = false;
     }
 }
 
@@ -598,3 +1339,4 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioUnitProcess(_, _, _, _, _)),
     export_c_func!(AudioUnitProcessMultiple(_, _, _, _, _, _, _)),
 ];
+

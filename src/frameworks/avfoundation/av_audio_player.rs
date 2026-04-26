@@ -94,7 +94,7 @@ pub const CLASSES: ClassExports = objc_classes! {
                       error:(MutPtr<id>)outError {
     let path: id = msg![env; url path];
     let path_str = ns_string::to_rust_string(env, path);
-    log_dbg!("[(AVAudioPlayer*){:?} initWithContentsOfURL:{:?} {} outError:{:?}]", this, url, path_str, outError);
+    log!("[(AVAudioPlayer*){:?} initWithContentsOfURL:{:?} {} outError:{:?}]", this, url, path_str, outError);
 
     retain(env, url);
     env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_file_url = url;
@@ -233,6 +233,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)play {
+    log!("[(AVAudioPlayer*){:?} play]", this);
     () = msg![env; this prepareToPlay];
     let aq_ref = env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_queue.unwrap();
     env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).is_playing = true;

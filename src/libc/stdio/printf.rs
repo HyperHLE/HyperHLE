@@ -155,14 +155,24 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                     Some("l")
                 }
             }
-            // q seems to be an equivalent of 'll'
+                        // q seems to be an equivalent of 'll'
             // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Strings/Articles/formatSpecifiers.html#//apple_ref/doc/uid/TP40004265-SW1
             b'q' => {
                 format_char_idx += 1;
                 Some("ll")
             }
-            b'j' |
-            b'z' | b't' | b'L' => unimplemented!(),
+            b'j' => {
+                format_char_idx += 1;
+                Some("ll") // intmax_t (64-bit)
+            }
+            b'z' | b't' => {
+                format_char_idx += 1;
+                Some("l") // size_t и ptrdiff_t (32-bit на ARMv6/v7)
+            }
+            b'L' => {
+                format_char_idx += 1;
+                Some("L") // long double (эквивалентно 64-bit f64)
+            }
             _ => None,
         };
         let specifier = get_format_char(&env.mem, format_char_idx);

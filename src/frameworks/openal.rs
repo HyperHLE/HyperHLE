@@ -639,6 +639,20 @@ fn alGetSourceiv(env: &mut Environment, source: ALuint, param: ALenum, values: M
 fn alSourcePlay(env: &mut Environment, source: ALuint) {
     try_get_context!(env, context);
     unsafe { context.SourcePlay(source) };
+    let mut state: ALint = 0;
+    let mut max_gain: ALfloat = 0.0;
+    let mut buffer: ALint = 0;
+    let err: ALenum;
+    unsafe {
+        context.GetSourcei(source, al::AL_SOURCE_STATE, &mut state as *mut _);
+        context.GetSourcef(source, al::AL_MAX_GAIN, &mut max_gain as *mut _);
+        context.GetSourcei(source, al::AL_BUFFER, &mut buffer as *mut _);
+        err = context.GetError();
+    }
+    log!(
+        "alSourcePlay(source={}) -> state=0x{:x}, max_gain={}, buffer={}, err=0x{:x}",
+        source, state, max_gain, buffer, err
+    );
 }
 fn alSourcePause(env: &mut Environment, source: ALuint) {
     try_get_context!(env, context);
@@ -769,6 +783,10 @@ fn alBufferData(
         let data_slice = env.mem.bytes_at(data.cast(), size_usize);
         data_slice.as_ptr() as *const _
     };
+    log!(
+        "alBufferData(buffer={}, format=0x{:x}, size={}, samplerate={})",
+        buffer, format, size, samplerate
+    );
     try_get_context!(env, context);
     unsafe { context.BufferData(buffer, format, data_ptr, size, samplerate) };
 }

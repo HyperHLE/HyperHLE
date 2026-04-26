@@ -126,12 +126,80 @@ fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> M
     }
 }
 
-fn freopen(env: &mut Environment, _filename: ConstPtr<u8>, _mode: ConstPtr<u8>, stream: MutPtr<FILE>) -> MutPtr<FILE> {
-    // TODO: handle errno properly
+fn freopen(
+    env: &mut Environment,
+    filename: ConstPtr<u8>,
+    mode: ConstPtr<u8>,
+    stream: MutPtr<FILE>,
+) -> MutPtr<FILE> {
     set_errno(env, 0);
 
-    log!("Warning: freopen() is stubbed and does not actually reopen the file!");
+    if stream.is_null() {
+        return Ptr::null();
+    }
+
+    // 1. Сбрасываем буфер и закрываем старый дескриптор
+    let FILE { fd: old_fd } = env.mem.read(stream);
+    let _ = posix_io::fflush(env, old_fd);
+    let _ = posix_io::close(env, old_fd);
+
+    // Очищаем состояние в хост-объекте (ошибки и возвращенные символы ungetc)
+    let host_obj = env.libc_state.stdio.get_file_host_obj_mut(&mut env.mem, stream);
+    host_obj.pushbacks.clear();
+    host_obj.error = false;
+
+    if filename.is_null() {
+        log!("Warning: freopen() with NULL filename (changing mode) is not fully supported, returning NULL.");
+        return Ptr::null();
+    }
+
+    // 2. Парсим режим открытия (точно так же, как в fopen)
+    let mode_str = env.mem.cstr_at(mode);
+    let [basic_mode @ (b'r' | b'w' | b'a'), flags @ ..] = mode_str else {
+        log!("freopen(): Unexpected or missing mode first character: {:?}", mode_str.first());
+        return Ptr::null();
+    };
     
+    let mut plus = false;
+    for &flag in flags {
+        match flag {
+            b'b' => (), // бинарный флаг ничего не делает в UNIX
+            b'+' => plus = true,
+            other => {
+                log!("Tolerating unrecognized freopen() mode flag: {:?}", other);
+            }
+        }
+    }
+
+    let open_flags = match (basic_mode, plus) {
+        (b'r', false) => O_RDONLY,
+        (b'r', true)  => O_RDWR,
+        (b'w', false) => O_WRONLY | O_CREAT | O_TRUNC,
+        (b'w', true)  => O_RDWR | O_CREAT | O_TRUNC,
+        (b'a', false) => O_WRONLY | O_APPEND | O_CREAT,
+        (b'a', true)  => O_RDWR | O_APPEND | O_CREAT,
+        _ => unreachable!(),
+    };
+
+    // 3. Открываем новый файл
+    let new_fd = posix_io::open_direct(env, filename, open_flags);
+
+    if new_fd == -1 {
+        // Ошибка открытия, возвращаем NULL
+        return Ptr::null();
+    }
+
+    // 4. Связываем новый дескриптор со старым потоком
+    // В памяти гостя перезаписываем структуру FILE
+    env.mem.write(stream, FILE { fd: new_fd });
+
+    log_dbg!(
+        "freopen() successfully reopened fd {} as new fd {} for stream {:?}",
+        old_fd,
+        new_fd,
+        stream
+    );
+
     stream
 }
 

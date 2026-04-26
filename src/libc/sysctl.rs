@@ -14,7 +14,7 @@ use crate::libc::sysctl::SysInfoType::String;
 use crate::mem::{guest_size_of, ConstPtr, GuestUSize, MutPtr, MutVoidPtr, PAGE_SIZE};
 use crate::Environment;
 
-static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 17] = [
+static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 19] = [
     // Generic CPU, I/O
     ((6,1), "hw.machine" , String(b"iPhone1,1")), // overridden dynamically below
     ((6,2), "hw.model" , String(b"M68AP")),
@@ -22,18 +22,20 @@ static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 17] = [
     ((0,0), "hw.cputype" , SysInfoType::Int32(12)),
     ((0,0), "hw.cpusubtype" , SysInfoType::Int32(6)),
     ((6,15), "hw.cpufrequency" , SysInfoType::Int64(412000000)),
-    ((6,14), "hw.busfrequency" , SysInfoType::Int64(103000000)), // Пример значения, если он там есть
+    ((6,16), "hw.cpufrequency_max", SysInfoType::Int64(412000000)), // Добавлена макс. частота
+    ((6,14), "hw.busfrequency" , SysInfoType::Int64(103000000)),
     ((1, 14), "kern.osversion", String(b"5A347")),
-    ((6,5), "hw.physmem" , SysInfoType::Int32(121634816)), // not sure about this type
-    ((6,6), "hw.usermem" , SysInfoType::Int32(93564928)), // not sure about this type
+    ((6,5), "hw.physmem" , SysInfoType::Int32(121634816)),
+    ((6,6), "hw.usermem" , SysInfoType::Int32(93564928)),
     ((6,24), "hw.memsize" , SysInfoType::Int32(121634816)),
-    ((6,7), "hw.pagesize" , SysInfoType::Int32(PAGE_SIZE as i32)), // <--- ИСПРАВЛЕНО НА Int32
+    ((6,7), "hw.pagesize" , SysInfoType::Int32(PAGE_SIZE as i32)),
     // High kernel limits
     ((1,1), "kern.ostype" , String(b"Darwin")),
     ((1,2), "kern.osrelease" , String(b"10.4.0")),
     ((1,3), "kern.osversion" , String(b"8A293")),
-    ((1,10), "kern.hostname" , String(b"touchHLE")), // this is arbitrary
+    ((1,10), "kern.hostname" , String(b"touchHLE")),
     ((1,4), "kern.version" , String(b"Darwin Kernel Version 10.4.0: Thu Jun 10 14:26:58 PDT 2010; root:xnu-1504.58.2~1/RELEASE_ARM_S5L8900X")),
+    ((1,21), "kern.boottime" , SysInfoType::Int64(1600000000)), // Добавлено время загрузки (struct timeval в виде 8 байт)
 ];
 
 static STRING_MAP: LazyLock<HashMap<&str, SysInfoType>> = LazyLock::new(|| {

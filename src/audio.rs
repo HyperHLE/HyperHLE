@@ -7,6 +7,7 @@
 
 //! Audio file decoding and OpenAL bindings.
 
+mod caf_decoder;
 mod ima4;
 pub mod openal;
 mod symphonia_formats;
@@ -138,25 +139,35 @@ impl AudioFile {
             }
         }
 
-        // NOTE: We deliberately do NOT route CAF files through `caf::CafPacketReader`
-        // here. That crate only reads packets — it does not decode them — and the
-        // surrounding code in this module previously reported every such file as
-        // `AudioFormat::LinearPcm` regardless of the file's actual codec. Most CAF
-        // files used by iOS games (notably PvZ / Plants vs. Zombies) contain
-        // IMA4 ADPCM payloads, not raw LPCM, so callers like
-        // `AudioServicesCreateSystemSoundID` ended up feeding undecoded IMA4
-        // packets to OpenAL as if they were 16-bit PCM, producing silence /
-        // garbage instead of audible sound effects.
+        // CAF (Apple Core Audio Format) handling is split between two paths:
         //
-        // Symphonia (the next branch) supports the CAF container plus the
-        // codecs we actually care about (IMA QT ADPCM, IMA WAV ADPCM, ALAC,
-        // AAC LC, MP3, PCM S16LE) per the feature list in `Cargo.toml`, and it
-        // returns properly-decoded little-endian 16-bit PCM, which the rest of
-        // the audio pipeline (AudioFile / ExtAudioFile / AudioServices / AudioQueue
-        // `decode_buffer` LPCM path) already handles correctly.
+        // 1. For uncompressed LPCM and IMA4 ADPCM CAF files — which is what
+        //    PvZ (`com.popcap.PvZ`) and most other iOS games ship for short
+        //    sound effects — we decode them ourselves in
+        //    `caf_decoder::decode_caf_to_pcm`. The CAF demuxer in
+        //    `symphonia-format-caf 0.6.0-alpha.1` does not handle the legal
+        //    CAF layout where the Audio Data chunk's `mChunkSize` is `-1`
+        //    (Apple's spec explicitly allows `-1` to mean "extends to the end
+        //    of the file"); on those files Symphonia walks past the audio
+        //    data trying to read a chunk header and fails with
+        //    `IoError(UnexpectedEof)`, which is what was leaving PvZ silent.
+        //    See the CAF spec, "The Audio Data Chunk":
+        //    https://developer.apple.com/library/archive/documentation/MusicAudio/Reference/CAFSpec/CAF_chunks/CAF_chunks.html
         //
-        // See Apple's CAF specification for the data-formats CAF can carry:
-        // https://developer.apple.com/library/archive/documentation/MusicAudio/Reference/CAFSpec/CAF_intro/CAF_intro.html
+        // 2. Anything else inside a CAF container (AAC, MP3, ALAC, …) and
+        //    every other supported container falls through to Symphonia,
+        //    which is already wired up with the right format / codec
+        //    features in `Cargo.toml`. Both paths return the same
+        //    `SymphoniaDecodedToPcm` shape (16-bit little-endian interleaved
+        //    PCM) so the rest of the audio pipeline (AudioFile /
+        //    ExtAudioFile / AudioServices / AudioQueue `decode_buffer`'s
+        //    LPCM branch) handles them uniformly.
+        if bytes.len() >= 4 && &bytes[..4] == b"caff" {
+            if let Ok(pcm) = caf_decoder::decode_caf_to_pcm(Cursor::new(bytes.clone())) {
+                return Ok(AudioFileInner::Symphonia(pcm));
+            }
+        }
+
         if let Ok(pcm) = symphonia_formats::decode_symphonia_to_pcm(Cursor::new(bytes)) {
             Ok(AudioFileInner::Symphonia(pcm))
         } else {
