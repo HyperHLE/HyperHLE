@@ -1074,3 +1074,9 @@ pub extern "C" fn __Unwind_SjLj_Register(_context: *mut u8) {
 pub extern "C" fn __Unwind_SjLj_Unregister(_context: *mut u8) {
     // This satisfies the linker for older iOS games
 }
+
+#[no_mangle]
+pub extern "C" fn __Unwind_SjLj_Register(_context: *mut u8) {}
+
+#[no_mangle]
+pub extern "C" fn __Unwind_SjLj_Unregister(_context: *mut u8) {}
