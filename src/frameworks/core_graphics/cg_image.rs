@@ -96,6 +96,40 @@ pub fn borrow_image_mut(objc: &mut ObjC, image: CGImageRef) -> &mut Image {
     &mut objc.borrow_mut::<CGImageHostObject>(image).image
 }
 
+fn CGImageCreate(
+    env: &mut Environment,
+    width: GuestUSize,
+    height: GuestUSize,
+    bits_per_component: GuestUSize,
+    bits_per_pixel: GuestUSize,
+    bytes_per_row: GuestUSize,
+    _space: CGColorSpaceRef,
+    _bitmap_info: CGBitmapInfo,
+    provider: CGDataProviderRef,
+    _decode: ConstPtr<CGFloat>,
+    _should_interpolate: bool,
+    _intent: i32,
+) -> CGImageRef {
+    if provider.is_null() || width == 0 || height == 0 {
+        return nil;
+    }
+
+    let bytes = cg_data_provider::borrow_bytes(env, provider);
+    
+    // Use bytes_per_row to ensure we capture the full pixel data
+    let expected_size = (bytes_per_row * height) as usize;
+    if bytes.len() < expected_size {
+        log!("CGImageCreate: Buffer too small (expected {} bytes, got {})", expected_size, bytes.len());
+        return nil;
+    }
+
+    let pixels = bytes[..expected_size].to_vec();
+    let image = Image::from_pixels(width as u32, height as u32, pixels);
+
+    log!("CGImageCreate: Created {}x{} image", width, height);
+    from_image(env, image)
+}
+
 fn CGImageCreateCopyWithColorSpace(
     env: &mut Environment,
     image: CGImageRef,
@@ -303,6 +337,7 @@ fn CGImageIsMask(_env: &mut Environment, _image: CGImageRef) -> bool {
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGImageRelease(_)),
     export_c_func!(CGImageRetain(_)),
+    export_c_func!(CGImageCreate(_, _, _, _, _, _, _, _, _, _, _, _)),
     export_c_func!(CGImageCreateCopyWithColorSpace(_, _)),
     export_c_func!(CGImageCreateWithPNGDataProvider(_, _, _, _)),
     export_c_func!(CGImageCreateWithJPEGDataProvider(_, _, _, _)),
