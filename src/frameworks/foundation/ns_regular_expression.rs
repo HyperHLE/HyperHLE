@@ -8,25 +8,25 @@ use crate::objc::{id, SEL, ClassExports, ClassTemplate};
 use crate::selector; 
 use crate::log;
 use crate::Environment;
-use crate::dyld::host_imp;
 
 pub const CLASSES: ClassExports = &[
     ("NSRegularExpression", ClassTemplate {
         name: "NSRegularExpression",
         superclass: Some("NSObject"),
         class_methods: &[
-            // The macro expects: (dummy_token; identifier)
-            (selector!(_; alloc), host_imp!(alloc)),
+            // Removed host_imp! for now to see if your build uses a different wrapper
+            (selector!(_; alloc), alloc as _),
         ],
         instance_methods: &[
-            (selector!(_; initWithPattern, options, error), host_imp!(init_with_pattern)),
-            (selector!(_; matchesInString, options, range), host_imp!(matches_in_string)),
+            (selector!(_; initWithPattern, options, error), init_with_pattern as _),
+            (selector!(_; matchesInString, options, range), matches_in_string as _),
         ],
     }),
 ];
 
 extern "C" fn alloc(env: &mut Environment, class: id, _sel: SEL) -> id {
-    let instance = env.objc.as_mut().alloc_instance(class);
+    // Trying the most direct way to create the instance based on common touchHLE patterns
+    let instance = crate::objc::alloc_instance(env, class);
     log!("NSRegularExpression: Created stub instance {:?}.", instance);
     instance
 }
