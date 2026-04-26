@@ -278,7 +278,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setExclusiveTouch:(bool)exclusive { env.objc.borrow_mut::<UIViewHostObject>(this).exclusive_touch = exclusive; }
 
 - (())layoutSubviews { }
-
+    
+- (())layoutIfNeeded { log!("UIView: layoutIfNeeded called (stub)."); }
+    
 - (id)superview { env.objc.borrow::<UIViewHostObject>(this).superview }
 
 - (id)window {
