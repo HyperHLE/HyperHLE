@@ -5,7 +5,7 @@
  */
 
 use crate::objc::{id, SEL, ClassExports};
-use crate::selector; // Importing it directly as suggested by the compiler
+use crate::selector; 
 use crate::log;
 use crate::Environment;
 
@@ -18,9 +18,10 @@ pub const CLASSES: ClassExports = &[
 ];
 
 fn add_methods(env: &mut Environment, class: id) {
-    env.objc.add_class_method(class, selector!("alloc"), alloc as _);
-    env.objc.add_method(class, selector!("initWithPattern:options:error:"), init_with_pattern as _);
-    env.objc.add_method(class, selector!("matchesInString:options:range:"), matches_in_string as _);
+    // The macro in your build requires the 'env' and a semicolon
+    env.objc.add_class_method(class, selector!(env; alloc), alloc as _);
+    env.objc.add_method(class, selector!(env; initWithPattern, options, error), init_with_pattern as _);
+    env.objc.add_method(class, selector!(env; matchesInString, options, range), matches_in_string as _);
 }
 
 extern "C" fn alloc(env: &mut Environment, class: id, _sel: SEL) -> id {
@@ -34,9 +35,7 @@ extern "C" fn init_with_pattern(_env: &mut Environment, this: id, _sel: SEL, _pa
     this
 }
 
-extern "C" fn matches_in_string(_env: &mut Environment, _this: id, _sel: SEL, _string: id, _options: u64, _range: [u32; 2]) -> id {
+extern "C" fn matches_in_string(_env: &mut Environment, _this: id, _sel: SEL, _string: id, _options: u64, _range: crate::frameworks::foundation::NSRange) -> id {
     log!("NSRegularExpression: matchesInString returning nil.");
-    // Returning 0 (nil) is the universal "safe" way to return an empty object/array 
-    // in Objective-C if the specific helper isn't found.
-    0
+    0 // Return nil (0)
 }
