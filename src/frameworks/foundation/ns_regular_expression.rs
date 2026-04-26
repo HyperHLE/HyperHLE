@@ -8,7 +8,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     @implementation NSRegularExpression: NSObject
 
     + (id)allocWithZone:(NSZonePtr)_zone {
-        let instance = env.objc.as_mut().unwrap().alloc_instance(this);
+        // Use env.objc directly and pass &mut env.mem
+        let instance = env.objc.alloc_instance(this, &mut env.mem);
         log!("NSRegularExpression: Created instance {:?}.", instance);
         instance
     }
