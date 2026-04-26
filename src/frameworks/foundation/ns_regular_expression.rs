@@ -14,13 +14,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     @implementation NSRegularExpression: NSObject
 
-    + (id)allocWithZone:(NSZonePtr)_zone {
-        // This is the macro equivalent of class.create_instance()
-        let instance = (*env.objc).alloc_object(this, (), &mut env.mem);
+        + (id)allocWithZone:(NSZonePtr)_zone {
+        // Wrap () in a Box to satisfy the AnyHostObject requirement
+        let instance = (*env.objc).alloc_object(this, Box::new(()), &mut env.mem);
         log!("NSRegularExpression: Created instance {:?}.", instance);
         instance
-    }
-
+        }
+    
     - (id)initWithPattern:(id)_pattern options:(u64)_options error:(id)_error {
         log!("NSRegularExpression: initWithPattern called.");
         this
