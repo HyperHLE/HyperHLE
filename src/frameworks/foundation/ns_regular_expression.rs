@@ -22,4 +22,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("NSRegularExpression: matchesInString returning nil.");
         crate::objc::id::null()
     }
+
+    @end
 };
