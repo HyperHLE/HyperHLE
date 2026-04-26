@@ -337,7 +337,7 @@ fn CGImageIsMask(_env: &mut Environment, _image: CGImageRef) -> bool {
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGImageRelease(_)),
     export_c_func!(CGImageRetain(_)),
-    export_c_func!(CGImageCreate(_, _, _, _, _, _, _, _, _, _, _, _)),
+    export_c_func!(CGImageCreate(_, _, _, _, _, _, _, _, _, _, _)),
     export_c_func!(CGImageCreateCopyWithColorSpace(_, _)),
     export_c_func!(CGImageCreateWithPNGDataProvider(_, _, _, _)),
     export_c_func!(CGImageCreateWithJPEGDataProvider(_, _, _, _)),
@@ -358,6 +358,4 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGImageGetShouldInterpolate(_)),
     export_c_func!(CGImageGetRenderingIntent(_)),
     export_c_func!(CGImageIsMask(_)),
-    export_c_func!(CGImageCreateWithImageInRect(_, _)),
 ];
-
