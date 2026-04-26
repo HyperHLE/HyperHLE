@@ -7,16 +7,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     @implementation NSRegularExpression: NSObject
 
-        + (id)allocWithZone:(NSZonePtr)_zone {
-        // Rust will automatically use your DerefMut implementation 
-        // from nullable_box.rs to access the ObjC engine inside.
-        let instance = env.objc.alloc_instance(this, &mut env.mem);
+    + (id)allocWithZone:(NSZonePtr)_zone {
+        // Explicitly dereference the NullableBox to reach alloc_instance
+        let instance = (*env.objc).alloc_instance(this, &mut env.mem);
         log!("NSRegularExpression: Created instance {:?}.", instance);
         instance
-        }
-    
+    }
+
     - (id)initWithPattern:(id)_pattern options:(u64)_options error:(id)_error {
-        log!("NSRegularExpression: initWithPattern stubbed.");
+        // CRITICAL: We must notify the engine that this instance is being initialized
+        (*env.objc).init_instance(this);
+        log!("NSRegularExpression: initWithPattern initialized {:?}.", this);
         this
     }
 
