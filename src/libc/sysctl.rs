@@ -13,6 +13,7 @@ use crate::libc::errno::set_errno;
 use crate::libc::sysctl::SysInfoType::String;
 use crate::mem::{guest_size_of, ConstPtr, GuestUSize, MutPtr, MutVoidPtr, PAGE_SIZE};
 use crate::Environment;
+use crate::log;
 
 static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 19] = [
     // Generic CPU, I/O
@@ -22,7 +23,7 @@ static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 19] = [
     ((0,0), "hw.cputype" , SysInfoType::Int32(12)),
     ((0,0), "hw.cpusubtype" , SysInfoType::Int32(6)),
     ((6,15), "hw.cpufrequency" , SysInfoType::Int64(412000000)),
-    ((6,16), "hw.cpufrequency_max", SysInfoType::Int64(412000000)), // Добавлена макс. частота
+    ((6,16), "hw.cpufrequency_max", SysInfoType::Int64(412000000)), 
     ((6,14), "hw.busfrequency" , SysInfoType::Int64(103000000)),
     ((1, 14), "kern.osversion", String(b"5A347")),
     ((6,5), "hw.physmem" , SysInfoType::Int32(121634816)),
@@ -35,11 +36,10 @@ static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 19] = [
     ((1,3), "kern.osversion" , String(b"8A293")),
     ((1,10), "kern.hostname" , String(b"touchHLE")),
     ((1,4), "kern.version" , String(b"Darwin Kernel Version 10.4.0: Thu Jun 10 14:26:58 PDT 2010; root:xnu-1504.58.2~1/RELEASE_ARM_S5L8900X")),
-    ((1,21), "kern.boottime" , SysInfoType::Int64(1600000000)), // Добавлено время загрузки (struct timeval в виде 8 байт)
+    ((1,21), "kern.boottime" , SysInfoType::Int64(1600000000)),
 ];
 
 static STRING_MAP: LazyLock<HashMap<&str, SysInfoType>> = LazyLock::new(|| {
-    // Can't use from_iter because the closure erases the lifetime
     let mut hashmap = HashMap::new();
     for (_, str, value) in SYSCTL_VALUES.iter() {
         hashmap.insert(*str, value.clone());
@@ -49,7 +49,6 @@ static STRING_MAP: LazyLock<HashMap<&str, SysInfoType>> = LazyLock::new(|| {
 
 #[allow(clippy::type_complexity)]
 static INT_MAP: LazyLock<HashMap<(i32, i32), (&str, SysInfoType)>> = LazyLock::new(|| {
-    // Can't use from_iter because the closure erases the lifetime
     let mut hashmap = HashMap::new();
     for (ints, str, value) in SYSCTL_VALUES.iter() {
         hashmap.insert(*ints, (*str, value.clone()));
@@ -85,20 +84,26 @@ fn sysctl(
         newlen
     );
     
-    // MIB arrays with more than 2 components are valid (e.g. used by Mono).
-    // We only key on the first two elements; extra elements are ignored.
     if name_len < 2 {
         log!("sysctl(): name_len {} < 2, returning -1", name_len);
         return -1;
     }
     
     let (name0, name1) = (env.mem.read(name), env.mem.read(name + 1));
+
+    // FIX FOR PLAYHAVEN CRASH: Handle [4, 17] (Networking/Interface List)
+    if name0 == 4 && name1 == 17 {
+        log!("sysctl: Handling [4, 17] (Networking) stub to prevent PlayHaven crash.");
+        if !oldlenp.is_null() {
+            // Tell the app we have 0 bytes of network data.
+            env.mem.write(oldlenp, 0);
+        }
+        return 0; // Success
+    }
 	
     // hw.machine depends on the emulated device family
-    // В SYSCTL_VALUES hw.machine соответствует ключу (6, 1)
     if name0 == 6 && name1 == 1 {
         let machine_bytes: &'static [u8] = env.window().device_family().machine_name().as_bytes();
-        // write directly: length + null terminator
         let len = machine_bytes.len() as GuestUSize + 1;
         if oldp.is_null() {
             env.mem.write(oldlenp, len);
@@ -119,9 +124,7 @@ fn sysctl(
     sysctl_generic(
         env,
         |_env| {
-            // Используем INT_MAP для поиска по числовым идентификаторам (name0, name1)
             let Some((name_str, val)) = INT_MAP.get(&(name0, name1)) else {
-                // Убираем unimplemented!, чтобы избежать паники, просто логируем и возвращаем ошибку, как в sysctlbyname
                 log!("sysctl(): unknown parameter [{}, {}], returning -1", name0, name1);
                 return None;
             };
@@ -142,7 +145,6 @@ fn sysctlbyname(
     newp: MutVoidPtr,
     newlen: GuestUSize,
 ) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     let name_str = env.mem.cstr_at_utf8(name).unwrap();
@@ -176,7 +178,6 @@ fn sysctlbyname(
 
 fn sysctl_generic<F>(
     env: &mut Environment,
-    // Returns the name and value of the property, or None if unknown.
     name_lookup: F,
     oldp: MutVoidPtr,
     oldlenp: MutPtr<GuestUSize>,
@@ -204,9 +205,7 @@ where
     assert!(!oldp.is_null() && !oldlenp.is_null());
     let oldlen = env.mem.read(oldlenp);
     if oldlen < len {
-        // TODO: set errno
-        // TODO: write partial data
-        log!("sysctl(byname) for '{name_str}': the buffer of size {oldlen} is too low to fit the value of size {len}, returning -1");
+        log!("sysctl(byname) for '{name_str}': buffer too low, returning -1");
         return -1;
     }
     match val {
@@ -223,7 +222,7 @@ where
         }
     }
     env.mem.write(oldlenp, len);
-    0 // success
+    0 
 }
 
 pub const FUNCTIONS: FunctionExports = &[
