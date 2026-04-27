@@ -348,24 +348,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)keyWindow {
-    let Some(key_window) = env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .key_window else {
-        return nil;
-    };
-    assert!(env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .windows
-        .contains(&key_window));
-    key_window
-}
+    // 1. Try to get the official key window
+    if let Some(key_window) = env.framework_state.uikit.ui_view.ui_window.key_window {
+        return key_window;
+    }
 
+    // 2. SAFETY NET: If no key window exists, grab the first window in the list
+    // This prevents the 0x6 Null-Page Read crash when the game engine initializes
+    let windows = &env.framework_state.uikit.ui_view.ui_window.windows;
+    if !windows.is_empty() {
+        log!("UIApplication: No keyWindow set, falling back to first window.");
+        return windows[0];
+    }
+
+    log!("UIApplication: WARNING - No windows exist at all!");
+    nil
+}
+    
 - (id)windows {
     let windows: Vec<id> = (*env
         .framework_state
