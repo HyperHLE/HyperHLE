@@ -6,12 +6,9 @@
 
 //! `NSURLConnection`.
 //!
-//! This is a stub implementation that does not perform real networking.
-//!
-//! Synchronous requests return empty NSData with a descriptive NSError.
-//! Asynchronous connections immediately call `connection:didFailWithError:`
-//! on the delegate (if it implements that method) so the app can handle
-//! the failure gracefully instead of hanging or crashing.
+//! This is a "Success Stub" implementation. It does not perform real networking,
+//! but it tells the app that requests succeeded with empty data. This prevents
+//! many SDKs (like PlayHaven) from hanging while waiting for a connection.
 
 use crate::mem::MutPtr;
 use crate::objc::{
@@ -19,69 +16,40 @@ use crate::objc::{
     ClassExports, HostObject, NSZonePtr,
 };
 
-// NSError domain / code used when reporting "no network in emulator".
-const NS_URL_ERROR_DOMAIN: &str = "NSURLErrorDomain";
-const NS_URL_ERROR_NOT_CONNECTED_TO_INTERNET: i32 = -1009;
-
-// ---------------------------------------------------------------------------
-// Host object — stores the delegate so we can call it back.
-// ---------------------------------------------------------------------------
-
 struct NSURLConnectionHostObject {
-    /// `id<NSURLConnectionDelegate>` — retained while the connection is
-    /// alive, released on dealloc / cancel.
     delegate: id,
-    /// Whether the connection has already been cancelled / finished.
     cancelled: bool,
 }
 impl HostObject for NSURLConnectionHostObject {}
 
-// ---------------------------------------------------------------------------
-// Helper — build an NSError for "not connected to internet".
-// ---------------------------------------------------------------------------
-fn make_network_error(env: &mut crate::Environment) -> id {
-    use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str};
-
-    let domain = from_rust_string(env, NS_URL_ERROR_DOMAIN.to_string());
-    autorelease(env, domain);
-
-    let desc_key = get_static_str(env, "NSLocalizedDescription");
-    let desc_val = from_rust_string(
-        env,
-        "The network connection was lost. \
-         (touchHLE: networking not supported)"
-            .to_string(),
-    );
-    autorelease(env, desc_val);
-
-    let user_info: id = msg_class![env; NSMutableDictionary new];
-    autorelease(env, user_info);
-    () = msg![env; user_info setObject:desc_val forKey:desc_key];
-
-    let error: id = msg_class![env; NSError alloc];
-    let error: id = msg![env;
-        error initWithDomain:domain
-                        code:NS_URL_ERROR_NOT_CONNECTED_TO_INTERNET
-                    userInfo:user_info];
-    autorelease(env, error);
-    error
+/// Helper to create a fake successful NSURLResponse
+fn make_fake_response(env: &mut crate::Environment, request: id) -> id {
+    let url: id = if request != nil { msg![env; request URL] } else { nil };
+    let response: id = msg_class![env; NSURLResponse alloc];
+    let response: id = msg![env; response initWithURL:url
+                                             MIMEType:nil
+                                expectedContentLength:0
+                                     textEncodingName:nil];
+    autorelease(env, response)
 }
 
-// ---------------------------------------------------------------------------
-// Helper — call `connection:didFailWithError:` on the delegate.
-// Uses msg! which already handles unimplemented selectors gracefully.
-// ---------------------------------------------------------------------------
-fn notify_delegate_failure(
+/// Triggers the sequence of delegate calls for a successful (but empty) download
+fn notify_delegate_success(
     env: &mut crate::Environment,
     connection: id,
     delegate: id,
+    request: id,
 ) {
-    if delegate == nil {
-        return;
-    }
-    log_dbg!("NSURLConnection: notifying delegate of failure");
-    let error = make_network_error(env);
-    () = msg![env; delegate connection:connection didFailWithError:error];
+    if delegate == nil { return; }
+    
+    log!("NSURLConnection: Faking success for delegate {:?}", delegate);
+
+    // 1. Tell delegate we got a response (200 OK)
+    let response = make_fake_response(env, request);
+    let _: () = msg![env; delegate connection:connection didReceiveResponse:response];
+
+    // 2. Tell delegate we finished
+    let _: () = msg![env; delegate connectionDidFinishLoading:connection];
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -98,67 +66,42 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host, &mut env.mem)
 }
 
-// MARK: - canHandleRequest: (class method)
-
 + (bool)canHandleRequest:(id)_request {
-    // Advertise support so the app doesn't take a different code path;
-    // failure is reported via the delegate / error out-param instead.
     true
 }
 
 // MARK: - Synchronous API
-
 + (id)sendSynchronousRequest:(id)request
            returningResponse:(MutPtr<id>)response_ptr
                        error:(MutPtr<id>)error_ptr {
 
-    log!("NSURLConnection sendSynchronousRequest: stub called");
+    log!("NSURLConnection sendSynchronousRequest: Faking success");
 
-    // Even when request is nil we return non-nil NSData, because many
-    // callers do not nil-check the return value and crash otherwise.
-    if request == nil {
-        log!(
-            "NSURLConnection sendSynchronousRequest: nil request — \
-             returning empty NSData to prevent caller crash"
-        );
-    }
-
-    // Write nil into *response (no HTTP response to report).
     if !response_ptr.is_null() {
-        env.mem.write(response_ptr, nil);
+        let response = make_fake_response(env, request);
+        retain(env, response); 
+        env.mem.write(response_ptr, response);
     }
 
-    // Build and write an NSError so the caller knows why data is empty.
     if !error_ptr.is_null() {
-        let error = make_network_error(env);
-        // make_network_error already autoreleased; retain once more so the
-        // caller owns a +1 ref through the out-pointer.
-        retain(env, error);
-        env.mem.write(error_ptr, error);
+        env.mem.write(error_ptr, nil);
     }
 
-    // Always return empty NSData (never nil) to avoid null-deref crashes
-    // in callers that do not check the error out-pointer.
-    let empty_data: id = msg_class![env; NSData data];
-    empty_data
+    // Return empty data instead of nil
+    msg_class![env; NSData data]
 }
 
 // MARK: - Asynchronous API
-
 + (id)connectionWithRequest:(id)request
                    delegate:(id)delegate {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithRequest:request delegate:delegate];
-    autorelease(env, new);
-    new
+    autorelease(env, new)
 }
 
 - (id)initWithRequest:(id)request
              delegate:(id)delegate {
-    msg![env;
-        this initWithRequest:request
-                    delegate:delegate
-            startImmediately:true]
+    msg![env; this initWithRequest:request delegate:delegate startImmediately:true]
 }
 
 - (id)initWithRequest:(id)request
@@ -166,16 +109,9 @@ pub const CLASSES: ClassExports = objc_classes! {
      startImmediately:(bool)start_immediately {
 
     if request == nil {
-        log!("NSURLConnection initWithRequest: nil request — returning nil");
         release(env, this);
         return nil;
     }
-
-    log!(
-        "NSURLConnection initWithRequest:... delegate:... \
-         startImmediately:{} (stub — failure via delegate)",
-        start_immediately,
-    );
 
     retain(env, delegate);
     {
@@ -185,53 +121,42 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     if start_immediately {
-        env.objc.borrow_mut::<NSURLConnectionHostObject>(this).cancelled = true;
+        // We need to trigger success. We use a deferred approach usually, 
+        // but for a stub, direct call is often enough to unblock the UI.
         retain(env, this);
-        notify_delegate_failure(env, this, delegate);
+        notify_delegate_success(env, this, delegate, request);
+        env.objc.borrow_mut::<NSURLConnectionHostObject>(this).cancelled = true;
         autorelease(env, this);
     }
 
     this
 }
 
-// MARK: - Instance methods
-
 - (())start {
-    let host     = env.objc.borrow::<NSURLConnectionHostObject>(this);
-    let already  = host.cancelled;
-    let delegate = host.delegate;
-    drop(host);
+    let (delegate, already, request) = {
+        let host = env.objc.borrow::<NSURLConnectionHostObject>(this);
+        // Note: we don't store request in host object currently, 
+        // passing nil to helper is safe enough for a stub.
+        (host.delegate, host.cancelled, nil)
+    };
 
     if !already {
-        env.objc
-            .borrow_mut::<NSURLConnectionHostObject>(this)
-            .cancelled = true;
+        env.objc.borrow_mut::<NSURLConnectionHostObject>(this).cancelled = true;
         retain(env, this);
-        notify_delegate_failure(env, this, delegate);
+        notify_delegate_success(env, this, delegate, request);
         autorelease(env, this);
     }
 }
 
 - (())cancel {
-    log_dbg!("NSURLConnection cancel");
-    // Mark cancelled; do NOT call the delegate (Apple behaviour: cancelled
-    // connections do not deliver connection:didFailWithError:).
-    env.objc
-        .borrow_mut::<NSURLConnectionHostObject>(this)
-        .cancelled = true;
+    env.objc.borrow_mut::<NSURLConnectionHostObject>(this).cancelled = true;
 }
 
-// MARK: - Dealloc
-
 - (())dealloc {
-    log_dbg!("NSURLConnection dealloc");
-    let delegate = env.objc
-        .borrow::<NSURLConnectionHostObject>(this)
-        .delegate;
+    let delegate = env.objc.borrow::<NSURLConnectionHostObject>(this).delegate;
     release(env, delegate);
     env.objc.dealloc_object(this, &mut env.mem);
 }
 
 @end
-
 };
