@@ -185,16 +185,15 @@ pub const CLASSES: ClassExports = objc_classes! {
         Instant::now(),
     ));
 
-    // ХАК ДЛЯ ЗАГЛУШКИ: Автоматически завершаем видео через 150мс.
-    // Если игра не может вызвать `play` (например, из-за наших заглушек в ns_object),
-    // этот код все равно сымитирует конец видеоролика, чтобы игра загрузила главное меню.
+        /* // ХАК ДЛЯ ЗАГЛУШКИ: Автоматически завершаем видео через 150мс.
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackDidFinishNotification,
         this,
         Instant::now() + std::time::Duration::from_millis(150),
     ));
-
+    */
+    
     this
 }
 
@@ -333,9 +332,24 @@ UIColor blackColor] // TODO
 // Returns the player's backing view. Created lazily if initWithContentURL:
 // somehow failed to allocate it, so this always returns a non-nil UIView.
 - (id)view {
-    ensure_view(env, this)
-}
+    let existing = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).view;
+    if existing != nil {
+        return existing;
+    }
 
+    // Create a dummy view
+    let v: id = msg_class![env; UIView alloc];
+    let v: id = msg![env; v init];
+    
+    // Give it a standard iPhone landscape frame [0, 0, 480, 320]
+    // This often prevents the "0x6" or "0x10" offset crashes
+    let _: () = msg![env; v setFrame: (0.0, 0.0, 480.0, 320.0)];
+
+    retain(env, v);
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).view = v;
+    v
+}
+    
 - (id)backgroundView {
     ensure_background_view(env, this)
 }
