@@ -119,12 +119,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
 
+        /*
     if !env.options.network_access {
         log_dbg!("Network access disabled — NSURLRequest initWithURL: returning nil");
         release(env, this);
         return nil;
     }
-
+    */
+      
     let url_copy: id = msg![env; url copy];
     {
         let host = env.objc.borrow_mut::<NSURLRequestHostObject>(this);
