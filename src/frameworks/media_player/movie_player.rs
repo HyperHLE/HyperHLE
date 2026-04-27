@@ -54,7 +54,9 @@ pub const MPMoviePlayerContentPreloadDidFinishNotification: &str =
     "MPMoviePlayerContentPreloadDidFinishNotification";
 pub const MPMoviePlayerScalingModeDidChangeNotification: &str =
     "MPMoviePlayerScalingModeDidChangeNotification";
-// TODO: More notifications?
+pub const MPMoviePlayerLoadStateDidChangeNotification: &str = 
+    "MPMoviePlayerLoadStateDidChangeNotification";
+
 const MPMoviePlayerPlaybackDidFinishReasonUserInfoKey: &str =
     "MPMoviePlayerPlaybackDidFinishReasonUserInfoKey";
 
@@ -73,12 +75,14 @@ pub const CONSTANTS: ConstantExports = &[
         HostConstant::NSString(MPMoviePlayerScalingModeDidChangeNotification),
     ),
     (
+        "_MPMoviePlayerLoadStateDidChangeNotification",
+        HostConstant::NSString(MPMoviePlayerLoadStateDidChangeNotification),
+    ),
+    (
         "_MPMoviePlayerPlaybackDidFinishReasonUserInfoKey",
         HostConstant::NSString(MPMoviePlayerPlaybackDidFinishReasonUserInfoKey),
-   
     ),
 ];
-
 struct MPMoviePlayerControllerHostObject {
     // NSURL *
     content_url: id,
@@ -105,8 +109,17 @@ fn ensure_view(env: &mut Environment, this: id) -> id {
     if existing != nil {
         return existing;
     }
+    
     let view_alloc: id = msg_class![env; UIView alloc];
     let view: id = msg![env; view_alloc init];
+    
+    // Patch: Define standard iPhone landscape frame to prevent 0x6 Null-Page Read crashes
+    let frame = crate::frameworks::core_graphics::CGRect {
+        origin: crate::frameworks::core_graphics::CGPoint { x: 0.0, y: 0.0 },
+        size: crate::frameworks::core_graphics::CGSize { width: 480.0, height: 320.0 },
+    };
+    let _: () = msg![env; view setFrame: frame];
+
     retain(env, view);
     env.objc
         .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
@@ -137,8 +150,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation MPMoviePlayerController: NSObject
 
-// TODO: actual playback
-
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(MPMoviePlayerControllerHostObject {
         content_url: nil,
@@ -149,7 +160,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         source_type: 0,
         repeat_mode: 0,
         should_autoplay: true,
-    
         initial_playback_time: -1.0,
         playback_state: MPMoviePlaybackStateStopped,
     });
@@ -158,13 +168,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithContentURL:(id)url { // NSURL*
     log!(
-        "TODO: [(MPMoviePlayerController*){:?} initWithContentURL:{:?} ({:?})]",
+        "[(MPMoviePlayerController*){:?} initWithContentURL:{:?}]",
         this,
-        url,
         ns_url::to_rust_path(env, url),
     );
     
-    // Инициализируем сам объект
     let this: id = msg![env; this init];
     retain(env, url);
 
@@ -173,12 +181,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.content_url = url;
     }
 
-    // Ensure views exist immediately
     ensure_view(env, this);
     ensure_background_view(env, this);
-    
-    // Act as if loading immediately completed (Spore Origins waits for this).
-    // Retain this so the object stays alive until handle_players fires.
+    // Notify app that content is preloaded
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerContentPreloadDidFinishNotification,
@@ -186,130 +191,70 @@ pub const CLASSES: ClassExports = objc_classes! {
         Instant::now(),
     ));
 
-        /* // ХАК ДЛЯ ЗАГЛУШКИ: Автоматически завершаем видео через 150мс.
+    // Notify app that load state has changed (Crucial for Power Rangers Samurai)
     retain(env, this);
     State::get(env).pending_notifications.push_back((
-        MPMoviePlayerPlaybackDidFinishNotification,
+        MPMoviePlayerLoadStateDidChangeNotification,
         this,
-        Instant::now() + std::time::Duration::from_millis(150),
+        Instant::now(),
     ));
-    */
     
     this
 }
 
 - (())dealloc {
-    let url = env
-        .objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .content_url;
-    release(env, url);
-
-    let view = env
-        .objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .view;
-    release(env, view);
-
-    let bg_view = env
-        .objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .background_view;
-    release(env, bg_view);
-
+    let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
+    release(env, host.content_url);
+    release(env, host.view);
+    release(env, host.background_view);
     env.objc.dealloc_object(this, &mut env.mem);
 }
 
 - (id)contentURL {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .content_url
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).content_url
 }
 
 - (id)backgroundColor {
-    msg_class![env;
-UIColor blackColor] // TODO
+    msg_class![env; UIColor blackColor]
 }
-- (())setBackgroundColor:(id)color { // UIColor*
+- (())setBackgroundColor:(id)color { 
     todo_objc_setter!(this, color);
 }
 
-// --- Scaling mode ---
-
 - (MPMovieScalingMode)scalingMode {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .scaling_mode
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).scaling_mode
 }
 - (())setScalingMode:(MPMovieScalingMode)mode {
-    log!(
-        "TODO: [(MPMoviePlayerController*){:?} setScalingMode:{:?}]",
-        this,
-        mode
-    );
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .scaling_mode = mode;
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).scaling_mode = mode;
 }
-
-// --- Control style ---
 
 - (MPMovieControlStyle)controlStyle {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .control_style
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).control_style
 }
 - (())setControlStyle:(MPMovieControlStyle)style {
-    log!(
-        "TODO: [(MPMoviePlayerController*){:?} setControlStyle:{:?}]",
-        this,
-        style
-    );
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .control_style = style;
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).control_style = style;
 }
-
-// --- Source type ---
 
 - (MPMovieSourceType)movieSourceType {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .source_type
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).source_type
 }
 - (())setMovieSourceType:(MPMovieSourceType)source_type {
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .source_type = source_type;
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).source_type = source_type;
 }
-
-// --- Repeat mode ---
 
 - (MPMovieRepeatMode)repeatMode {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .repeat_mode
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).repeat_mode
 }
 - (())setRepeatMode:(MPMovieRepeatMode)mode {
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .repeat_mode = mode;
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).repeat_mode = mode;
 }
-
-// --- Autoplay ---
 
 - (bool)shouldAutoplay {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .should_autoplay
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).should_autoplay
 }
 - (())setShouldAutoplay:(bool)autoplay {
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .should_autoplay = autoplay;
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).should_autoplay = autoplay;
 }
-
-// --- Misc setters ---
 
 - (())setUseApplicationAudioSession:(bool)use_session {
     todo_objc_setter!(this, use_session);
@@ -320,45 +265,13 @@ UIColor blackColor] // TODO
 }
 
 - (())setFullscreen:(bool)fullscreen animated:(bool)animated {
-    log!(
-        "TODO: [(MPMoviePlayerController*){:?} setFullscreen:{:?} animated:{:?}]",
-        this,
-        fullscreen,
-        animated
-    );
+    log!("TODO: setFullscreen animated");
 }
-
-// --- View ---
-
-// Returns the player's backing view. Created lazily if initWithContentURL:
-// somehow failed to allocate it, so this always returns a non-nil UIView.
-// --- View ---
 
 - (id)view {
-    let existing = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).view;
-    if existing != nil {
-        return existing;
-    }
-
-    // 1. Create the dummy view
-    let v_alloc: id = msg_class![env; UIView alloc];
-    let v: id = msg![env; v_alloc init];
-    
-    // 2. Build the CGRect manually using its fields
-    // This matches the structure in cg_geometry.rs
-    let frame = crate::frameworks::core_graphics::CGRect {
-        origin: crate::frameworks::core_graphics::CGPoint { x: 0.0, y: 0.0 },
-        size: crate::frameworks::core_graphics::CGSize { width: 480.0, height: 320.0 },
-    };
-
-    // 3. Pass it to the macro
-    let _: () = msg![env; v setFrame: frame];
-    
-    retain(env, v);
-    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).view = v;
-    v
+    ensure_view(env, this)
 }
-              
+    
 - (id)backgroundView {
     ensure_background_view(env, this)
 }
@@ -366,69 +279,37 @@ UIColor blackColor] // TODO
     todo_objc_setter!(this, view);
 }
 
-// --- Playback state / time ---
-
 - (MPMoviePlaybackState)playbackState {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).playback_state
 }
-
-- (f64)currentPlaybackTime {
-    1.0 // Return non-zero dummy time
+    - (f64)currentPlaybackTime {
+    1.0 
 }
 - (())setCurrentPlaybackTime:(f64)time {
     todo_objc_setter!(this, time);
 }
 
 - (f64)initialPlaybackTime {
-    env.objc
-        .borrow::<MPMoviePlayerControllerHostObject>(this)
-        .initial_playback_time
+    env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).initial_playback_time
 }
 - (())setInitialPlaybackTime:(f64)time {
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .initial_playback_time = time;
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).initial_playback_time = time;
 }
 
-- (f64)duration {
-    1.0 // Return non-zero to prevent division by zero in game engines
-}
-- (f64)playableDuration {
-    1.0
-}
-- (bool)isPreparedToPlay {
-    true
-}
-- (bool)readyForDisplay {
-    true
-}
+- (f64)duration { 1.0 }
+- (f64)playableDuration { 1.0 }
+- (bool)isPreparedToPlay { true }
+- (bool)readyForDisplay { true }
 
-- (())prepareToPlay {
-    // Act as if we are immediately prepared;
-    // no real playback yet.
-}
+- (())prepareToPlay {}
 
-// Apparently an undocumented, private API, but Spore Origins uses it.
-- (())setMovieControlMode:(NSInteger)_mode {
-    // As this is undocumented and we don't have real video playback yet, let's
-    // ignore it.
-}
+- (())setMovieControlMode:(NSInteger)_mode {}
 
-// Another undocumented one! But some apps may still use it :/
-// https://stackoverflow.com/a/1390079/2241008
-- (())setOrientation:(UIDeviceOrientation)_orientation animated:(bool)_animated {
-}
+- (())setOrientation:(UIDeviceOrientation)_orientation animated:(bool)_animated {}
 
-// MPMediaPlayback implementation
 - (())play {
-    log!("TODO: [(MPMoviePlayerController*){:?} play]", this);
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStatePlaying;
-    // Retain this so the object stays alive until handle_players fires and
-    // we release it after posting the notification.
+    log!("[(MPMoviePlayerController*){:?} play]", this);
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).playback_state = MPMoviePlaybackStatePlaying;
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackDidFinishNotification,
@@ -438,23 +319,12 @@ UIColor blackColor] // TODO
 }
 
 - (())pause {
-    log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStatePaused;
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).playback_state = MPMoviePlaybackStatePaused;
 }
 
 - (())stop {
-    log!("TODO: [(MPMoviePlayerController*){:?} stop]", this);
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStateStopped;
-    if env
-        .framework_state
-        .media_player
-        .movie_player
-        .active_player == Some(this)
-    {
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).playback_state = MPMoviePlaybackStateStopped;
+    if env.framework_state.media_player.movie_player.active_player == Some(this) {
         env.framework_state.media_player.movie_player.active_player = None;
         release(env, this);
     }
@@ -465,13 +335,6 @@ UIColor blackColor] // TODO
 @implementation MPMoviePlayerViewController: UIViewController
 
 - (id)initWithContentURL:(id)url {
-    log!(
-        "TODO: [(MPMoviePlayerViewController*){:?} initWithContentURL:{:?} ({:?})]",
-        this,
-        url,
-        ns_url::to_rust_path(env, url),
-    );
-    // Call designated initializer of UIViewController superclass
     let this: id = msg![env; this init];
     this
 }
@@ -479,8 +342,7 @@ UIColor blackColor] // TODO
 @end
 
 };
-/// For use by `NSRunLoop` via [super::handle_players]: check movie players'
-/// status, send notifications if necessary.
+
 pub(super) fn handle_players(env: &mut Environment) {
     let mut notifs_to_run = Vec::new();
     let pending_notifs = &mut State::get(env).pending_notifications;
@@ -496,45 +358,20 @@ pub(super) fn handle_players(env: &mut Environment) {
     }
 
     for (name_str, object) in notifs_to_run {
-        // Update playback state before posting so that any handler which
-        // checks [player playbackState] sees Stopped immediately.
         if name_str == MPMoviePlayerPlaybackDidFinishNotification {
-            env.objc
-                .borrow_mut::<MPMoviePlayerControllerHostObject>(object)
-                .playback_state = MPMoviePlaybackStateStopped;
+            env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(object).playback_state = MPMoviePlaybackStateStopped;
         }
-
         let name = ns_string::get_static_str(env, name_str);
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+        
         if name_str == MPMoviePlayerPlaybackDidFinishNotification {
-            // Many apps (including NFSU) read
-            // MPMoviePlayerPlaybackDidFinishReasonUserInfoKey from the
-            // notification's userInfo.
-            // Without it the game dereferences nil
-            // at offset 0x10, causing a NULL-PAGE READ crash.
-            // MPMovieFinishReasonPlaybackEnded = 0
-            let reason_num: id =
-                msg_class![env;
-NSNumber numberWithInt:0i32];
-            let reason_key = ns_string::get_static_str(
-                env,
-                MPMoviePlayerPlaybackDidFinishReasonUserInfoKey,
-            );
-            let user_info: id = msg_class![env; NSDictionary
-                dictionaryWithObject:reason_num
-                forKey:reason_key];
-            let _: () = msg![env; center postNotificationName:name
-                                                       object:object
-                                       
-              userInfo:user_info];
+            let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
+            let reason_key = ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishReasonUserInfoKey);
+            let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
+            let _: () = msg![env; center postNotificationName:name object:object userInfo:user_info];
         } else {
-            let _: () = msg![env;
-center postNotificationName:name
-                                                       object:object];
+            let _: () = msg![env; center postNotificationName:name object:object];
         }
-
-        // Release the retain we took when queuing this notification.
         release(env, object);
     }
 }
-
