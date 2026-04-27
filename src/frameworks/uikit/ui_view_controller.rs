@@ -190,17 +190,31 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)view {
-    let view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
+    let mut view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
     if view == nil {
-        () = msg![env; this loadView];
-        let view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
-        () = msg![env; this viewDidLoad];
-        view
-    } else {
-        view
+        log!("UIViewController: View is nil, triggering loadView for {:?}", this);
+        let _: () = msg![env; this loadView];
+        
+        // Re-borrow after loadView to see if it worked
+        view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
+        
+        // SAFETY FALLBACK: If loadView failed (e.g. missing NIB), force-create a view.
+        // This prevents the 0x6 NULL-PAGE READ crash.
+        if view == nil {
+            log!("UIViewController: WARNING: loadView failed. Forcing default view for 0x6 crash prevention.");
+            let screen = msg_class![env; UIScreen mainScreen];
+            let bounds: CGRect = msg![env; screen bounds];
+            let fallback_view: id = msg![env; msg_class![env; UIView alloc] initWithFrame:bounds];
+            let _: () = msg![env; this setView:fallback_view];
+            crate::objc::release(env, fallback_view);
+            view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
+        }
+        
+        let _: () = msg![env; this viewDidLoad];
     }
+    view
 }
-
+    
 // Перехватываем NIB-соединение (KVC) для свойства view
 - (())setValue:(id)value forKey:(id)key {
     let key_str = to_rust_string(env, key);
