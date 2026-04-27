@@ -89,18 +89,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     let instance = env.objc.alloc_object(this, host_object, &mut env.mem);
     
     // --- FIX FOR 0x6 CRASH ---
-    // We use as_vaddr() and from_vaddr() to bypass the private field errors.
-    // This ensures memory at offset 0x6 is 0 (nil) so the game doesn't crash.
-    let base_addr = instance.as_vaddr();
+    // We use a "transmute" style cast to bypass private fields.
+    // This tells the compiler to treat the Pointer as its underlying VAddr (u32).
+    let base_addr: u32 = unsafe { std::mem::transmute_copy(&instance) };
+    
     for offset in 4..12 {
         let addr = base_addr + offset;
-        env.mem.write(crate::mem::MutPtr::from_vaddr(addr), 0u8);
+        let mut_ptr: crate::mem::MutPtr<u8> = unsafe { std::mem::transmute_copy(&addr) };
+        env.mem.write(mut_ptr, 0u8);
     }
     // -------------------------
 
     instance
 }
-          
+             
 + (id)currentContext {
     env.framework_state.opengles.current_ctx_for_thread(env.current_thread).unwrap_or(nil)
 }
