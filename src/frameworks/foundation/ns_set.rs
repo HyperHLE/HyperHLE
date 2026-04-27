@@ -36,8 +36,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSSet: NSObject
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSSet might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
     assert!(this == env.objc.get_known_class("NSSet", &mut env.mem));
     msg_class![env; _touchHLE_NSSet allocWithZone:zone]
 }
@@ -60,15 +58,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<SetHostObject>(new).dict = dict;
     autorelease(env, new)
 }
-
-+ (id)setWithSet:(id)object {
-    // assert!(object != nil);
-    let new: id = msg![env; this alloc];
-    let new: id = msg![env; new initWithObject:object];
-    autorelease(env, new)
-}
-
-+ (id)setWithObject:(id)object {
+  + (id)setWithObject:(id)object {
     assert!(object != nil);
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithObject:object];
@@ -82,7 +72,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
-// NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     retain(env, this)
 }
@@ -107,17 +96,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     
 @end
 
-// NSMutableSet is an abstract class. A subclass must provide everything
-// NSSet provides, plus:
-// - (void)addObject:(id)object;
-// - (void)removeObject:(id)object;
-// Note that it inherits from NSSet, so we must ensure we override any default
-// methods that would be inappropriate for mutability.
 @implementation NSMutableSet: NSSet
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSSet might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
     assert!(this == env.objc.get_known_class("NSMutableSet", &mut env.mem));
     msg_class![env; _touchHLE_NSMutableSet allocWithZone:zone]
 }
@@ -136,15 +117,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
-// NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
-    todo!(); // TODO: this should produce an immutable copy
+    todo!(); 
 }
 
 @end
 
-// Our private subclass that is the single implementation of NSSet for the
-// time being.
 @implementation _touchHLE_NSSet: NSSet
 
 + (id)allocWithZone:(NSZonePtr)_zone {
@@ -156,16 +134,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithObject:(id)object {
     let null: id = msg_class![env; NSNull null];
-
     let mut dict = <DictionaryHostObject as Default>::default();
     dict.insert(env, object, null, /* copy_key: */ false);
-
     env.objc.borrow_mut::<SetHostObject>(this).dict = dict;
-
     this
 }
-
-- (id)initWithObjects:(id)first_obj, ...args {
+   - (id)initWithObjects:(id)first_obj, ...args {
     env.objc.borrow_mut::<SetHostObject>(this).dict = set_from_objects(env, first_obj, args);
     this
 }
@@ -175,9 +149,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
-// TODO: more init methods, etc
-
-// TODO: accessors
 - (NSUInteger)count {
     env.objc.borrow_mut::<SetHostObject>(this).dict.count
 }
@@ -195,17 +166,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     ns_array::from_vec(env, objects)
 }
 
-- (id)objectEnumerator { // NSEnumerator*
+- (id)objectEnumerator { 
     let array: id = msg![env; this allObjects];
     msg![env; array objectEnumerator]
 }
 
-// NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
-    // We assume that order in which objects are reported is consistent
-    // between calls!
     let objects: id = msg![env; this allObjects];
     let count: NSUInteger = msg![env; objects count];
     fast_enumeration_helper(env, this, |env, idx| {
@@ -217,10 +185,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     }, state, stackbuf, len)
 }
 
+// FIX: Added makeObjectsPerformSelector to the immutable subclass
+- (())makeObjectsPerformSelector:(crate::objc::Selector)selector {
+    let objects: Vec<id> = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().collect();
+    for object in objects {
+        let _: () = msg![env; object performSelector:selector];
+    }
+}
+
 @end
 
-// Our private subclass that is the single implementation of NSMutableSet for
-// the time being.
 @implementation _touchHLE_NSMutableSet: NSMutableSet
 
 + (id)allocWithZone:(NSZonePtr)_zone {
@@ -230,30 +204,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
-// NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     retain(env, this)
 }
-
-// NSCopying implementation
-- (id)mutableCopyWithZone:(NSZonePtr)_zone {
+    - (id)mutableCopyWithZone:(NSZonePtr)_zone {
     retain(env, this)
 }
 
 - (id)initWithCapacity:(NSUInteger)_numItems {
-    // We ignore the requested capacity as Rust's internal data structures handle resizing automatically.
     env.objc.borrow_mut::<SetHostObject>(this).dict = Default::default();
     this
 }
 
 - (id)initWithObject:(id)object {
     let null: id = msg_class![env; NSNull null];
-
     let mut dict = <DictionaryHostObject as Default>::default();
     dict.insert(env, object, null, /* copy_key: */ false);
-
     env.objc.borrow_mut::<SetHostObject>(this).dict = dict;
-
     this
 }
 
@@ -267,19 +234,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
-// TODO: init methods etc
-
 - (NSUInteger)count {
     env.objc.borrow_mut::<SetHostObject>(this).dict.count
 }
 
-- (())bodyType {
-
-}
-
-- (())b2body {
-
-}
+- (())bodyType {}
+- (())b2body {}
 
 - (id)anyObject {
     let object_or_none = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().next();
@@ -294,18 +254,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     ns_array::from_vec(env, objects)
 }
 
-- (id)objectEnumerator { // NSEnumerator*
+- (id)objectEnumerator { 
     let array: id = msg![env; this allObjects];
     msg![env; array objectEnumerator]
 }
-
-// NSFastEnumeration implementation
-- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
+    - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
-    // TODO: check that set wasn't mutated!
-    // We assume that order in which objects are reported is consistent
-    // between calls!
     let objects: id = msg![env; this allObjects];
     let count: NSUInteger = msg![env; objects count];
     fast_enumeration_helper(env, this, |env, idx| {
@@ -316,8 +271,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }, state, stackbuf, len)
 }
-
-// TODO: more mutation methods
 
 - (())addObject:(id)object {
     let null: id = msg_class![env; NSNull null];
@@ -342,7 +295,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     old_host_obj.dict.release(env);
 }
 
-- (())unionSet:(id)other { // NSSet *
+- (())unionSet:(id)other { 
     let enumerator: id = msg![env; other objectEnumerator];
     loop {
         let next: id = msg![env; enumerator nextObject];
@@ -352,16 +305,20 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg![env; this addObject:next];
     }
 }
+    // FIX: Added makeObjectsPerformSelector to the mutable subclass
+- (())makeObjectsPerformSelector:(crate::objc::Selector)selector {
+    let objects: Vec<id> = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().collect();
+    for object in objects {
+        let _: () = msg![env; object performSelector:selector];
+    }
+}
 
 @end
 
 };
 
-/// Helper method shared between `initWithObjects:` of `_touchHLE_NSSet` and
-/// `_touchHLE_NSMutableSet`
 fn set_from_objects(env: &mut Environment, first_obj: id, args: DotDotDot) -> DictionaryHostObject {
     let null: id = msg_class![env; NSNull null];
-
     let mut dict = <DictionaryHostObject as Default>::default();
     dict.insert(env, first_obj, null, /* copy_key: */ false);
     let mut varargs = args.start();
