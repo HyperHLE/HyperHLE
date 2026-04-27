@@ -331,25 +331,30 @@ UIColor blackColor] // TODO
 
 // Returns the player's backing view. Created lazily if initWithContentURL:
 // somehow failed to allocate it, so this always returns a non-nil UIView.
+// --- View ---
+
 - (id)view {
     let existing = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).view;
     if existing != nil {
         return existing;
     }
 
-    // Create a dummy view
-    let v: id = msg_class![env; UIView alloc];
-    let v: id = msg![env; v init];
+    // 1. Create the dummy view
+    let v_alloc: id = msg_class![env; UIView alloc];
+    let v: id = msg![env; v_alloc init];
     
-    // Give it a standard iPhone landscape frame [0, 0, 480, 320]
-    // This often prevents the "0x6" or "0x10" offset crashes
-    let _: () = msg![env; v setFrame: crate::frameworks::foundation::CGRect::new(0.0, 0.0, 480.0, 320.0)];
+    // 2. Define the frame OUTSIDE the macro to avoid the "::" error
+    // Using 480x320 for the standard landscape iPhone resolution
+    let frame = crate::frameworks::foundation::CGRect::new(0.0, 0.0, 480.0, 320.0);
+
+    // 3. Pass the pre-defined frame into the macro
+    let _: () = msg![env; v setFrame: frame];
     
     retain(env, v);
     env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).view = v;
     v
 }
-    
+       
 - (id)backgroundView {
     ensure_background_view(env, this)
 }
