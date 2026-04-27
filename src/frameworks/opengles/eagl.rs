@@ -84,9 +84,21 @@ pub const CLASSES: ClassExports = objc_classes! {
         next_frame_due: None,
         mapped_buffers: HashMap::new(),
     });
-    env.objc.alloc_object(this, host_object, &mut env.mem)
-}
+    
+    // Allocate the object
+    let instance = env.objc.alloc_object(this, host_object, &mut env.mem);
+    
+    // --- FIX FOR 0x6 CRASH ---
+    // Ensure memory at offset 0x6 is 0 (nil) instead of garbage/unmapped
+    for offset in 4..12 {
+        let addr = instance.as_u32() + offset;
+        env.mem.write(crate::mem::MutPtr::from_u32(addr), 0u8);
+    }
+    // -------------------------
 
+    instance
+}
+    
 + (id)currentContext {
     env.framework_state.opengles.current_ctx_for_thread(env.current_thread).unwrap_or(nil)
 }
