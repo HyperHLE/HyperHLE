@@ -45,11 +45,12 @@ fn objc_msgSend_inner(
     super2: Option<Class>,
     tolerate_type_mismatch: bool,
 ) {
-    // --- DIAGNOSTIC LOG START ---
+        // --- DIAGNOSTIC LOG START ---
     let sel_name = selector.as_str(&env.mem);
     log!("DEBUG_MSG: [{:?} {}]", receiver, sel_name);
+    let _ = std::io::Write::flush(&mut std::io::stderr());
     // --- DIAGNOSTIC LOG END ---
-
+    
     let message_type_info = env.objc.message_type_info.take();
     
     let message_type_info = env.objc.message_type_info.take();
