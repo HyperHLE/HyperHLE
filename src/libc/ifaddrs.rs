@@ -18,7 +18,7 @@ pub struct ifaddrs {
     pub ifa_next: MutPtr<ifaddrs>,
     pub ifa_name: ConstPtr<u8>,
     pub ifa_flags: u32,
-    pub ifa_addr: MutPtr<u8>, // Changed from u32 to MutPtr
+    pub ifa_addr: MutPtr<u8>, 
     pub ifa_netmask: MutPtr<u8>,
     pub ifa_broadaddr: MutPtr<u8>,
     pub ifa_data: u32,
@@ -38,13 +38,11 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         mem.write(MutPtr::from_bits(name_ptr.to_bits() + i as u32), byte);
     }
 
-    // 2. Allocate a dummy sockaddr (minimal size 16 bytes for sockaddr_in)
-    // This prevents the NULL dereference when the app checks ifa_addr
+    // 2. Allocate a dummy sockaddr (16 bytes for sockaddr_in)
+    // This prevents the NULL-PAGE READ at 0x1
     let sa_ptr: MutPtr<u8> = mem.alloc(16).cast();
-    // Fill with zeros, but set sa_family to AF_INET (2) 
-    // and sa_len to 16 (iOS/Darwin specific)
-    mem.write(sa_ptr, 16u8); // sa_len
-    mem.write(MutPtr::from_bits(sa_ptr.to_bits() + 1), 2u8); // sa_family (AF_INET)
+    mem.write(sa_ptr, 16u8); // sa_len (Offset 0)
+    mem.write(MutPtr::from_bits(sa_ptr.to_bits() + 1), 2u8); // sa_family AF_INET (Offset 1)
 
     // 3. Allocate the ifaddrs struct
     let ifa_size = std::mem::size_of::<ifaddrs>() as u32;
@@ -54,7 +52,7 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         ifa_next: MutPtr::null(),
         ifa_name: name_ptr.cast_const(),
         ifa_flags: 0x1 | 0x8, // IFF_UP | IFF_LOOPBACK
-        ifa_addr: sa_ptr,      // No longer 0!
+        ifa_addr: sa_ptr,      
         ifa_netmask: MutPtr::null(),
         ifa_broadaddr: MutPtr::null(),
         ifa_data: 0,
@@ -67,4 +65,28 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
     0 
 }
 
-// ... keep the rest of the file (freeifaddrs, if_nametoindex, etc) the same
+fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {
+    // Stubs usually don't need to actually free in this context
+}
+
+fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
+    let name = env.mem.as_ref().cstr_at_utf8(ifname).unwrap_or("");
+    if name == "en0" || name == "en1" || name == "lo0" {
+        return 1;
+    }
+    set_errno(env, ENXIO);
+    0
+}
+
+fn if_indextoname(_env: &mut Environment, ifindex: u32, ifname: MutPtr<u8>) -> MutPtr<u8> {
+    if ifindex == 1 { return ifname; }
+    MutPtr::null()
+}
+
+// THIS WAS THE MISSING PIECE:
+pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(getifaddrs(_)),
+    export_c_func!(freeifaddrs(_)),
+    export_c_func!(if_nametoindex(_)),
+    export_c_func!(if_indextoname(_, _)),
+];
