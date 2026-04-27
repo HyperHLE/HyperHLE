@@ -203,13 +203,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
-    release(env, host.content_url);
-    release(env, host.view);
-    release(env, host.background_view);
+    // 1. Extract the IDs into local variables so we can drop the 'host' borrow
+    let (url, view, bg_view) = {
+        let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
+        (host.content_url, host.view, host.background_view)
+    }; // The borrow of 'host' ends right here because of the curly braces
+
+    // 2. Now we can safely borrow 'env' mutably for the release calls
+    release(env, url);
+    release(env, view);
+    release(env, bg_view);
+
+    // 3. Finally, destroy the object itself
     env.objc.dealloc_object(this, &mut env.mem);
 }
-
+    
 - (id)contentURL {
     env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).content_url
 }
