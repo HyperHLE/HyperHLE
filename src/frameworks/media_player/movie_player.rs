@@ -98,7 +98,6 @@ struct MPMoviePlayerControllerHostObject {
     playback_state: MPMoviePlaybackState,
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
-
 /// Ensure the player has a valid dummy view, creating one lazily if needed.
 /// Returns the view id (always non-nil after this call).
 fn ensure_view(env: &mut Environment, this: id) -> id {
@@ -183,7 +182,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     ensure_view(env, this);
     ensure_background_view(env, this);
-    // Notify app that content is preloaded
+
+    // 1. Notify app that content is preloaded
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerContentPreloadDidFinishNotification,
@@ -191,23 +191,31 @@ pub const CLASSES: ClassExports = objc_classes! {
         Instant::now(),
     ));
 
-    // Notify app that load state has changed (Crucial for Power Rangers Samurai)
+    // 2. Notify app that load state has changed (Crucial for Power Rangers Samurai)
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerLoadStateDidChangeNotification,
         this,
         Instant::now(),
     ));
+
+    // 3. THE SKIP HACK: Tell the game the video finished after 150ms.
+    // This forces the game to move from the Saban logo to the Main Menu.
+    retain(env, this);
+    State::get(env).pending_notifications.push_back((
+        MPMoviePlayerPlaybackDidFinishNotification,
+        this,
+        Instant::now() + std::time::Duration::from_millis(150),
+    ));
     
     this
 }
-
-- (())dealloc {
+    - (())dealloc {
     // 1. Extract the IDs into local variables so we can drop the 'host' borrow
     let (url, view, bg_view) = {
         let host = env.objc.borrow::<MPMoviePlayerControllerHostObject>(this);
         (host.content_url, host.view, host.background_view)
-    }; // The borrow of 'host' ends right here because of the curly braces
+    }; 
 
     // 2. Now we can safely borrow 'env' mutably for the release calls
     release(env, url);
@@ -290,14 +298,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (MPMoviePlaybackState)playbackState {
     env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).playback_state
 }
-    - (f64)currentPlaybackTime {
+
+- (f64)currentPlaybackTime {
     1.0 
 }
 - (())setCurrentPlaybackTime:(f64)time {
     todo_objc_setter!(this, time);
 }
-
-- (f64)initialPlaybackTime {
+    - (f64)initialPlaybackTime {
     env.objc.borrow::<MPMoviePlayerControllerHostObject>(this).initial_playback_time
 }
 - (())setInitialPlaybackTime:(f64)time {
@@ -318,12 +326,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())play {
     log!("[(MPMoviePlayerController*){:?} play]", this);
     env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).playback_state = MPMoviePlaybackStatePlaying;
-    retain(env, this);
-    State::get(env).pending_notifications.push_back((
-        MPMoviePlayerPlaybackDidFinishNotification,
-        this,
-        Instant::now() + std::time::Duration::from_millis(50),
-    ));
 }
 
 - (())pause {
@@ -331,6 +333,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())stop {
+    log!("[(MPMoviePlayerController*){:?} stop]", this);
     env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).playback_state = MPMoviePlaybackStateStopped;
     if env.framework_state.media_player.movie_player.active_player == Some(this) {
         env.framework_state.media_player.movie_player.active_player = None;
