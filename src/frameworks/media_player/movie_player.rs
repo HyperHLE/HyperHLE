@@ -9,6 +9,7 @@
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger};
 use crate::frameworks::uikit::ui_device::UIDeviceOrientation;
+use crate::frameworks::core_graphics::CGRect;
 use crate::objc::{
     id, msg, msg_class, nil, objc_classes, release, retain, todo_objc_setter, ClassExports,
     HostObject, NSZonePtr,
@@ -343,18 +344,17 @@ UIColor blackColor] // TODO
     let v_alloc: id = msg_class![env; UIView alloc];
     let v: id = msg![env; v_alloc init];
     
-    // 2. Define the frame OUTSIDE the macro to avoid the "::" error
-    // Using 480x320 for the standard landscape iPhone resolution
-    let frame = crate::frameworks::foundation::CGRect::new(0.0, 0.0, 480.0, 320.0);
+    // 2. Define the frame using the newly imported CGRect
+    let frame = CGRect::new(0.0, 0.0, 480.0, 320.0);
 
-    // 3. Pass the pre-defined frame into the macro
+    // 3. Pass the frame into the macro
     let _: () = msg![env; v setFrame: frame];
     
     retain(env, v);
     env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).view = v;
     v
 }
-       
+           
 - (id)backgroundView {
     ensure_background_view(env, this)
 }
