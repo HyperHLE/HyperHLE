@@ -141,12 +141,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     ns_string::get_static_str(env, "iPhone OS")
 }
 - (id)systemVersion {
-    ns_string::get_static_str(env, "2.0")
+    // Upgraded to 3.1.3 because the game requires at least 3.0
+    ns_string::get_static_str(env, "3.1.3")
 }
 - (id)uniqueIdentifier {
-    ns_string::get_static_str(env, "touchHLEdevice..........................")
+    // A standard 40-character UDID format helps prevent crashes in engine logic
+    ns_string::get_static_str(env, "0000000000000000000000000000000000000000")
 }
-
+    
 // MARK: - Idiom
 
 - (UIUserInterfaceIdiom)userInterfaceIdiom {
