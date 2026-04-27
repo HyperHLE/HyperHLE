@@ -344,17 +344,21 @@ UIColor blackColor] // TODO
     let v_alloc: id = msg_class![env; UIView alloc];
     let v: id = msg![env; v_alloc init];
     
-    // 2. Define the frame using the newly imported CGRect
-    let frame = CGRect::new(0.0, 0.0, 480.0, 320.0);
+    // 2. Build the CGRect manually using its fields
+    // This matches the structure in cg_geometry.rs
+    let frame = crate::frameworks::core_graphics::CGRect {
+        origin: crate::frameworks::core_graphics::CGPoint { x: 0.0, y: 0.0 },
+        size: crate::frameworks::core_graphics::CGSize { width: 480.0, height: 320.0 },
+    };
 
-    // 3. Pass the frame into the macro
+    // 3. Pass it to the macro
     let _: () = msg![env; v setFrame: frame];
     
     retain(env, v);
     env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).view = v;
     v
 }
-           
+              
 - (id)backgroundView {
     ensure_background_view(env, this)
 }
