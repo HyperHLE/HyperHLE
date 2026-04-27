@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use crate::objc::{id, SEL, ClassExports, objc_classes, NSZonePtr, HostObject}; // Added HostObject
+use crate::objc::{id, SEL, ClassExports, objc_classes, NSZonePtr, HostObject};
 use crate::log;
 use crate::Environment;
 use crate::frameworks::foundation::NSRange;
@@ -19,7 +19,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     @implementation NSRegularExpression: NSObject
 
     + (id)allocWithZone:(NSZonePtr)_zone {
-        // Use our new struct instead of ()
         let host_obj = Box::new(NSRegularExpressionHostObject);
         let instance = (*env.objc).alloc_object(this, host_obj, &mut env.mem);
         log!("NSRegularExpression: Created instance {:?}.", instance);
@@ -29,6 +28,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     - (id)initWithPattern:(id)_pattern options:(u64)_options error:(id)_error {
         log!("NSRegularExpression: initWithPattern stubbed.");
         this
+    }
+
+    // THIS IS THE NEW PART
+    - (id)firstMatchInString:(id)_string options:(u64)_options range:(NSRange)_range {
+        log!("NSRegularExpression: firstMatchInString returning nil.");
+        crate::objc::nil
     }
 
     - (id)matchesInString:(id)_string options:(u64)_options range:(NSRange)_range {
