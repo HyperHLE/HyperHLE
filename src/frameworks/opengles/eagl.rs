@@ -88,21 +88,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Allocate the object
     let instance = env.objc.alloc_object(this, host_object, &mut env.mem);
     
-    // --- FIX FOR 0x6 CRASH ---
-    // We use a "transmute" style cast to bypass private fields.
-    // This tells the compiler to treat the Pointer as its underlying VAddr (u32).
-    let base_addr: u32 = unsafe { std::mem::transmute_copy(&instance) };
-    
-    for offset in 4..12 {
-        let addr = base_addr + offset;
-        let mut_ptr: crate::mem::MutPtr<u8> = unsafe { std::mem::transmute_copy(&addr) };
-        env.mem.write(mut_ptr, 0u8);
+    // --- EMERGENCY FIX FOR 0x6 CRASH (V4) ---
+    // Instead of just 4-12, we clear 4-32 to be absolutely sure.
+    // We use a raw cast to ensure we aren't fighting the compiler's privacy rules.
+    unsafe {
+        let base_addr: u32 = std::mem::transmute_copy(&instance);
+        for i in (4..32).step_by(1) {
+            let addr = base_addr + i;
+            // Use the direct memory write bypass
+            let ptr: crate::mem::MutPtr<u8> = std::mem::transmute_copy(&addr);
+            let _ = env.mem.write(ptr, 0u8);
+        }
     }
-    // -------------------------
+    // ----------------------------------------
 
     instance
 }
-             
+                 
 + (id)currentContext {
     env.framework_state.opengles.current_ctx_for_thread(env.current_thread).unwrap_or(nil)
 }
