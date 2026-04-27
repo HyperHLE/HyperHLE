@@ -204,7 +204,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             log!("UIViewController: WARNING: loadView failed. Forcing default view for 0x6 crash prevention.");
             let screen = msg_class![env; UIScreen mainScreen];
             let bounds: CGRect = msg![env; screen bounds];
-            let fallback_view: id = msg![env; msg_class![env; UIView alloc] initWithFrame:bounds];
+            let fallback_view: id = msg![env; (msg_class![env; UIView alloc]) initWithFrame:bounds];
             let _: () = msg![env; this setView:fallback_view];
             crate::objc::release(env, fallback_view);
             view = env.objc.borrow_mut::<UIViewControllerHostObject>(this).view;
