@@ -14,6 +14,7 @@ use crate::environment::Environment;
 use crate::mem::MutPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, retain, ClassExports, HostObject, NSZonePtr,
+    Sel, // Added Sel to imports
 };
 
 /// Belongs to _touchHLE_NSSet
@@ -58,14 +59,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<SetHostObject>(new).dict = dict;
     autorelease(env, new)
 }
-  + (id)setWithObject:(id)object {
-    assert!(object != nil);
+
++ (id)setWithSet:(id)object {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithObject:object];
     autorelease(env, new)
 }
 
-+ (id)setWithObjects:(id)first_obj, ...args {
++ (id)setWithObject:(id)object {
+    assert!(object != nil);
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithObject:object];
+    autorelease(env, new)
+}
+    + (id)setWithObjects:(id)first_obj, ...args {
     assert!(this == env.objc.get_known_class("NSSet", &mut env.mem));
     let new: id = msg![env; this alloc];
     env.objc.borrow_mut::<SetHostObject>(new).dict = set_from_objects(env, first_obj, args);
@@ -131,15 +138,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
-
-- (id)initWithObject:(id)object {
+    - (id)initWithObject:(id)object {
     let null: id = msg_class![env; NSNull null];
     let mut dict = <DictionaryHostObject as Default>::default();
     dict.insert(env, object, null, /* copy_key: */ false);
     env.objc.borrow_mut::<SetHostObject>(this).dict = dict;
     this
 }
-   - (id)initWithObjects:(id)first_obj, ...args {
+
+- (id)initWithObjects:(id)first_obj, ...args {
     env.objc.borrow_mut::<SetHostObject>(this).dict = set_from_objects(env, first_obj, args);
     this
 }
@@ -185,15 +192,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     }, state, stackbuf, len)
 }
 
-// FIX: Added makeObjectsPerformSelector to the immutable subclass
-- (())makeObjectsPerformSelector:(crate::objc::Selector)selector {
+- (())makeObjectsPerformSelector:(Sel)selector {
     let objects: Vec<id> = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().collect();
     for object in objects {
         let _: () = msg![env; object performSelector:selector];
     }
 }
-
-@end
+    @end
 
 @implementation _touchHLE_NSMutableSet: NSMutableSet
 
@@ -207,7 +212,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)copyWithZone:(NSZonePtr)_zone {
     retain(env, this)
 }
-    - (id)mutableCopyWithZone:(NSZonePtr)_zone {
+
+- (id)mutableCopyWithZone:(NSZonePtr)_zone {
     retain(env, this)
 }
 
@@ -248,8 +254,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         None => nil
     }
 }
-
-- (id)allObjects {
+    - (id)allObjects {
     let objects = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().collect();
     ns_array::from_vec(env, objects)
 }
@@ -258,7 +263,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     let array: id = msg![env; this allObjects];
     msg![env; array objectEnumerator]
 }
-    - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
+
+- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
     let objects: id = msg![env; this allObjects];
@@ -294,8 +300,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     );
     old_host_obj.dict.release(env);
 }
-
-- (())unionSet:(id)other { 
+    - (())unionSet:(id)other { 
     let enumerator: id = msg![env; other objectEnumerator];
     loop {
         let next: id = msg![env; enumerator nextObject];
@@ -305,8 +310,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg![env; this addObject:next];
     }
 }
-    // FIX: Added makeObjectsPerformSelector to the mutable subclass
-- (())makeObjectsPerformSelector:(crate::objc::Selector)selector {
+
+- (())makeObjectsPerformSelector:(Sel)selector {
     let objects: Vec<id> = env.objc.borrow_mut::<SetHostObject>(this).dict.iter_keys().collect();
     for object in objects {
         let _: () = msg![env; object performSelector:selector];
