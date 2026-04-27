@@ -343,8 +343,8 @@ UIColor blackColor] // TODO
     
     // Give it a standard iPhone landscape frame [0, 0, 480, 320]
     // This often prevents the "0x6" or "0x10" offset crashes
-    let _: () = msg![env; v setFrame: (0.0, 0.0, 480.0, 320.0)];
-
+    let _: () = msg![env; v setFrame: crate::frameworks::foundation::CGRect::new(0.0, 0.0, 480.0, 320.0)];
+    
     retain(env, v);
     env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).view = v;
     v
