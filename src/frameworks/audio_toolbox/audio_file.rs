@@ -539,7 +539,7 @@ pub fn AudioFileReadPackets(
     // PvM Fix #6: Check if starting position is beyond file size
     let file_byte_count = match host_object {
         AudioFileHostObject::Real(ref audio_file) => {
-            audio_file.byte_count().unwrap_or(u64::MAX)
+            audio_file.byte_count().unwrap_or(0)
         }
         AudioFileHostObject::Dummy { byte_count, .. } => *byte_count,
     };
