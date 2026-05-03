@@ -48,7 +48,6 @@ mod objc;
 mod options;
 mod paths;
 mod stack;
-mod time_util;
 mod window;
 
 // Environment is used very frequently used and used to be in this module, so
@@ -259,23 +258,12 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     echo!();
 
     if let Some(version) = minimum_os_version {
-        // `MinimumOSVersion` in `Info.plist` is normally formatted as
-        // `MAJOR.MINOR[.PATCH]`, but real-world apps in the wild also ship
-        // values like `6` (no dot) or even non-numeric build strings (Apple
-        // mostly tolerates this in store distribution). Be lenient instead of
-        // panicking so we still launch into the picker UI:
-        // https://developer.apple.com/documentation/bundleresources/information_property_list/minimumosversion
-        let (major_str, minor_str): (&str, &str) = match version.split_once('.') {
-            Some((major, minor_etc)) => (
-                major,
-                minor_etc
-                    .split_once('.')
-                    .map_or(minor_etc, |(minor, _etc)| minor),
-            ),
-            None => (version, "0"),
-        };
-        let major: u32 = major_str.parse().unwrap_or(0);
-        let minor: u32 = minor_str.parse().unwrap_or(0);
+        let (major, minor_etc) = version.split_once('.').unwrap();
+        let minor = minor_etc
+            .split_once('.')
+            .map_or(minor_etc, |(minor, _etc)| minor);
+        let major: u32 = major.parse().unwrap();
+        let minor: u32 = minor.parse().unwrap();
         if major > 4 || (major == 4 && minor > 0) {
             echo!("Warning: app requires OS version {}. Only apps for iOS 4.0 and earlier are currently supported.", version);
         }

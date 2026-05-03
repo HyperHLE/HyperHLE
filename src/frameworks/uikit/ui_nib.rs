@@ -202,39 +202,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     log!("[DEBUG NIB] UIClassSwapper loading class: {} (original: {})", name, orig);
 
-    // Pick the best concrete class to instantiate from the NIB. Apps in the
-    // wild reference all manner of classes — third-party SDK objects
-    // (`UserVoice`, `MobclixWidgetButtonController`), iOS private classes
-    // (`UITextSelectionView`), or app-defined types we don't recognise.
-    // Apple's Interface Builder runtime falls back to the original
-    // (`UIOriginalClassName`) class if `UIClassName` isn't loaded, and then to
-    // the generic root if neither is found, which is the strategy mirrored
-    // here. Crucially, we must never panic — `get_known_class` panics on
-    // unknown classes, so we only consult it after first checking that the
-    // class is actually implemented in the host.
-    let problematic_views = ["FBLoginButton"];
+    // Блок для определения подменного класса без ворнингов на лишний `mut`
     let selected_class = {
-        let pick: Option<&str> = if !problematic_views.iter().any(|&prob| name == prob)
-            && crate::objc::ObjC::class_has_template(&name)
-        {
-            Some(&name)
-        } else if crate::objc::ObjC::class_has_template(&orig) {
+        let mut c = env.objc.get_known_class(&name, &mut env.mem);
+        if c == nil {
             log!("[DEBUG NIB] Warning: Custom class {} not found. Falling back to original: {}", name, orig);
-            Some(&orig)
-        } else if !orig.is_empty() {
-            log!(
-                "[DEBUG NIB] Warning: Neither {} nor original {} are implemented; substituting UIView",
-                name, orig
-            );
-            None
-        } else {
-            log!("[DEBUG NIB] Warning: Substituting {} with generic UIView", name);
-            None
-        };
-        match pick {
-            Some(picked) => env.objc.get_known_class(picked, &mut env.mem),
-            None => env.objc.get_known_class("UIView", &mut env.mem),
+            c = env.objc.get_known_class(&orig, &mut env.mem);
         }
+
+        let problematic_views = ["FBLoginButton"];
+        if c == nil || problematic_views.iter().any(|&prob| name == prob) {
+            log!("[DEBUG NIB] Warning: Substituting {} with generic UIView", name);
+            c = env.objc.get_known_class("UIView", &mut env.mem);
+        }
+
+        if c == nil {
+            log!("[DEBUG NIB] CRITICAL: Fallback class not found! Falling back to NSObject.");
+            c = env.objc.get_known_class("NSObject", &mut env.mem);
+        }
+        c
     };
 
     let object: id = msg![env; selected_class alloc];

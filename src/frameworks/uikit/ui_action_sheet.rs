@@ -266,16 +266,7 @@ destructiveButtonTitle:(id)destructive_title // NSString*
         return;
     }
 
-    // Apps don't always already have this selector interned in the binary
-    // (e.g. an app that only registers `actionSheetCancel:` but not the
-    // explicit `clickedButtonAtIndex:` variant). `lookup_selector` returns
-    // `None` in that case, so use `register_host_selector` to mint the
-    // selector if it doesn't exist yet — this matches Apple's behaviour where
-    // `@selector(actionSheet:clickedButtonAtIndex:)` always yields a valid
-    // SEL even if the protocol method is unimplemented.
-    let sel_clicked = env
-        .objc
-        .register_host_selector("actionSheet:clickedButtonAtIndex:".to_string(), &mut env.mem);
+    let sel_clicked = env.objc.lookup_selector("actionSheet:clickedButtonAtIndex:").unwrap();
     let responds: bool = msg![env; delegate respondsToSelector:sel_clicked];
     if responds {
         let _: () = msg![env; delegate actionSheet:this clickedButtonAtIndex:index];
@@ -291,12 +282,7 @@ destructiveButtonTitle:(id)destructive_title // NSString*
 
     let delegate = env.objc.borrow::<UIActionSheetHostObject>(this).delegate;
     if delegate != nil {
-        // See note in `dismissDidClickedButtonIndex:` above — apps may not
-        // have this selector pre-registered when they only adopt parts of
-        // `<UIActionSheetDelegate>`.
-        let sel_cancel = env
-            .objc
-            .register_host_selector("actionSheetCancel:".to_string(), &mut env.mem);
+        let sel_cancel = env.objc.lookup_selector("actionSheetCancel:").unwrap();
         let responds: bool = msg![env; delegate respondsToSelector:sel_cancel];
         if responds {
             let _: () = msg![env; delegate actionSheetCancel:this];

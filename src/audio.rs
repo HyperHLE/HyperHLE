@@ -128,41 +128,7 @@ impl AudioFile {
 
     // Extracted parse_inner to fix E0599 and removed duplicate read_from_vec
     fn parse_inner(bytes: Vec<u8>) -> Result<AudioFileInner, AudioFileOpenError> {
-        // Apple's Core Audio LPCM family supports 8/16/24/32 integer and
-        // 32/64 float WAVE files (kAudioFormatLinearPCM with the matching
-        // mBitsPerChannel and `kAudioFormatFlagIsFloat`). The `hound` based
-        // fast path that the rest of this file is wired around only knows
-        // how to surface 8 and 16 bit signed integer LPCM, so anything else
-        // (24-bit "ProTools" stems, 32-bit float renders out of Logic /
-        // GarageBand, etc.) used to fall through to a hard assertion in
-        // `audio_description()` and crash the emulator. We probe the spec
-        // with a borrowed copy of the byte buffer first; if it's something
-        // we can replay, we re-parse with an owning `WavReader`, otherwise
-        // we fall through to Symphonia (or the AAC/CAF paths) which can
-        // decode and resample those formats to the 16-bit interleaved PCM
-        // the rest of the pipeline expects.
-        // See: "Core Audio Data Types Reference – AudioStreamBasicDescription"
-        // https://developer.apple.com/documentation/coreaudiotypes/audiostreambasicdescription
-        let hound_supported = match hound::WavReader::new(Cursor::new(&bytes)) {
-            Ok(probe) => {
-                let spec = probe.spec();
-                if matches!(spec.bits_per_sample, 8 | 16)
-                    && matches!(spec.sample_format, hound::SampleFormat::Int)
-                {
-                    true
-                } else {
-                    log!(
-                        "WAV file has unsupported sample format ({:?}, {} bits/sample); \
-                         falling back to Symphonia decoder.",
-                        spec.sample_format,
-                        spec.bits_per_sample,
-                    );
-                    false
-                }
-            }
-            Err(_) => false,
-        };
-        if hound_supported {
+        if hound::WavReader::new(Cursor::new(&bytes)).is_ok() {
             let reader = hound::WavReader::new(Cursor::new(bytes)).unwrap();
             return Ok(AudioFileInner::Wave(reader));
         }

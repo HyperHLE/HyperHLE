@@ -12,7 +12,6 @@ use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain, ClassExports,
     HostObject, NSZonePtr, SEL,
 };
-use crate::time_util::duration_from_secs_f64_saturating;
 use crate::Environment;
 use std::time::{Duration, Instant};
 
@@ -48,15 +47,8 @@ pub const CLASSES: ClassExports = objc_classes! {
                    selector:(SEL)selector
                    userInfo:(id)user_info
                     repeats:(bool)repeats {
-    // Apple silently treats negative / NaN / ±∞ timer intervals as
-    // "fire as soon as possible". `Duration::from_secs_f64` would panic on
-    // those, so funnel through the saturating helper.
-    let ns_interval = if ns_interval.is_nan() {
-        0.0001
-    } else {
-        ns_interval.max(0.0001)
-    };
-    let rust_interval = duration_from_secs_f64_saturating(ns_interval);
+    let ns_interval = ns_interval.max(0.0001);
+    let rust_interval = Duration::from_secs_f64(ns_interval);
 
     retain(env, target);
     retain(env, user_info);
@@ -68,14 +60,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         selector,
         user_info,
         repeats,
-        // `checked_add` may saturate on platforms with 32-bit time_t when
-        // a huge `rust_interval` is passed in. Fall back to `Instant::now()`
-        // so the timer fires immediately rather than crashing the emulator.
-        due_by: Some(
-            Instant::now()
-                .checked_add(rust_interval)
-                .unwrap_or_else(Instant::now),
-        ),
+        due_by: Some(Instant::now().checked_add(rust_interval).unwrap()),
         run_loop: nil,
         is_running_callback: false
     });
@@ -193,11 +178,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let mut timer = env.objc.borrow_mut::<NSTimerHostObject>(this);
     if timer.due_by.is_some() {
-        if !time_interval.is_finite() || time_interval <= 0.0 {
+        if time_interval.is_nan() || time_interval <= 0.0 {
             timer.due_by = Some(Instant::now());
         } else {
-            timer.due_by =
-                Some(Instant::now() + duration_from_secs_f64_saturating(time_interval));
+            let safe_interval = time_interval.min(100.0 * 365.0 * 24.0 * 3600.0);
+            timer.due_by = Some(Instant::now() + Duration::from_secs_f64(safe_interval));
         }
     }
 }
@@ -228,18 +213,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     let retained_target = retain(env, t);
     let retained_user_info = retain(env, ui);
 
-    let safe_ti = if ti.is_nan() { 0.0001 } else { ti.max(0.0001) };
-    let rust_interval = duration_from_secs_f64_saturating(safe_ti);
+    let safe_ti = ti.max(0.0001);
+    let rust_interval = std::time::Duration::from_secs_f64(safe_ti);
 
     // ИСПРАВЛЕНИЕ E0499: Вычисляем fire_time ДО того, как берём `borrow_mut`
     let fire_time = if _date != crate::objc::nil {
         // Здесь безопасно использовать env, так как мы еще ничего не
         // позаимствовали
         let time_interval: NSTimeInterval = msg![env; _date timeIntervalSinceNow];
-        if !time_interval.is_finite() || time_interval <= 0.0 {
+        if time_interval.is_nan() || time_interval <= 0.0 {
             std::time::Instant::now()
         } else {
-            std::time::Instant::now() + duration_from_secs_f64_saturating(time_interval)
+            let safe_interval = time_interval.min(100.0 * 365.0 * 24.0 * 3600.0);
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(safe_interval)
         }
     } else {
         std::time::Instant::now() + rust_interval
@@ -292,13 +278,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// For use by `CADisplayLink`
 pub fn set_time_interval(env: &mut Environment, timer: id, interval: NSTimeInterval) {
     let host_object = env.objc.borrow_mut::<NSTimerHostObject>(timer);
-    let safe_interval = if interval.is_nan() {
-        0.0001
-    } else {
-        interval.max(0.0001)
-    };
+    let safe_interval = interval.max(0.0001);
     host_object.ns_interval = safe_interval;
-    host_object.rust_interval = duration_from_secs_f64_saturating(safe_interval);
+    host_object.rust_interval = Duration::from_secs_f64(safe_interval);
 }
 
 /// For use by `NSRunLoop`

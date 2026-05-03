@@ -433,16 +433,6 @@ impl ObjC {
         self.link_class_inner(name, /* is_metaclass: */ false, mem, false)
     }
 
-    /// Returns whether `name` corresponds to a real host-provided class
-    /// template (i.e. something other than a [`FakeClass`] or
-    /// [`UnimplementedClass`] placeholder). Useful for NIB / runtime lookup
-    /// paths that want to fall back to a more general class (`UIView`,
-    /// `NSObject`, etc.) when an app references a class we haven't
-    /// implemented yet.
-    pub fn class_has_template(name: &str) -> bool {
-        Self::find_template(name).is_some()
-    }
-
     fn link_class_inner(
         &mut self,
         name: &str,

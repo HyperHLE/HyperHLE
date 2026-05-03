@@ -8,23 +8,14 @@
 use super::ns_string::{from_rust_ordering, from_rust_string};
 use super::{_nib_archive_decoder, NSComparisonResult, NSOrderedSame, NSRange, NSUInteger};
 use crate::frameworks::core_foundation::cf_number::{
-    kCFNumberCharType,
-    kCFNumberDoubleType, // <-- ИСПРАВЛЕНИЕ: Добавлены наши новые типы
-    kCFNumberFloat32Type,
-    kCFNumberFloat64Type,
-    kCFNumberFloatType,
-    kCFNumberIntType,
-    kCFNumberLongLongType,
-    kCFNumberSInt16Type,
-    kCFNumberSInt32Type,
-    kCFNumberSInt64Type,
-    kCFNumberSInt8Type,
-    kCFNumberShortType,
-    CFNumberType,
+    kCFNumberCharType, kCFNumberFloat32Type, kCFNumberFloat64Type, kCFNumberFloatType,
+    kCFNumberIntType, kCFNumberSInt16Type, kCFNumberSInt32Type, kCFNumberSInt64Type,
+    kCFNumberSInt8Type, kCFNumberShortType, CFNumberType,
+    kCFNumberLongLongType, kCFNumberDoubleType, // <-- ИСПРАВЛЕНИЕ: Добавлены наши новые типы
 };
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::NSInteger;
-use crate::mem::{ConstPtr, ConstVoidPtr, MutVoidPtr};
+use crate::mem::{ConstVoidPtr, MutVoidPtr, ConstPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr, SEL,
@@ -561,12 +552,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         false
     };
 
-    // 2. Если это NSKeyedArchiver, мы ОБЯЗАНЫ использовать кодирование по ключу,
+    // 2. Если это NSKeyedArchiver, мы ОБЯЗАНЫ использовать кодирование по ключу, 
     // так как он не поддерживает сырое кодирование байтов (encodeValueOfObjCType:at:)
     if allows_keyed {
         let key = from_rust_string(env, "NS.numbervalue".to_string());
         let key = autorelease(env, key);
-
+        
         let num_obj = env.objc.borrow::<NSNumberHostObject>(this);
         if num_obj.is_float() {
             let val: f64 = num_obj.as_double();

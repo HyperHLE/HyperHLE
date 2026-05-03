@@ -17,7 +17,6 @@ use crate::mem::{MutPtr, MutVoidPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, Class, ClassExports,
 };
-use crate::time_util::duration_from_secs_f64_saturating;
 use crate::Environment;
 use plist::Value;
 use std::io::Cursor;

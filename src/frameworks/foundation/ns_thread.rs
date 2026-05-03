@@ -32,7 +32,10 @@ use std::time::Duration;
 /// transition. Returning `None` lets the caller log and skip the sleep
 /// instead of crashing the whole emulator.
 fn ns_time_interval_to_duration(ti: NSTimeInterval) -> Option<Duration> {
-    crate::time_util::duration_from_secs_f64_strict(ti)
+    if !ti.is_finite() || ti < 0.0 {
+        return None;
+    }
+    Duration::try_from_secs_f64(ti).ok()
 }
 
 #[derive(Default)]

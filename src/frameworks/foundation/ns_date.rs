@@ -17,9 +17,8 @@ use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
     NSZonePtr,
 };
-use crate::time_util::duration_from_secs_f64_saturating;
 use std::ops::{Add, Sub};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 // Time interval constants
 const SECS_PER_DAY: NSTimeInterval = 86400.0;
@@ -201,9 +200,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSTimeInterval)timeIntervalSince1970 {
     let time_interval = env.objc.borrow::<NSDateHostObject>(this).time_interval;
     let new_time = if time_interval >= 0.0 {
-        apple_epoch().add(duration_from_secs_f64_saturating(time_interval))
+        apple_epoch().add(Duration::from_secs_f64(time_interval))
     } else {
-        apple_epoch().sub(duration_from_secs_f64_saturating(-time_interval))
+        apple_epoch().sub(Duration::from_secs_f64(-time_interval))
     };
     new_time
         .duration_since(SystemTime::UNIX_EPOCH)
