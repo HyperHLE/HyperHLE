@@ -421,7 +421,7 @@ fn AudioFileReadPacketData(
 pub fn AudioFileReadPackets(
     env: &mut Environment,
     in_audio_file: AudioFileID,
-    _in_use_cache: bool,
+    in_use_cache: bool,
     out_num_bytes: MutPtr<u32>,
     out_packet_descriptions: MutVoidPtr,
     in_starting_packet: i64,
@@ -431,6 +431,18 @@ pub fn AudioFileReadPackets(
     return_if_null!(in_audio_file);
 
     if io_num_packets.is_null() {
+        log!("AudioFileReadPackets: io_num_packets is null");
+        return paramErr;
+    }
+
+    // PvM Fix #1: Validate out_buffer early
+    let packets_to_read = env.mem.read(io_num_packets);
+    if packets_to_read > 0 && out_buffer.is_null() {
+        log!("AudioFileReadPackets: out_buffer is null but packets_to_read > 0");
+        env.mem.write(io_num_packets, 0);
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, 0);
+        }
         return paramErr;
     }
 
@@ -444,91 +456,295 @@ pub fn AudioFileReadPackets(
     {
         Some(obj) => obj,
         None => {
-            log_dbg!("AudioFileReadPackets: unknown AudioFileID {:?}", in_audio_file);
+            log!("AudioFileReadPackets: unknown AudioFileID {:?}", in_audio_file);
             return kAudioFileNotOpenError;
         }
     };
 
     let packet_size = match host_object {
-        AudioFileHostObject::Real(audio_file)      => audio_file.packet_size_fixed(),
-        AudioFileHostObject::Dummy { format, .. }  => format.bytes_per_packet,
+        AudioFileHostObject::Real(audio_file) => audio_file.packet_size_fixed(),
+        AudioFileHostObject::Dummy { format, .. } => format.bytes_per_packet,
     };
 
-    let packets_to_read = env.mem.read(io_num_packets);
-
-    // Early-out: nothing to read.
-    if packet_size == 0 || packets_to_read == 0 {
+    // PvM Fix #2: Validate packet size
+    if packet_size == 0 {
+        log_dbg!("AudioFileReadPackets: packet_size is 0, returning success with 0 packets");
         env.mem.write(io_num_packets, 0);
-        if !out_num_bytes.is_null() { env.mem.write(out_num_bytes, 0); }
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, 0);
+        }
         return kAudioFileSuccess;
     }
 
-    if in_starting_packet < 0 {
+    // PvM Fix #3: Clamp unreasonably large packet requests
+    // Some apps may request millions of packets accidentally
+    const MAX_REASONABLE_PACKETS: u32 = 1_000_000;
+    let packets_requested = if packets_to_read > MAX_REASONABLE_PACKETS {
+        log!("AudioFileReadPackets: clamping excessive packet request {} to {}", 
+             packets_to_read, MAX_REASONABLE_PACKETS);
+        MAX_REASONABLE_PACKETS
+    } else {
+        packets_to_read
+    };
+
+    // Early-out: nothing to read
+    if packets_requested == 0 {
         env.mem.write(io_num_packets, 0);
-        if !out_num_bytes.is_null() { env.mem.write(out_num_bytes, 0); }
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, 0);
+        }
+        return kAudioFileSuccess;
+    }
+
+    // PvM Fix #4: Handle negative starting packet gracefully
+    if in_starting_packet < 0 {
+        log_dbg!("AudioFileReadPackets: negative starting packet {}, returning EOF", 
+                 in_starting_packet);
+        env.mem.write(io_num_packets, 0);
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, 0);
+        }
         return eofErr;
     }
 
+    // PvM Fix #5: Prevent integer overflow in byte calculations
     let starting_byte = match i64::from(packet_size).checked_mul(in_starting_packet) {
-        Some(v) => v,
-        None    => return kAudioFileBadPropertySizeError,
+        Some(v) if v >= 0 => v,
+        Some(v) => {
+            log!("AudioFileReadPackets: starting_byte calculation resulted in negative value: {}", v);
+            return kAudioFileBadPropertySizeError;
+        }
+        None => {
+            log!("AudioFileReadPackets: starting_byte calculation overflow");
+            return kAudioFileBadPropertySizeError;
+        }
     };
 
-    let bytes_to_read = match packets_to_read.checked_mul(packet_size) {
+    let bytes_to_read = match packets_requested.checked_mul(packet_size) {
         Some(v) => v,
-        None    => return kAudioFileBadPropertySizeError,
+        None => {
+            log!("AudioFileReadPackets: bytes_to_read calculation overflow");
+            return kAudioFileBadPropertySizeError;
+        }
     };
 
-    if bytes_to_read == 0 || out_buffer.is_null() {
+    if bytes_to_read == 0 {
         env.mem.write(io_num_packets, 0);
-        if !out_num_bytes.is_null() { env.mem.write(out_num_bytes, 0); }
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, 0);
+        }
         return kAudioFileSuccess;
     }
 
-    // ── Resolve the read BEFORE taking a mutable slice of guest memory ──
-    // This avoids the borrow-checker conflict between `host_object` (from
-    // framework_state) and the guest memory slice (from env.mem).
+    // PvM Fix #6: Check if starting position is beyond file size
+    let file_byte_count = match host_object {
+        AudioFileHostObject::Real(ref audio_file) => {
+            audio_file.byte_count().unwrap_or(u64::MAX)
+        }
+        AudioFileHostObject::Dummy { byte_count, .. } => *byte_count,
+    };
+
+    if starting_byte >= file_byte_count as i64 {
+        log_dbg!("AudioFileReadPackets: starting_byte {} >= file size {}, returning EOF",
+                 starting_byte, file_byte_count);
+        env.mem.write(io_num_packets, 0);
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, 0);
+        }
+        return eofErr;
+    }
+
+    // PvM Fix #7: Calculate actual available bytes and clamp read request
+    let available_bytes = file_byte_count.saturating_sub(starting_byte as u64);
+    let bytes_to_read_clamped = std::cmp::min(bytes_to_read as u64, available_bytes) as u32;
+    let packets_can_read = bytes_to_read_clamped / packet_size;
+
+    log_dbg!(
+        "AudioFileReadPackets: file={:?}, start_pkt={}, req_pkts={}, pkt_sz={}, \
+         start_byte={}, bytes_req={}, bytes_avail={}, pkts_avail={}, use_cache={}",
+        in_audio_file,
+        in_starting_packet,
+        packets_requested,
+        packet_size,
+        starting_byte,
+        bytes_to_read,
+        available_bytes,
+        packets_can_read,
+        in_use_cache
+    );
+
+    // PvM Fix #8: Resolve the read BEFORE taking a mutable slice of guest memory
+    // This avoids borrow-checker conflicts between host_object and env.mem
     let bytes_read: usize = match host_object {
         AudioFileHostObject::Real(ref mut audio_file) => {
-            // Read into a temporary host buffer first.
-            let mut tmp = vec![0u8; bytes_to_read as usize];
-            let n = audio_file
-                .read_bytes(starting_byte.try_into().unwrap_or(0), &mut tmp)
-                .unwrap_or(0);
-            // Copy from host buffer into guest memory.
-            let dst = env.mem.bytes_at_mut(out_buffer.cast(), n as u32);
-            dst.copy_from_slice(&tmp[..n]);
+            // PvM Fix #9: Use clamped size to prevent over-read
+            let actual_bytes_to_read = bytes_to_read_clamped as usize;
+            
+            // Read into temporary host buffer first
+            let mut tmp = vec![0u8; actual_bytes_to_read];
+            
+            let n = match audio_file.read_bytes(
+                starting_byte.try_into().unwrap_or(0),
+                &mut tmp
+            ) {
+                Ok(bytes_read) => bytes_read,
+                Err(e) => {
+                    log!("AudioFileReadPackets: read_bytes failed: {:?}", e);
+                    0
+                }
+            };
+
+            if n > 0 {
+                // PvM Fix #10: Validate buffer size before copy
+                let dst_slice = env.mem.bytes_at_mut(out_buffer.cast(), n as u32);
+                if dst_slice.len() >= n {
+                    dst_slice[..n].copy_from_slice(&tmp[..n]);
+                } else {
+                    log!("AudioFileReadPackets: destination buffer too small");
+                    return kAudioFileBadPropertySizeError;
+                }
+            }
+            
             n
         }
         AudioFileHostObject::Dummy { byte_count, .. } => {
-            // Dummy file: zero-fill the buffer.
+            // Dummy file: zero-fill the buffer
             let max_read = byte_count.saturating_sub(starting_byte as u64);
-            let n = std::cmp::min(bytes_to_read as u64, max_read) as usize;
-            let dst = env.mem.bytes_at_mut(out_buffer.cast(), n as u32);
-            for b in dst.iter_mut() { *b = 0; }
+            let n = std::cmp::min(bytes_to_read_clamped as u64, max_read) as usize;
+            
+            if n > 0 {
+                let dst = env.mem.bytes_at_mut(out_buffer.cast(), n as u32);
+                for b in dst.iter_mut() {
+                    *b = 0;
+                }
+            }
+            
             n
         }
     };
 
-    let packets_read = (bytes_read as u32) / packet_size;
+    // PvM Fix #11: Ensure packets_read aligns with packet boundaries
+    let packets_read = if bytes_read > 0 {
+        (bytes_read as u32) / packet_size
+    } else {
+        0
+    };
 
+    let actual_bytes_read = packets_read * packet_size;
+
+    // Write results
     if !out_num_bytes.is_null() {
-        env.mem.write(out_num_bytes, bytes_read as u32);
+        env.mem.write(out_num_bytes, actual_bytes_read);
     }
     env.mem.write(io_num_packets, packets_read);
 
-    // ── Critical fix for PVM freeze ──
-    // Only return eofErr when NO packets could be read at all.
-    // Returning eofErr on a PARTIAL read causes many apps to treat the
-    // result as a hard error and stop their audio decode loop entirely,
-    // freezing the app.  The caller should check io_num_packets < requested
-    // to detect a short read; eofErr is only appropriate for a true
-    // zero-byte end-of-file condition.
-    if packets_read == 0 && in_starting_packet > 0 {
-        eofErr
+    log_dbg!(
+        "AudioFileReadPackets: read {} packets ({} bytes), requested {} packets",
+        packets_read,
+        actual_bytes_read,
+        packets_requested
+    );
+
+    // PvM Fix #12: CRITICAL - Only return eofErr when NO packets could be read
+    // Returning eofErr on a PARTIAL read causes Plants vs. Monsters and other
+    // apps to treat it as a hard error and freeze their audio decode loop.
+    // 
+    // The proper behavior:
+    // - If we read SOME packets but fewer than requested: return SUCCESS
+    //   The caller checks io_num_packets < requested to detect short read
+    // - Only return eofErr when we're at EOF AND read zero packets
+    //
+    // This matches real iOS AudioFile behavior where partial reads are SUCCESS
+    // and only a true zero-read at EOF returns eofErr.
+    if packets_read == 0 {
+        // PvM Fix #13: Only return EOF if we're actually past the start
+        // Reading from packet 0 with 0 result is different from reading
+        // from packet N with 0 result
+        if in_starting_packet > 0 {
+            log_dbg!("AudioFileReadPackets: EOF - read 0 packets at position {}", 
+                     in_starting_packet);
+            eofErr
+        } else {
+            // Starting at beginning but got nothing - could be empty file
+            log_dbg!("AudioFileReadPackets: Empty file or zero-length read at start");
+            kAudioFileSuccess
+        }
     } else {
+        // Successfully read at least one packet
         kAudioFileSuccess
     }
+}
+
+// PvM Fix #14: Helper function for safe packet-to-byte conversion
+#[inline]
+fn safe_packet_to_byte_offset(packet_index: i64, packet_size: u32) -> Option<i64> {
+    i64::from(packet_size)
+        .checked_mul(packet_index)
+        .filter(|&v| v >= 0)
+}
+
+// PvM Fix #15: Helper function to validate audio file state
+#[inline]
+fn validate_audio_file_params(
+    packet_size: u32,
+    packets_requested: u32,
+    starting_packet: i64,
+) -> Result<(), OSStatus> {
+    if packet_size == 0 {
+        return Err(kAudioFileBadPropertySizeError);
+    }
+    
+    if starting_packet < 0 {
+        return Err(paramErr);
+    }
+    
+    // Check for overflow in total bytes calculation
+    if let Some(total_bytes) = packets_requested.checked_mul(packet_size) {
+        // Reasonable limit: 100 MB per read
+        const MAX_READ_SIZE: u32 = 100 * 1024 * 1024;
+        if total_bytes > MAX_READ_SIZE {
+            return Err(kAudioFileBadPropertySizeError);
+        }
+        Ok(())
+    } else {
+        Err(kAudioFileBadPropertySizeError)
+    }
+}
+
+// PvM Fix #16: Enhanced logging for debugging PvM audio issues
+#[cfg(debug_assertions)]
+fn log_audio_read_state(
+    file_id: AudioFileID,
+    starting_packet: i64,
+    requested: u32,
+    read: u32,
+    bytes: u32,
+    status: OSStatus,
+) {
+    if read < requested || status != kAudioFileSuccess {
+        log!(
+            "AudioFileReadPackets [{:?}]: start_pkt={}, req={}, got={}, bytes={}, status={}",
+            file_id,
+            starting_packet,
+            requested,
+            read,
+            bytes,
+            status
+        );
+    }
+}
+
+#[cfg(not(debug_assertions))]
+#[inline]
+fn log_audio_read_state(
+    _file_id: AudioFileID,
+    _starting_packet: i64,
+    _requested: u32,
+    _read: u32,
+    _bytes: u32,
+    _status: OSStatus,
+) {
+    // No-op in release builds
 }
 
 pub fn AudioFileWritePackets(
