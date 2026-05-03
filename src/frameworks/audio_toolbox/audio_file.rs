@@ -429,15 +429,13 @@ pub fn AudioFileReadPackets(
     out_buffer: MutVoidPtr,
 ) -> OSStatus {
     return_if_null!(in_audio_file);
+
     if io_num_packets.is_null() {
         return paramErr;
     }
 
     if !out_packet_descriptions.is_null() {
-        log!(
-            "Внимание: игнорирование не-null out_packet_descriptions \
-             в AudioFileReadPackets()"
-        );
+        log_dbg!("AudioFileReadPackets: ignoring non-null out_packet_descriptions");
     }
 
     let host_object = match State::get(&mut env.framework_state)
@@ -445,73 +443,88 @@ pub fn AudioFileReadPackets(
         .get_mut(&in_audio_file)
     {
         Some(obj) => obj,
-        None => return kAudioFileNotOpenError,
+        None => {
+            log_dbg!("AudioFileReadPackets: unknown AudioFileID {:?}", in_audio_file);
+            return kAudioFileNotOpenError;
+        }
     };
 
     let packet_size = match host_object {
-        AudioFileHostObject::Real(audio_file) => audio_file.packet_size_fixed(),
-        AudioFileHostObject::Dummy { format, .. } => format.bytes_per_packet,
+        AudioFileHostObject::Real(audio_file)      => audio_file.packet_size_fixed(),
+        AudioFileHostObject::Dummy { format, .. }  => format.bytes_per_packet,
     };
 
     let packets_to_read = env.mem.read(io_num_packets);
+
+    // Early-out: nothing to read.
     if packet_size == 0 || packets_to_read == 0 {
         env.mem.write(io_num_packets, 0);
-        if !out_num_bytes.is_null() {
-            env.mem.write(out_num_bytes, 0);
-        }
+        if !out_num_bytes.is_null() { env.mem.write(out_num_bytes, 0); }
         return kAudioFileSuccess;
     }
 
     if in_starting_packet < 0 {
         env.mem.write(io_num_packets, 0);
-        if !out_num_bytes.is_null() {
-            env.mem.write(out_num_bytes, 0);
-        }
+        if !out_num_bytes.is_null() { env.mem.write(out_num_bytes, 0); }
         return eofErr;
     }
 
     let starting_byte = match i64::from(packet_size).checked_mul(in_starting_packet) {
         Some(v) => v,
-        None => return kAudioFileBadPropertySizeError,
+        None    => return kAudioFileBadPropertySizeError,
     };
 
     let bytes_to_read = match packets_to_read.checked_mul(packet_size) {
         Some(v) => v,
-        None => return kAudioFileBadPropertySizeError,
+        None    => return kAudioFileBadPropertySizeError,
     };
 
     if bytes_to_read == 0 || out_buffer.is_null() {
         env.mem.write(io_num_packets, 0);
-        if !out_num_bytes.is_null() {
-            env.mem.write(out_num_bytes, 0);
-        }
+        if !out_num_bytes.is_null() { env.mem.write(out_num_bytes, 0); }
         return kAudioFileSuccess;
     }
 
-    let buffer_slice = env.mem.bytes_at_mut(out_buffer.cast(), bytes_to_read);
-
-    let bytes_read = match host_object {
-        AudioFileHostObject::Real(ref mut audio_file) => audio_file
-            .read_bytes(starting_byte.try_into().unwrap_or(0), buffer_slice)
-            .unwrap_or(0),
+    // ── Resolve the read BEFORE taking a mutable slice of guest memory ──
+    // This avoids the borrow-checker conflict between `host_object` (from
+    // framework_state) and the guest memory slice (from env.mem).
+    let bytes_read: usize = match host_object {
+        AudioFileHostObject::Real(ref mut audio_file) => {
+            // Read into a temporary host buffer first.
+            let mut tmp = vec![0u8; bytes_to_read as usize];
+            let n = audio_file
+                .read_bytes(starting_byte.try_into().unwrap_or(0), &mut tmp)
+                .unwrap_or(0);
+            // Copy from host buffer into guest memory.
+            let dst = env.mem.bytes_at_mut(out_buffer.cast(), n as u32);
+            dst.copy_from_slice(&tmp[..n]);
+            n
+        }
         AudioFileHostObject::Dummy { byte_count, .. } => {
-            for b in buffer_slice.iter_mut() {
-                *b = 0;
-            }
+            // Dummy file: zero-fill the buffer.
             let max_read = byte_count.saturating_sub(starting_byte as u64);
-            std::cmp::min(bytes_to_read as u64, max_read) as usize
+            let n = std::cmp::min(bytes_to_read as u64, max_read) as usize;
+            let dst = env.mem.bytes_at_mut(out_buffer.cast(), n as u32);
+            for b in dst.iter_mut() { *b = 0; }
+            n
         }
     };
 
-    if !out_num_bytes.is_null() {
-        env.mem
-            .write(out_num_bytes, bytes_read.try_into().unwrap_or(0));
-    }
-
     let packets_read = (bytes_read as u32) / packet_size;
+
+    if !out_num_bytes.is_null() {
+        env.mem.write(out_num_bytes, bytes_read as u32);
+    }
     env.mem.write(io_num_packets, packets_read);
 
-    if (bytes_read as u32) < bytes_to_read {
+    // ── Critical fix for PVM freeze ──
+    // Only return eofErr when NO packets could be read at all.
+    // Returning eofErr on a PARTIAL read causes many apps to treat the
+    // result as a hard error and stop their audio decode loop entirely,
+    // freezing the app.  The caller should check io_num_packets < requested
+    // to detect a short read; eofErr is only appropriate for a true
+    // zero-byte end-of-file condition.
+    if packets_read == 0 && in_starting_packet > 0 {
         eofErr
     } else {
         kAudioFileSuccess
