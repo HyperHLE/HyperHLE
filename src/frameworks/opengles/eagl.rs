@@ -1123,6 +1123,63 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
         );
     }
 
+    // Tile-based GPUs (e.g. Qualcomm Adreno, ARM Mali) defer rasterisation:
+    // pending draws into the renderbuffer may not have hit memory yet at
+    // the moment the app calls -presentRenderbuffer:. They keep tile data
+    // in fast tile-local memory, and that data is only "resolved" to the
+    // renderbuffer's main memory storage at well-defined points. The
+    // tricky part is that on at least some Mali drivers (verified on
+    // r32p1 / Mali-G57 MC2 with this LEGO Ninjago title) the *act of
+    // unbinding the framebuffer the app was drawing into* — which is
+    // what BindFramebufferOES(.., src_framebuffer) below does — can
+    // *discard* tile data instead of resolving it. After that, even
+    // glFinish() can no longer recover the lost frame, and our
+    // CopyTexImage2D below sees an all-zero (black) renderbuffer.
+    //
+    // The reliable cross-driver workaround is therefore to force the
+    // resolve while the app's own FBO is still bound, *before* we
+    // switch. glFinish() alone is sometimes insufficient on Mali
+    // because the driver's "do I actually need to resolve?" check is
+    // tied to whether *somebody is going to read from this FBO*. A
+    // 1-pixel glReadPixels of the app's currently-bound framebuffer is
+    // a much harder hint: the driver has to produce a real pixel value,
+    // which forces the resolve. We then issue glFinish() to block
+    // until that resolve has actually completed in main memory. Only
+    // *then* do we switch to our own FBO for CopyTexImage2D.
+    //
+    // This is also a no-op on lenient drivers (Mesa / llvmpipe / Apple
+    // PowerVR / Adreno's ES 3.x layer): the read returns the same
+    // pixel value the FBO already has, glFinish is a small hit, and
+    // the rest of the path proceeds unchanged.
+    if old_framebuffer != 0 {
+        let mut tile_resolve_probe: [u8; 4] = [0; 4];
+        gles.ReadPixels(
+            0,
+            0,
+            1,
+            1,
+            gles11::RGBA,
+            gles11::UNSIGNED_BYTE,
+            tile_resolve_probe.as_mut_ptr() as *mut _,
+        );
+        // We don't care about the value; we only needed the read to
+        // force a tile resolve. Drain any GL error this probe may
+        // have generated (e.g. on an FBO with an unusual attachment
+        // format) so it doesn't leak into the per-section checks below.
+        while gles.GetError() != 0 {}
+    }
+    gles.Finish();
+    {
+        static SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+        present_check(
+            gles,
+            trace_gl_errors,
+            &SEEN,
+            "after pre-FBO-switch tile resolve (ReadPixels+Finish on app's FBO)",
+        );
+    }
+
     // Create a framebuffer we can use to read from the renderbuffer
     let mut src_framebuffer = 0;
     gles.GenFramebuffersOES(1, &mut src_framebuffer);
@@ -1137,28 +1194,6 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
         static SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
         present_check(gles, trace_gl_errors, &SEEN, "after FBO create+bind+attach");
-    }
-
-    // Tile-based GPUs (e.g. Qualcomm Adreno, ARM Mali) defer rasterisation:
-    // pending draws into the renderbuffer may not have hit memory yet by
-    // the time we issue CopyTexImage2D from this newly-bound FBO. We need
-    // a hard tile resolve — glFlush only kicks off the batch, it does not
-    // wait for tiles to be written back to the renderbuffer's main memory.
-    // On Mali specifically that means CopyTexImage2D below would otherwise
-    // read uninitialised tile-RAM contents and produce a black presented
-    // frame, even though the app's draws executed correctly. glFinish
-    // blocks until the GPU is idle so the copy is guaranteed to see the
-    // frame the app actually rendered.
-    gles.Finish();
-    {
-        static SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-        present_check(
-            gles,
-            trace_gl_errors,
-            &SEEN,
-            "after glFinish (tile resolve)",
-        );
     }
 
     // Create a texture with a copy of the pixels in the framebuffer
@@ -1364,20 +1399,48 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     // On a strict native ES 1.1 driver (e.g. ARM Mali on Android), some
     // entries in CAPABILITIES are spec-invalid for ES 1.1 even though they
     // are valid in desktop GL 2.1 (where the gles1_on_gl2 emulator runs).
-    // Querying / disabling those would yield GL_INVALID_ENUM. Skip them on
-    // those backends. See gles1_on_gl2::CAPABILITIES_GL21_ONLY.
+    // Querying / disabling those would yield GL_INVALID_ENUM. The hard-coded
+    // CAPABILITIES_GL21_ONLY list catches the *known* offenders, but real
+    // Android drivers have plenty of further per-vendor / per-extension
+    // quirks (e.g. r32p1 Mali-G57 in OpenGL ES-CM 1.1 mode rejects more caps
+    // than the spec strictly says it should). Rather than maintain a growing
+    // allow-list per driver, we drain GL errors *per cap* here: any cap that
+    // GetBooleanv rejects is recorded as "skip" (None) so the matching
+    // restore loop below also leaves it alone instead of trying to Enable /
+    // Disable it and producing yet another error. This keeps the GL error
+    // queue clean for the subsequent present_check sections — without it,
+    // the very first cap that errors would poison the queue and make every
+    // later checkpoint look like *it* failed.
     let is_native_es1 = gles.is_native_es1();
-    let old_capabilities = {
-        let mut old_capabilities = [gles11::FALSE; gles1_on_gl2::CAPABILITIES.len()];
-        for (is_enabled, &name) in old_capabilities
+    let old_capabilities: [Option<GLboolean>; gles1_on_gl2::CAPABILITIES.len()] = {
+        let mut old_capabilities: [Option<GLboolean>; gles1_on_gl2::CAPABILITIES.len()] =
+            [None; gles1_on_gl2::CAPABILITIES.len()];
+        for (slot, &name) in old_capabilities
             .iter_mut()
             .zip(gles1_on_gl2::CAPABILITIES.iter())
         {
             if is_native_es1 && gles1_on_gl2::CAPABILITIES_GL21_ONLY.contains(&name) {
                 continue;
             }
-            gles.GetBooleanv(name, is_enabled);
+            // Drain anything that leaked in from earlier so we can attribute
+            // a fresh error to *this* cap.
+            while gles.GetError() != 0 {}
+            let mut value: GLboolean = gles11::FALSE;
+            gles.GetBooleanv(name, &mut value);
+            let mut probe_failed = false;
+            while gles.GetError() != 0 {
+                probe_failed = true;
+            }
+            if probe_failed {
+                // Driver doesn't accept this cap. Leave slot as None so we
+                // also skip it on restore, and don't try to Disable it.
+                continue;
+            }
+            *slot = Some(value);
             gles.Disable(name);
+            // Disable on a valid cap shouldn't error, but a few drivers are
+            // looser on Get than on Enable/Disable; drain to be safe.
+            while gles.GetError() != 0 {}
         }
         old_capabilities
     };
@@ -1496,13 +1559,19 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
             _ => unreachable!(),
         }
     }
-    for (&is_enabled, &name) in old_capabilities
+    for (&saved, &name) in old_capabilities
         .iter()
         .zip(gles1_on_gl2::CAPABILITIES.iter())
     {
         if is_native_es1 && gles1_on_gl2::CAPABILITIES_GL21_ONLY.contains(&name) {
             continue;
         }
+        // None means the save loop above couldn't query this cap (the
+        // driver rejected it with INVALID_ENUM). Don't try to Enable /
+        // Disable it here either — that would just produce another error.
+        let Some(is_enabled) = saved else {
+            continue;
+        };
         match is_enabled {
             gles11::TRUE => gles.Enable(name),
             gles11::FALSE => gles.Disable(name),
