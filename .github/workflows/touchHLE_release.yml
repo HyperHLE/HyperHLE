@@ -15,22 +15,16 @@ jobs:
     runs-on: macos-latest  
 
     steps:  
-      - name: Checkout touchHLE  
-        shell: bash
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE"  
-          git clone https://github.com/j92580498-max/touchHLE "$GITHUB_WORKSPACE"  
-          cd "$GITHUB_WORKSPACE"  
-          git fetch origin "$GITHUB_REF"  
-          git checkout "$GITHUB_SHA"
+      - name: Checkout touchHLE
+        uses: actions/checkout@main
+        with:
+          submodules: true
       - name: Install clang-format  
         run: brew install clang-format  
       - name: Check formatting  
         run: dev-scripts/format.sh --check  
-      - name: Get Submodules  
-        run: git submodule update --init  
       - name: Cache Rust build artifacts
-        uses: actions/cache@v3
+        uses: actions/cache@main
         with:
           path: |
             ~/.cargo/registry
@@ -43,7 +37,7 @@ jobs:
         run: brew install boost  
       - name: Try to get cached copy of cmake  
         id: cache-cmake  
-        uses: actions/cache@v3  
+        uses: actions/cache@main  
         with:  
           path: vendor/cmake  
           key: cmake_3_31_6_macos  
@@ -61,7 +55,7 @@ jobs:
           CMAKE: ${{ github.workspace }}/vendor/cmake/bin/cmake  
       - name: Create .app bundle  
         run: cd dev-scripts && ./make-macos-bundle.sh ../target/x86_64-apple-darwin/release/touchHLE "`cargo run --package touchHLE_version`" "`cargo run --package touchHLE_version -- --branding`" && mkdir touchHLE-dmg-src && mv *.app touchHLE-dmg-src/ && hdiutil create -volname touchHLE -srcfolder touchHLE-dmg-src touchHLE.dmg && mv touchHLE.dmg ..  
-      - uses: actions/upload-artifact@v4  
+      - uses: actions/upload-artifact@main  
         with:  
           name: touchHLE_macOS_x86_64  
           path: touchHLE.dmg  
@@ -70,18 +64,12 @@ jobs:
     runs-on: ubuntu-latest  
 
     steps:  
-    - name: Checkout touchHLE  
-      shell: bash
-      run: |
-        mkdir -p "$GITHUB_WORKSPACE"  
-        git clone https://github.com/j92580498-max/touchHLE "$GITHUB_WORKSPACE"  
-        cd "$GITHUB_WORKSPACE"  
-        git fetch origin "$GITHUB_REF"  
-        git checkout "$GITHUB_SHA"
-    - name: Get Submodules  
-      run: git submodule update --init  
+    - name: Checkout touchHLE
+      uses: actions/checkout@main
+      with:
+        submodules: true
     - name: Cache Rust build artifacts
-      uses: actions/cache@v3
+      uses: actions/cache@main
       with:
         path: |
           ~/.cargo/registry
@@ -92,7 +80,7 @@ jobs:
           ${{ runner.os }}-cargo-
     - name: Try to get cached copy of Boost  
       id: cache-boost  
-      uses: actions/cache@v3  
+      uses: actions/cache@main  
       with:  
         path: vendor/boost  
         key: boost_1_81_0  
@@ -104,7 +92,7 @@ jobs:
       run: 7z -ovendor x boost_1_81_0.7z && mv vendor/boost_1_81_0 vendor/boost  
     - name: Try to get cached copy of cmake  
       id: cache-cmake  
-      uses: actions/cache@v3  
+      uses: actions/cache@main  
       with:  
         path: vendor/cmake  
         key: cmake_3_31_6_linux  
@@ -120,7 +108,7 @@ jobs:
       run: cargo install cargo-ndk@3.5.4  
     - name: Try to get a cached copy of Gradle  
       id: cache-gradle  
-      uses: actions/cache@v3  
+      uses: actions/cache@main  
       with:  
         path: gradle  
         key: gradle-8.11.1  
@@ -132,7 +120,7 @@ jobs:
       run: 7z -ogradle x gradle-8.11.1-bin.zip  
     - name: Try to get a cached copy of Android NDK  
       id: cache-android-ndk  
-      uses: actions/cache@v3  
+      uses: actions/cache@main  
       with:  
         path: android-ndk  
         key: android-ndk-r25c  
@@ -151,7 +139,7 @@ jobs:
       env:  
         ANDROID_NDK_ROOT: '/usr/local/lib/android/sdk/ndk/25.2.9519653'  
         CMAKE: ${{ github.workspace }}/vendor/cmake/bin/cmake  
-    - uses: actions/upload-artifact@v4  
+    - uses: actions/upload-artifact@main  
       with:  
         name: touchHLE_Android_AArch64  
         path: touchHLE.apk
@@ -160,29 +148,23 @@ jobs:
     runs-on: windows-latest  
 
     steps:  
-    - name: Checkout touchHLE  
-      shell: bash
-      run: |
-        mkdir -p "$GITHUB_WORKSPACE"  
-        git clone https://github.com/j92580498-max/touchHLE "$GITHUB_WORKSPACE"  
-        cd "$GITHUB_WORKSPACE"  
-        git fetch origin "$GITHUB_REF"  
-        git checkout "$GITHUB_SHA"
-    - name: Get Submodules  
-      run: git submodule update --init  
+    - name: Checkout touchHLE
+      uses: actions/checkout@main
+      with:
+        submodules: true
     - name: Cache Rust build artifacts
-      uses: actions/cache@v3
+      uses: actions/cache@main
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-cargo-android-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-windows-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
-          ${{ runner.os }}-cargo-android-
+          ${{ runner.os }}-cargo-windows-
     - name: Try to get cached copy of Boost  
       id: cache-boost  
-      uses: actions/cache@v3  
+      uses: actions/cache@main  
       with:  
         path: vendor\boost  
         key: boost_1_81_0  
@@ -194,7 +176,7 @@ jobs:
       run: 7z -ovendor x boost_1_81_0.7z && ren vendor\boost_1_81_0 boost  
     - name: Try to get cached copy of cmake  
       id: cache-cmake  
-      uses: actions/cache@v3  
+      uses: actions/cache@main  
       with:  
         path: vendor/cmake  
         key: cmake_3_31_6_windows  
@@ -211,7 +193,7 @@ jobs:
     - name: Create bundle  
       shell: bash  
       run: cd dev-scripts && ./make-windows-bundle.sh ../target/release/touchHLE.exe && mv touchHLE_windows_bundle/ ..  
-    - uses: actions/upload-artifact@v4  
+    - uses: actions/upload-artifact@main  
       with:  
         name: touchHLE_Windows_x86_64  
         path: touchHLE_windows_bundle/
