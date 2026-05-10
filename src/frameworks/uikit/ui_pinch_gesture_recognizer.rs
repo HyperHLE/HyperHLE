@@ -198,7 +198,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host = env.objc.borrow_mut::<UIGestureRecognizerHostObject>(this);
     host.targets.retain(|(t, a)| {
         let matches = (*t == target || target == nil)
-            && (a == action || action.is_null());
+            && (*a == action || action.is_null());  // ← Add * before a
         if matches { release(env, *t); }
         !matches
     });
