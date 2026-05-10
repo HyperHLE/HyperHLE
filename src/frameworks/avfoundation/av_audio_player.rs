@@ -163,12 +163,27 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())prepareToPlay {
-    let audio_queue = env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_queue;
+    // The host object can be missing if the player was already deallocated
+    // (e.g. the game released it but kept a stale pointer around) or if the
+    // initWithContentsOfURL: call earlier failed and never populated
+    // `audio_file_id`. In either case we have nothing to prepare; bail out
+    // with a warning instead of panicking on `unwrap()`.
+    let (audio_queue, audio_file_id_opt) = {
+        let host_object = env.objc.borrow::<AVAudioPlayerHostObject>(this);
+        (host_object.audio_queue, host_object.audio_file_id)
+    };
     if audio_queue.is_some() {
         return;
     }
-
-    let audio_file_id = env.objc.borrow::<AVAudioPlayerHostObject>(this).audio_file_id.unwrap();
+    let Some(audio_file_id) = audio_file_id_opt else {
+        log!(
+            "Warning: [(AVAudioPlayer*){:?} prepareToPlay] called with no \
+             audio file ID (the player was never successfully initialized \
+             or it has been deallocated); ignoring.",
+            this
+        );
+        return;
+    };
     let callback = env.objc.borrow::<AVAudioPlayerHostObject>(this).output_callback;
 
     let size = guest_size_of::<AudioStreamBasicDescription>();
@@ -235,10 +250,30 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)play {
     log!("[(AVAudioPlayer*){:?} play]", this);
     () = msg![env; this prepareToPlay];
-    let aq_ref = env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_queue.unwrap();
+    // If `prepareToPlay` couldn't set up an audio queue (e.g. because the
+    // player was already deallocated and the host object is now missing,
+    // making every borrow_mut return a phantom AVAudioPlayerHostObject
+    // whose audio_queue is None), don't panic — just return NO like the
+    // real AVAudioPlayer does when playback can't start.
+    let Some(aq_ref) = env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_queue else {
+        log!(
+            "Warning: [(AVAudioPlayer*){:?} play] could not start: \
+             prepareToPlay produced no audio queue (the player has \
+             likely been deallocated); returning NO.",
+            this
+        );
+        return false;
+    };
     env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).is_playing = true;
     let status = AudioQueueStart(env, aq_ref, Ptr::null());
-    assert_eq!(status, 0);
+    if status != 0 {
+        log!(
+            "Warning: AudioQueueStart for {:?} failed with status {}; returning NO.",
+            this, status
+        );
+        env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).is_playing = false;
+        return false;
+    }
     true
 }
 
@@ -661,8 +696,35 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
         is_playing,
         ..
     } = env.objc.borrow(av_audio_player);
-    let aq = audio_queue.unwrap();
-    assert_eq!(aq, in_aq);
+    // The host object might be a phantom (the real one was deallocated
+    // while a buffer was still in flight) or it might predate a
+    // successful `prepareToPlay`. In either case there's nothing valid we
+    // can read from it, so bail out instead of unwrapping None.
+    let Some(aq) = audio_queue else {
+        log!(
+            "Warning: AVAudioPlayer audio callback fired for {:?} which \
+             has no audio queue; ignoring.",
+            av_audio_player
+        );
+        return;
+    };
+    let Some(audio_file_id) = audio_file_id else {
+        log!(
+            "Warning: AVAudioPlayer audio callback fired for {:?} which \
+             has no audio file ID; ignoring.",
+            av_audio_player
+        );
+        return;
+    };
+    if aq != in_aq {
+        log!(
+            "Warning: AVAudioPlayer audio callback fired with audio queue \
+             {:?} that no longer matches the one stored on the player \
+             ({:?}); ignoring.",
+            in_aq, aq
+        );
+        return;
+    }
 
     if !is_playing {
         return;
@@ -675,7 +737,7 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
 
     let status = AudioFileReadPackets(
         env,
-        audio_file_id.unwrap(),
+        audio_file_id,
         false,
         num_bytes_ptr,
         Ptr::null(),
