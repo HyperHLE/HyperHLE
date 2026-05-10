@@ -10,6 +10,7 @@ use crate::abi::{impl_GuestRet_for_large_struct, GuestArg};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::matrix::Matrix;
 use crate::mem::SafeRead;
+use crate::objc::id;
 use crate::Environment;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
