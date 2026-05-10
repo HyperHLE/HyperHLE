@@ -14,10 +14,11 @@
 
 pub mod ad_banner_view;
 pub mod fb_session; // <--- ДОБАВЬ ЭТУ СТРОКУ СЮДА
+pub mod gc_controller;
 pub mod gk_leaderboard_view_controller;
 pub mod gk_local_player;
-mod gk_score;
-mod gk_session;
+pub mod gk_score;
+pub mod gk_session;
 
 /// Per-process state for the GameKit framework.
 #[derive(Default)]
@@ -31,6 +32,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     class_exports: &[
         ad_banner_view::CLASSES,
         fb_session::CLASSES, // <--- И ДОБАВЬ ЭТУ СТРОКУ СЮДА
+        gc_controller::CLASSES,
         gk_leaderboard_view_controller::CLASSES,
         gk_local_player::CLASSES,
         gk_score::CLASSES,
