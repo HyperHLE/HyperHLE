@@ -608,7 +608,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(_ZNSt8_Rb_treeIP11SceneObjectSt4pairIKS1_8PropertyESt10_Select1stIS5_ESt4lessIS1_ESaIS5_EE8_M_eraseEPSt13_Rb_tree_nodeIS5_E(_, _)),
     export_c_func!(_ZNSt8_Rb_treeIiSt4pairIKiiESt10_Select1stIS2_ESt4lessIiESaIS2_EE8_M_eraseEPSt13_Rb_tree_nodeIS2_E(_, _)),
     export_c_func!(_ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE4findERS1_(_, _)),
-    export_c_func!(ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE11lower_boundERS1_(_, _)),
+    export_c_func!(_ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE11lower_boundERS1_(_, _)),
     // Deque_base (deque internals)
     export_c_func!(_ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EE17_M_initialize_mapEm(_, _)),
     export_c_func!(_ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EED2Ev(_)),
