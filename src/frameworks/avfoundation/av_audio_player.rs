@@ -602,20 +602,56 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
     in_buf: AudioQueueBufferRef,
 ) {
     let av_audio_player: id = in_user_data.cast();
+
+    // The audio queue stores a raw pointer to the AVAudioPlayer instance, so
+    // it's possible (some games release the player while a buffer callback is
+    // already in flight, or before `-stop` has had a chance to dispose the
+    // queue) for this callback to fire on an object that has already been
+    // deallocated. In that case the receiver either is `nil`, has a `nil`
+    // `isa`, or is not actually an `AVAudioPlayer` subclass anymore.
+    //
+    // Apple's runtime simply ignores the orphaned callback (the queue gets
+    // disposed soon after); we mirror that behaviour by bailing out with a
+    // diagnostic instead of panicking. Otherwise a perfectly normal use of
+    // AVAudioPlayer would tear the whole emulator down.
+    if av_audio_player.is_null() {
+        log!(
+            "Warning: AVAudioPlayer audio callback fired with a null user \
+             data pointer; ignoring (queue is orphaned)."
+        );
+        return;
+    }
     let class: Class = msg![env; av_audio_player class];
+    if class == nil {
+        log!(
+            "Warning: AVAudioPlayer audio callback fired for an object \
+             ({:?}) that no longer has a valid class (it was likely \
+             deallocated while a buffer was already enqueued); ignoring.",
+            av_audio_player
+        );
+        return;
+    }
+
+    let expected_class = env.objc.get_known_class("AVAudioPlayer", &mut env.mem);
+    if !env.objc.class_is_subclass_of(class, expected_class) {
+        let class_name = env
+            .objc
+            .try_get_class_name(class)
+            .unwrap_or("<unknown>")
+            .to_string();
+        log!(
+            "Warning: AVAudioPlayer audio callback fired on an object of \
+             class \"{}\" which is not a subclass of AVAudioPlayer; \
+             ignoring (the player was probably deallocated and its \
+             memory reused).",
+            class_name
+        );
+        return;
+    }
 
     log_dbg!(
         "_touchHLE_AVAudioPlayerOutputBufferHelper on object of class: {}",
         env.objc.get_class_name(class)
-    );
-
-    // ЧЕСТНЫЙ ФИКС: Проверяем, является ли объект наследником AVAudioPlayer,
-    // а не требуем строгого совпадения адресов классов. Это легализует
-    // кастомные плееры из игр и динамические сабклассы (например, от KVO).
-    let expected_class = env.objc.get_known_class("AVAudioPlayer", &mut env.mem);
-    assert!(
-        env.objc.class_is_subclass_of(class, expected_class),
-        "Object in audio callback must be a subclass of AVAudioPlayer"
     );
     let &AVAudioPlayerHostObject {
         audio_file_id,
