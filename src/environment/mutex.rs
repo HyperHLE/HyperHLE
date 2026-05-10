@@ -169,7 +169,7 @@ impl Environment {
             match mutex.type_ {
                 MutexType::PTHREAD_MUTEX_NORMAL => {
                     // This case would be a deadlock, we may as well panic.
-                    panic!(
+                    log_dbg!(
                         "Attempted to lock non-error-checking mutex #{mutex_id} for thread {current_thread}, already locked by same thread!",
                     );
                 }
