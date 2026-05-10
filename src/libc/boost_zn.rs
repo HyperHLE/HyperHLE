@@ -11,7 +11,7 @@
 
 use crate::abi::GuestFunction;
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::mem::{ConstPtr, MutPtr, MutVoidPtr};
+use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr};
 use crate::Environment;
 
 // MARK: - Type aliases
@@ -373,6 +373,191 @@ fn static_exception_sentinel(env: &mut Environment, tag: u32) -> MutVoidPtr {
     sentinel
 }
 
+// MARK: - std::vector _M_fill_insert / _M_insert_aux / reserve
+
+/// `std::vector<InputMgr::TouchData>::_M_fill_insert(iterator, size_t, const TouchData&)`
+/// __ZNSt6vectorIN8InputMgr9TouchDataESaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEmRKS1_
+fn _ZNSt6vectorIN8InputMgr9TouchDataESaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEmRKS1_(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _pos: MutVoidPtr,
+    _n: GuestUSize,
+    _val: ConstVoidPtr,
+) {
+    log_dbg!("std::vector<InputMgr::TouchData>::_M_fill_insert — stubbed");
+}
+
+/// `std::vector<Game::GameListItem*>::reserve(size_t)`
+/// __ZNSt6vectorIPN4Game12GameListItemESaIS2_EE7reserveEm
+fn _ZNSt6vectorIPN4Game12GameListItemESaIS2_EE7reserveEm(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _n: GuestUSize,
+) {
+    log_dbg!("std::vector<Game::GameListItem*>::reserve — stubbed");
+}
+
+/// `std::vector<Property>::reserve(size_t)`
+/// __ZNSt6vectorI8PropertySaIS0_EE7reserveEm
+fn _ZNSt6vectorI8PropertySaIS0_EE7reserveEm(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _n: GuestUSize,
+) {
+    log_dbg!("std::vector<Property>::reserve — stubbed");
+}
+
+/// `std::vector<Property>::_M_fill_insert(iterator, size_t, const Property&)`
+/// __ZNSt6vectorI8PropertySaIS0_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS0_S2_EEmRKS0_
+fn _ZNSt6vectorI8PropertySaIS0_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS0_S2_EEmRKS0_(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _pos: MutVoidPtr,
+    _n: GuestUSize,
+    _val: ConstVoidPtr,
+) {
+    log_dbg!("std::vector<Property>::_M_fill_insert — stubbed");
+}
+
+/// `std::vector<Property>::_M_insert_aux(iterator, const Property&)`
+/// __ZNSt6vectorI8PropertySaIS0_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS0_S2_EERKS0_
+fn _ZNSt6vectorI8PropertySaIS0_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS0_S2_EERKS0_(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _pos: MutVoidPtr,
+    _val: ConstVoidPtr,
+) {
+    log_dbg!("std::vector<Property>::_M_insert_aux — stubbed");
+}
+
+/// `std::vector<SceneObject*>::_M_insert_aux(iterator, SceneObject* const&)`
+/// __ZNSt6vectorIP11SceneObjectSaIS1_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS1_S3_EERKS1_
+fn _ZNSt6vectorIP11SceneObjectSaIS1_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS1_S3_EERKS1_(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _pos: MutVoidPtr,
+    _val: ConstVoidPtr,
+) {
+    log_dbg!("std::vector<SceneObject*>::_M_insert_aux — stubbed");
+}
+
+// MARK: - std::_Rb_tree (red-black tree — backing std::map / std::set)
+
+/// `std::_Rb_tree<int,int,std::_Identity<int>,std::less<int>,std::allocator<int>>::_M_insert_unique(const int&)`
+/// __ZNSt8_Rb_treeIiiSt9_IdentityIiESt4lessIiESaIiEE16_M_insert_uniqueERKi
+fn _ZNSt8_Rb_treeIiiSt9_IdentityIiESt4lessIiESaIiEE16_M_insert_uniqueERKi(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _val: ConstVoidPtr,
+) -> MutVoidPtr {
+    log_dbg!("std::set<int>::insert — stubbed");
+    MutVoidPtr::null()
+}
+
+/// `std::_Rb_tree<int,int,...>::_M_erase(_Rb_tree_node<int>*)`
+/// __ZNSt8_Rb_treeIiiSt9_IdentityIiESt4lessIiESaIiEE8_M_eraseEPSt13_Rb_tree_nodeIiE
+fn _ZNSt8_Rb_treeIiiSt9_IdentityIiESt4lessIiESaIiEE8_M_eraseEPSt13_Rb_tree_nodeIiE(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _node: MutVoidPtr,
+) {
+    log_dbg!("std::set<int>::_M_erase — stubbed");
+}
+
+/// `std::_Rb_tree<SceneObject*, pair<SceneObject* const, Property>, ...>::_M_insert_equal(const pair&)`
+/// __ZNSt8_Rb_treeIP11SceneObjectSt4pairIKS1_8PropertyESt10_Select1stIS5_ESt4lessIS1_ESaIS5_EE15_M_insert_equalERKS5_
+fn _ZNSt8_Rb_treeIP11SceneObjectSt4pairIKS1_8PropertyESt10_Select1stIS5_ESt4lessIS1_ESaIS5_EE15_M_insert_equalERKS5_(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _val: ConstVoidPtr,
+) -> MutVoidPtr {
+    log_dbg!("std::map<SceneObject*, Property>::_M_insert_equal — stubbed");
+    MutVoidPtr::null()
+}
+
+/// `std::_Rb_tree<SceneObject*, pair<SceneObject* const, Property>, ...>::_M_erase(node*)`
+/// __ZNSt8_Rb_treeIP11SceneObjectSt4pairIKS1_8PropertyESt10_Select1stIS5_ESt4lessIS1_ESaIS5_EE8_M_eraseEPSt13_Rb_tree_nodeIS5_E
+fn _ZNSt8_Rb_treeIP11SceneObjectSt4pairIKS1_8PropertyESt10_Select1stIS5_ESt4lessIS1_ESaIS5_EE8_M_eraseEPSt13_Rb_tree_nodeIS5_E(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _node: MutVoidPtr,
+) {
+    log_dbg!("std::map<SceneObject*, Property>::_M_erase — stubbed");
+}
+
+/// `std::_Rb_tree<int, pair<const int, int>, ...>::_M_erase(node*)`
+/// __ZNSt8_Rb_treeIiSt4pairIKiiESt10_Select1stIS2_ESt4lessIiESaIS2_EE8_M_eraseEPSt13_Rb_tree_nodeIS2_E
+fn _ZNSt8_Rb_treeIiSt4pairIKiiESt10_Select1stIS2_ESt4lessIiESaIS2_EE8_M_eraseEPSt13_Rb_tree_nodeIS2_E(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _node: MutVoidPtr,
+) {
+    log_dbg!("std::map<int,int>::_M_erase — stubbed");
+}
+
+/// `std::_Rb_tree<std::string, pair<const string, Texture*>, ...>::find(const string&)`
+/// __ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE4findERS1_
+fn _ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE4findERS1_(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _key: ConstVoidPtr,
+) -> MutVoidPtr {
+    log_dbg!("std::map<string, Texture*>::find — stubbed (returning end/null)");
+    // Returning null acts as end() — caller must check before dereferencing.
+    MutVoidPtr::null()
+}
+
+/// `std::_Rb_tree<std::string, pair<const string, Texture*>, ...>::lower_bound(const string&)`
+/// __ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE11lower_boundERS1_
+fn _ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE11lower_boundERS1_(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _key: ConstVoidPtr,
+) -> MutVoidPtr {
+    log_dbg!("std::map<string, Texture*>::lower_bound — stubbed (returning end/null)");
+    MutVoidPtr::null()
+}
+
+// MARK: - std::_Deque_base (backing std::deque / std::queue)
+
+/// `std::_Deque_base<GridData::ProcessChunkArgs, allocator<...>>::_M_initialize_map(size_t)`
+/// __ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EE17_M_initialize_mapEm
+fn _ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EE17_M_initialize_mapEm(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _num_elements: GuestUSize,
+) {
+    log_dbg!("std::deque<GridData::ProcessChunkArgs>::_M_initialize_map — stubbed");
+}
+
+/// `std::_Deque_base<GridData::ProcessChunkArgs, allocator<...>>::~_Deque_base()`
+/// __ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EED2Ev
+fn _ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EED2Ev(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+) {
+    log_dbg!("std::deque<GridData::ProcessChunkArgs>::~_Deque_base — stubbed");
+}
+
+/// `std::_Deque_base<pair<int,int>, allocator<...>>::_M_initialize_map(size_t)`
+/// __ZNSt11_Deque_baseISt4pairIiiESaIS1_EE17_M_initialize_mapEm
+fn __lZNSt11_Deque_baseISt4pairIiiESaIS1_EE17_M_initialize_mapEm(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+    _num_elements: GuestUSize,
+) {
+    log_dbg!("std::deque<pair<int,int>>::_M_initialize_map — stubbed");
+}
+
+/// `std::_Deque_base<pair<int,int>, allocator<...>>::~_Deque_base()`
+/// __ZNSt11_Deque_baseISt4pairIiiESaIS1_EED2Ev
+fn _ZNSt11_Deque_baseISt4pairIiiESaIS1_EED2Ev(
+    _env: &mut Environment,
+    _this: MutVoidPtr,
+) {
+    log_dbg!("std::deque<pair<int,int>>::~_Deque_base — stubbed");
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     // recursive_mutex
     export_c_func!(_ZN5boost15recursive_mutexC2Ev(_)),
@@ -409,4 +594,24 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(_ZNK5boost23enable_shared_from_thisIN7SQLite32DbEE22_internal_accept_ownerIS2_S2_EEvPKNS_10shared_ptrIT_EEPT0_(_, _, _)),
     // boost::throw_exception<bad_weak_ptr>
     export_c_func!(_ZN5boost15throw_exceptionINS_12bad_weak_ptrEEEvRKT_(_)),
+    // vector _M_fill_insert / _M_insert_aux / reserve
+    export_c_func!(_ZNSt6vectorIN8InputMgr9TouchDataESaIS1_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS1_S3_EEmRKS1_(_, _, _, _)),
+    export_c_func!(_ZNSt6vectorIPN4Game12GameListItemESaIS2_EE7reserveEm(_, _)),
+    export_c_func!(_ZNSt6vectorI8PropertySaIS0_EE7reserveEm(_, _)),
+    export_c_func!(_ZNSt6vectorI8PropertySaIS0_EE14_M_fill_insertEN9__gnu_cxx17__normal_iteratorIPS0_S2_EEmRKS0_(_, _, _, _)),
+    export_c_func!(_ZNSt6vectorI8PropertySaIS0_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS0_S2_EERKS0_(_, _, _)),
+    export_c_func!(_ZNSt6vectorIP11SceneObjectSaIS1_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS1_S3_EERKS1_(_, _, _)),
+    // Rb_tree (set/map internals)
+    export_c_func!(_ZNSt8_Rb_treeIiiSt9_IdentityIiESt4lessIiESaIiEE16_M_insert_uniqueERKi(_, _)),
+    export_c_func!(_ZNSt8_Rb_treeIiiSt9_IdentityIiESt4lessIiESaIiEE8_M_eraseEPSt13_Rb_tree_nodeIiE(_, _)),
+    export_c_func!(_ZNSt8_Rb_treeIP11SceneObjectSt4pairIKS1_8PropertyESt10_Select1stIS5_ESt4lessIS1_ESaIS5_EE15_M_insert_equalERKS5_(_, _)),
+    export_c_func!(_ZNSt8_Rb_treeIP11SceneObjectSt4pairIKS1_8PropertyESt10_Select1stIS5_ESt4lessIS1_ESaIS5_EE8_M_eraseEPSt13_Rb_tree_nodeIS5_E(_, _)),
+    export_c_func!(_ZNSt8_Rb_treeIiSt4pairIKiiESt10_Select1stIS2_ESt4lessIiESaIS2_EE8_M_eraseEPSt13_Rb_tree_nodeIS2_E(_, _)),
+    export_c_func!(_ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE4findERS1_(_, _)),
+    export_c_func!(ZNSt8_Rb_treeISsSt4pairIKSsP7TextureESt10_Select1stIS4_ESt4lessISsESaIS4_EE11lower_boundERS1_(_, _)),
+    // Deque_base (deque internals)
+    export_c_func!(_ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EE17_M_initialize_mapEm(_, _)),
+    export_c_func!(_ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EED2Ev(_)),
+    export_c_func!(_ZNSt11_Deque_baseISt4pairIiiESaIS1_EE17_M_initialize_mapEm(_, _)),
+    export_c_func!(_ZNSt11_Deque_baseISt4pairIiiESaIS1_EED2Ev(_)),
 ];
