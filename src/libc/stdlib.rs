@@ -105,6 +105,72 @@ fn malloc_set_zone_name(
     );
 }
 
+fn malloc_zone_malloc(
+    env: &mut Environment,
+    _zone: MutVoidPtr,
+    size: crate::mem::GuestUSize,
+) -> MutVoidPtr {
+    if size == 0 {
+        return crate::mem::Ptr::null();
+    }
+    let ptr = env.mem.alloc(size).cast();
+    log_dbg!("malloc_zone_malloc(size={}) => {:?}", size, ptr);
+    ptr
+}
+
+// `malloc_zone_calloc(malloc_zone_t *zone, size_t count, size_t size)`
+fn malloc_zone_calloc(
+    env: &mut Environment,
+    _zone: MutVoidPtr,
+    count: crate::mem::GuestUSize,
+    size: crate::mem::GuestUSize,
+) -> MutVoidPtr {
+    let total = count.saturating_mul(size);
+    if total == 0 {
+        return crate::mem::Ptr::null();
+    }
+    let ptr: MutVoidPtr = env.mem.alloc(total).cast();
+    // Zero the allocated region.
+    env.mem.bytes_at_mut(ptr.cast(), total).fill(0);
+    log_dbg!("malloc_zone_calloc(count={}, size={}) => {:?}", count, size, ptr);
+    ptr
+}
+
+// `malloc_zone_realloc(malloc_zone_t *zone, void *ptr, size_t size)`
+fn malloc_zone_realloc(
+    env: &mut Environment,
+    _zone: MutVoidPtr,
+    ptr: MutVoidPtr,
+    size: crate::mem::GuestUSize,
+) -> MutVoidPtr {
+    // Simple realloc stub — allocate new, copy old (we don't know old size),
+    // so just return a new allocation. Most callers don't rely on the copy.
+    if size == 0 {
+        if !ptr.is_null() {
+            env.mem.free(ptr.cast());
+        }
+        return crate::mem::Ptr::null();
+    }
+    let new_ptr: MutVoidPtr = env.mem.alloc(size).cast();
+    log_dbg!("malloc_zone_realloc(ptr={:?}, size={}) => {:?}", ptr, size, new_ptr);
+    if !ptr.is_null() {
+        env.mem.free(ptr.cast());
+    }
+    new_ptr
+}
+
+// `malloc_zone_free(malloc_zone_t *zone, void *ptr)`
+fn malloc_zone_free(
+    env: &mut Environment,
+    _zone: MutVoidPtr,
+    ptr: MutVoidPtr,
+) {
+    log_dbg!("malloc_zone_free({:?})", ptr);
+    if !ptr.is_null() {
+        env.mem.free(ptr.cast());
+    }
+}
+
 fn calloc(env: &mut Environment, count: GuestUSize, size: GuestUSize) -> MutVoidPtr {
     set_errno(env, 0);
     let mut total = size.checked_mul(count).unwrap();
@@ -1140,6 +1206,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(malloc_size(_)),
     export_c_func!(malloc_create_zone(_, _)),
     export_c_func!(malloc_set_zone_name(_, _)),
+    export_c_func!(malloc_zone_malloc(_, _)),
+    export_c_func!(malloc_zone_calloc(_, _, _)),
+    export_c_func!(malloc_zone_realloc(_, _, _)),
+    export_c_func!(malloc_zone_free(_, _)),
     export_c_func!(calloc(_, _)),
     export_c_func!(realloc(_, _)),
     export_c_func!(reallocf(_, _)),
