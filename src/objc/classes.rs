@@ -823,8 +823,8 @@ impl ObjC {
                 }
 
                 let any = self.get_host_object(class).unwrap().as_any();
-                if any.is::<FakeClass>() || any.is::<UnimplementedClass>() {
-                    continue;
+                if any.downcast_ref::<FakeClass>().is_some() || any.downcast_ref::<UnimplementedClass>().is_some() {
+                   continue;
                 }
 
                 // Horrible workaround to avoid double-borrowing self:
