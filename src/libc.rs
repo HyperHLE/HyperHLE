@@ -14,6 +14,7 @@
 pub mod arpa;
 pub mod asl;
 pub mod blocks;
+pub mod boost_zn
 pub mod clocale;
 pub mod crypto;
 pub mod ctype;
@@ -66,6 +67,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         arpa::inet::FUNCTIONS,
         asl::FUNCTIONS,
         blocks::FUNCTIONS,
+        boost_zn::FUNCTIONS,
         clocale::FUNCTIONS,
         ctype::FUNCTIONS,
         cxxabi::FUNCTIONS,
