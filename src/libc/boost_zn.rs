@@ -232,6 +232,85 @@ fn _ZN5boost11filesystem210basic_pathISsNS0_11path_traitsEEdVEPKc(
     this
 }
 
+// MARK: - boost::detail::shared_count constructor for SQLite3::Db
+//
+// `boost::detail::shared_count::shared_count<SQLite3::Db>(SQLite3::Db*)`
+// Mangled: _ZN5boost6detail12shared_countC2IN7SQLite32DbEEEPT_
+//
+// This constructor allocates a sp_counted_impl_p<SQLite3::Db> on the heap
+// and sets up the use/weak counts. Since we stub all Boost shared_ptr
+// infrastructure we just initialise the counts to 1.
+
+fn _ZN5boost6detail12shared_countC2IN7SQLite32DbEEEPT_(
+    env: &mut Environment,
+    this: MutVoidPtr,  // boost::detail::shared_count*
+    _px:  MutVoidPtr,  // SQLite3::Db*
+) {
+    if this.is_null() { return; }
+    // shared_count layout (32-bit): one pointer to sp_counted_base*.
+    // We allocate a tiny fake sp_counted_base with use_count=1, weak_count=1.
+    let counted: MutVoidPtr = env.mem.alloc(12).cast(); // vtable(4) + use(4) + weak(4)
+    env.mem.bytes_at_mut(counted.cast(), 12).fill(0);
+    // vtable = 0 (we never dispatch through it)
+    let use_count_ptr:  MutPtr<i32> = MutPtr::from_bits(counted.to_bits() + 4);
+    let weak_count_ptr: MutPtr<i32> = MutPtr::from_bits(counted.to_bits() + 8);
+    env.mem.write(use_count_ptr,  1i32);
+    env.mem.write(weak_count_ptr, 1i32);
+    // Write the sp_counted_base* into the shared_count object.
+    env.mem.write(this.cast::<MutVoidPtr>(), counted);
+    log_dbg!(
+        "boost::detail::shared_count::shared_count<SQLite3::Db>({:?}) — initialised stub sp_counted_base at {:?}",
+        _px, counted
+    );
+}
+
+// MARK: - boost::enable_shared_from_this<SQLite3::Db>::_internal_accept_owner
+//
+// `boost::enable_shared_from_this<SQLite3::Db>::_internal_accept_owner<SQLite3::Db, SQLite3::Db>(
+//     boost::shared_ptr<SQLite3::Db> const*, SQLite3::Db*)`
+// Mangled: _ZNK5boost23enable_shared_from_thisIN7SQLite32DbEE22_internal_accept_ownerIS2_S2_EEvPKNS_10shared_ptrIT_EEPT0_
+//
+// Called by boost::shared_ptr<T> when the managed object inherits from
+// enable_shared_from_this<T>. It stores a weak_ptr back to the shared_ptr
+// inside the object so that shared_from_this() works.
+// We stub it as a no-op — shared_from_this() is not supported.
+
+fn _ZNK5boost23enable_shared_from_thisIN7SQLite32DbEE22_internal_accept_ownerIS2_S2_EEvPKNS_10shared_ptrIT_EEPT0_(
+    _env: &mut Environment,
+    _this:    MutVoidPtr,  // enable_shared_from_this<Db>* (const)
+    _shared:  MutVoidPtr,  // shared_ptr<Db> const*
+    _managed: MutVoidPtr,  // Db*
+) {
+    // Storing the back-reference requires a working weak_ptr implementation.
+    // Since we stub all of that, this is safely a no-op.
+    log_dbg!(
+        "boost::enable_shared_from_this<SQLite3::Db>::_internal_accept_owner — stubbed"
+    );
+}
+
+// MARK: - boost::throw_exception<boost::bad_weak_ptr>
+//
+// `boost::throw_exception<boost::bad_weak_ptr>(boost::bad_weak_ptr const&)`
+// Mangled: _ZN5boost15throw_exceptionINS_12bad_weak_ptrEEEvRKT_
+//
+// Called when shared_from_this() is invoked on an object with no associated
+// shared_ptr (i.e. the object was not created via make_shared or shared_ptr).
+// Real Boost throws std::bad_weak_ptr. We log and return so the emulated
+// program can continue; in practice this is hit during teardown or when
+// shared_from_this is misused.
+
+fn _ZN5boost15throw_exceptionINS_12bad_weak_ptrEEEvRKT_(
+    _env: &mut Environment,
+    _exc: MutVoidPtr,  // bad_weak_ptr const&
+) {
+    log!(
+        "Warning: boost::throw_exception<bad_weak_ptr> called — \
+         shared_from_this() used on unmanaged object. Continuing."
+    );
+    // In a real implementation this would unwind via __cxa_throw.
+    // Since our SjLj unwind stubs are no-ops we just return.
+}
+
 /// `boost::filesystem::basic_path` constructor from `const char*`
 /// Mangled: _ZN5boost11filesystem210basic_pathISsNS0_11path_traitsEEC2EPKc
 fn _ZN5boost11filesystem210basic_pathISsNS0_11path_traitsEEC2EPKc(
@@ -324,4 +403,10 @@ pub const FUNCTIONS: FunctionExports = &[
     // boost::exception_ptr statics
     export_c_func!(_ZN5boost16exception_detail27get_static_exception_objectINS0_14bad_exception_EEENS_13exception_ptrEv()),
     export_c_func!(_ZN5boost16exception_detail27get_static_exception_objectINS0_10bad_alloc_EEENS_13exception_ptrEv()),
+    // boost::detail::shared_count<SQLite3::Db>
+    export_c_func!(_ZN5boost6detail12shared_countC2IN7SQLite32DbEEEPT_(_, _)),
+    // boost::enable_shared_from_this::_internal_accept_owner
+    export_c_func!(_ZNK5boost23enable_shared_from_thisIN7SQLite32DbEE22_internal_accept_ownerIS2_S2_EEvPKNS_10shared_ptrIT_EEPT0_(_, _, _)),
+    // boost::throw_exception<bad_weak_ptr>
+    export_c_func!(_ZN5boost15throw_exceptionINS_12bad_weak_ptrEEEvRKT_(_)),
 ];
