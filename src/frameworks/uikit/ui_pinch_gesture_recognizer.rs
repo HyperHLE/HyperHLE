@@ -195,13 +195,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeTarget:(id)target action:(SEL)action {
-    let host = env.objc.borrow_mut::<UIGestureRecognizerHostObject>(this);
-    host.targets.retain(|(t, a)| {
-        let matches = (*t == target || target == nil)
-            && (*a == action || action.is_null());  // ← Add * before a
-        if matches { release(env, *t); }
-        !matches
-    });
+    if target == nil || action.is_null() { return; }
+    retain(env, target);
+    env.objc.borrow_mut::<UIGestureRecognizerHostObject>(this)
+        .targets.push((target, action));
 }
 
 // MARK: - State
