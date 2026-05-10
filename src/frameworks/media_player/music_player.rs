@@ -15,6 +15,12 @@ pub const MPMusicPlayerControllerNowPlayingItemDidChangeNotification: &str =
 pub const MPMusicPlayerControllerPlaybackStateDidChangeNotification: &str =
     "MPMusicPlayerControllerPlaybackStateDidChangeNotification";
 pub const MPMediaItemPropertyPersistentID: &str = "persistentID";
+pub const MPMediaItemPropertyAlbumArtist: &str = "albumArtist";
+pub const MPMediaItemPropertyAlbumTitle: &str = "albumTitle";
+pub const MPMediaItemPropertyArtist: &str = "artist";
+pub const MPMediaItemPropertyComposer: &str = "composer";
+pub const MPMediaItemPropertyGenre: &str = "genre";
+pub const MPMediaItemPropertyTitle: &str = "title";
 
 /// `NSNotificationName` values.
 pub const CONSTANTS: ConstantExports = &[
@@ -29,6 +35,30 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_MPMediaItemPropertyPersistentID",
         HostConstant::NSString(MPMediaItemPropertyPersistentID),
+    ),
+    (
+        "_MPMediaItemPropertyAlbumArtist",
+        HostConstant::NSString(MPMediaItemPropertyAlbumArtist),
+    ),
+    (
+        "_MPMediaItemPropertyAlbumTitle",
+        HostConstant::NSString(MPMediaItemPropertyAlbumTitle),
+    ),
+    (
+        "_MPMediaItemPropertyArtist",
+        HostConstant::NSString(MPMediaItemPropertyArtist),
+    ),
+    (
+        "_MPMediaItemPropertyComposer",
+        HostConstant::NSString(MPMediaItemPropertyComposer),
+    ),
+    (
+        "_MPMediaItemPropertyGenre",
+        HostConstant::NSString(MPMediaItemPropertyGenre),
+    ),
+    (
+        "_MPMediaItemPropertyTitle",
+        HostConstant::NSString(MPMediaItemPropertyTitle),
     ),
 ];
 
