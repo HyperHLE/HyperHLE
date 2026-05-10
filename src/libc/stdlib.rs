@@ -86,7 +86,7 @@ fn malloc_create_zone(
         start_size, flags
     );
     // Use a stable non-null sentinel. Callers must not dereference it.
-    crate::mem::Ptr::from_bits(0xDEADZ0E) // dummy non-null, non-zero address
+    crate::mem::Ptr::from_bits(0x00DEAD20)
 }
 
 fn malloc_set_zone_name(
