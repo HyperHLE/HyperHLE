@@ -305,6 +305,35 @@ pub fn CGRectApplyAffineTransform(
     transform.apply_to_rect(rect)
 }
 
+fn CGAffineTransformFromString(env: &mut Environment, string: id) -> CGAffineTransform {
+    if string == crate::objc::nil {
+        return CGAffineTransformIdentity;
+    }
+    let s = crate::frameworks::foundation::ns_string::to_rust_string(env, string).into_owned();
+    // Format: "[a, b, c, d, tx, ty]"
+    let nums: Vec<f32> = s
+        .trim_matches(|c| c == '[' || c == ']' || c == ' ')
+        .split(',')
+        .filter_map(|t| t.trim().parse::<f32>().ok())
+        .collect();
+    if nums.len() >= 6 {
+        CGAffineTransform {
+            a: nums[0], b: nums[1],
+            c: nums[2], d: nums[3],
+            tx: nums[4], ty: nums[5],
+        }
+    } else {
+        log!("CGAffineTransformFromString: couldn't parse {:?}", s);
+        CGAffineTransformIdentity
+    }
+}
+
+fn CGAffineTransformToString(env: &mut Environment, t: CGAffineTransform) -> id {
+    let s = format!("[{}, {}, {}, {}, {}, {}]", t.a, t.b, t.c, t.d, t.tx, t.ty);
+    let ns = crate::frameworks::foundation::ns_string::from_rust_string(env, s);
+    crate::objc::autorelease(env, ns)
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGAffineTransformIsIdentity(_)),
     export_c_func!(CGAffineTransformEqualToTransform(_, _)),
@@ -320,4 +349,6 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGPointApplyAffineTransform(_, _)),
     export_c_func!(CGSizeApplyAffineTransform(_, _)),
     export_c_func!(CGRectApplyAffineTransform(_, _)),
+    export_c_func!(CGAffineTransformFromString(_)),
+    export_c_func!(CGAffineTransformToString(_)),
 ];
