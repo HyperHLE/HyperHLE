@@ -72,6 +72,39 @@ fn malloc_size(env: &mut Environment, ptr: ConstVoidPtr) -> GuestUSize {
     env.mem.malloc_size(ptr)
 }
 
+fn malloc_create_zone(
+    _env: &mut Environment,
+    start_size: u32,
+    flags: u32,
+) -> crate::mem::MutVoidPtr {
+    // malloc zones are a Darwin-specific memory management concept.
+    // touchHLE uses the host allocator for all guest memory, so zones
+    // are meaningless here. Return a non-null dummy pointer so callers
+    // that check for NULL don't think zone creation failed.
+    log_dbg!(
+        "malloc_create_zone(start_size={}, flags={:#x}) — returning dummy zone",
+        start_size, flags
+    );
+    // Use a stable non-null sentinel. Callers must not dereference it.
+    crate::mem::Ptr::from_bits(0xDEADZ0E) // dummy non-null, non-zero address
+}
+
+fn malloc_set_zone_name(
+    env: &mut Environment,
+    zone: crate::mem::MutVoidPtr,
+    name: crate::mem::ConstPtr<u8>,
+) {
+    let name_str = if name.is_null() {
+        "(null)".to_string()
+    } else {
+        env.mem.cstr_at_utf8(name).unwrap_or_default().to_owned()
+    };
+    log_dbg!(
+        "malloc_set_zone_name(zone={:?}, name={:?}) — ignored",
+        zone, name_str
+    );
+}
+
 fn calloc(env: &mut Environment, count: GuestUSize, size: GuestUSize) -> MutVoidPtr {
     set_errno(env, 0);
     let mut total = size.checked_mul(count).unwrap();
@@ -1105,6 +1138,8 @@ fn flistxattr(
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(malloc(_)),
     export_c_func!(malloc_size(_)),
+    export_c_func!(malloc_create_zone(_, _)),
+    export_c_func!(malloc_set_zone_name(_, _)),
     export_c_func!(calloc(_, _)),
     export_c_func!(realloc(_, _)),
     export_c_func!(reallocf(_, _)),
