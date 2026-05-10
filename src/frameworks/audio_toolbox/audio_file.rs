@@ -433,10 +433,10 @@ pub fn AudioFileReadPackets(
         return paramErr;
     }
 
+    // Downgrade to log_dbg — this fires on every single read in CBR streams.
     if !out_packet_descriptions.is_null() {
-        log!(
-            "Внимание: игнорирование не-null out_packet_descriptions \
-             в AudioFileReadPackets()"
+        log_dbg!(
+            "AudioFileReadPackets: ignoring non-null out_packet_descriptions"
         );
     }
 
@@ -454,6 +454,8 @@ pub fn AudioFileReadPackets(
     };
 
     let packets_to_read = env.mem.read(io_num_packets);
+
+    // VBR / zero packet size or nothing requested — succeed silently.
     if packet_size == 0 || packets_to_read == 0 {
         env.mem.write(io_num_packets, 0);
         if !out_num_bytes.is_null() {
@@ -462,25 +464,42 @@ pub fn AudioFileReadPackets(
         return kAudioFileSuccess;
     }
 
+    // Negative starting packet — end of stream, return 0 packets read.
     if in_starting_packet < 0 {
         env.mem.write(io_num_packets, 0);
         if !out_num_bytes.is_null() {
             env.mem.write(out_num_bytes, 0);
         }
+        // Return eofErr so callers know the stream is exhausted, but
+        // write 0 packets so they don't try to process garbage data.
         return eofErr;
     }
 
     let starting_byte = match i64::from(packet_size).checked_mul(in_starting_packet) {
         Some(v) => v,
-        None => return kAudioFileBadPropertySizeError,
+        None => {
+            log_dbg!(
+                "AudioFileReadPackets: starting byte overflow \
+                 (packet_size={}, in_starting_packet={})",
+                packet_size, in_starting_packet
+            );
+            return kAudioFileBadPropertySizeError;
+        }
     };
 
     let bytes_to_read = match packets_to_read.checked_mul(packet_size) {
         Some(v) => v,
-        None => return kAudioFileBadPropertySizeError,
+        None => {
+            log_dbg!(
+                "AudioFileReadPackets: bytes_to_read overflow \
+                 (packets_to_read={}, packet_size={})",
+                packets_to_read, packet_size
+            );
+            return kAudioFileBadPropertySizeError;
+        }
     };
 
-    if bytes_to_read == 0 || out_buffer.is_null() {
+    if out_buffer.is_null() {
         env.mem.write(io_num_packets, 0);
         if !out_num_bytes.is_null() {
             env.mem.write(out_num_bytes, 0);
@@ -504,14 +523,21 @@ pub fn AudioFileReadPackets(
     };
 
     if !out_num_bytes.is_null() {
-        env.mem
-            .write(out_num_bytes, bytes_read.try_into().unwrap_or(0));
+        env.mem.write(out_num_bytes, bytes_read.try_into().unwrap_or(0));
     }
 
     let packets_read = (bytes_read as u32) / packet_size;
     env.mem.write(io_num_packets, packets_read);
 
-    if (bytes_read as u32) < bytes_to_read {
+    log_dbg!(
+        "AudioFileReadPackets: start={} req={} read={} bytes={}",
+        in_starting_packet, packets_to_read, packets_read, bytes_read
+    );
+
+    // Only return eofErr when we read NOTHING — partial reads are fine.
+    // Returning eofErr on a partial read causes many callers to log an
+    // error on every single buffer fill near the end of the file.
+    if bytes_read == 0 {
         eofErr
     } else {
         kAudioFileSuccess
