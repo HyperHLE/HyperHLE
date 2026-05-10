@@ -178,9 +178,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<UIGestureRecognizerHostObject>(this);
-    let deps = host.dependencies;
-    for (t, _) in &host.targets { release(env, *t); }
+    let (deps, targets) = {
+        let host = env.objc.borrow::<UIGestureRecognizerHostObject>(this);
+        (host.dependencies, host.targets.clone())
+    };
+    for (t, _) in targets { release(env, t); }
     release(env, deps);
     env.objc.dealloc_object(this, &mut env.mem)
 }
@@ -195,10 +197,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeTarget:(id)target action:(SEL)action {
-    if target == nil || action.is_null() { return; }
-    retain(env, target);
-    env.objc.borrow_mut::<UIGestureRecognizerHostObject>(this)
-        .targets.push((target, action));
+    let to_remove: Vec<(id, SEL)> = {
+        let host = env.objc.borrow::<UIGestureRecognizerHostObject>(this);
+        host.targets.iter()
+            .filter(|(t, a)| {
+                (*t == target || target == nil)
+                && (*a == action || action.is_null())
+            })
+            .copied()
+            .collect()
+    };
+    for (t, _) in &to_remove {
+        release(env, *t);
+    }
+    let host = env.objc.borrow_mut::<UIGestureRecognizerHostObject>(this);
+    host.targets.retain(|(t, a)| {
+        !to_remove.iter().any(|(rt, ra)| rt == t && *ra == *a)
+    });
 }
 
 // MARK: - State
@@ -351,9 +366,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<UIPanGestureRecognizerHostObject>(this);
-    let deps = host.super_.dependencies;
-    for (t, _) in &host.super_.targets { release(env, *t); }
+    let (deps, targets) = {
+        let host = env.objc.borrow::<UIPanGestureRecognizerHostObject>(this);
+        (host.super_.dependencies, host.super_.targets.clone())
+    };
+    for (t, _) in targets { release(env, t); }
     release(env, deps);
     env.objc.dealloc_object(this, &mut env.mem)
 }
@@ -667,9 +684,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<UILongPressGestureRecognizerHostObject>(this);
-    let deps = host.super_.dependencies;
-    for (t, _) in &host.super_.targets { release(env, *t); }
+    let (deps, targets) = {
+        let host = env.objc.borrow::<UILongPressGestureRecognizerHostObject>(this);
+        (host.super_.dependencies, host.super_.targets.clone())
+    };
+    for (t, _) in targets { release(env, t); }
     release(env, deps);
     env.objc.dealloc_object(this, &mut env.mem)
 }
@@ -766,9 +785,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<UIPinchGestureRecognizerHostObject>(this);
-    let deps = host.super_.dependencies;
-    for (t, _) in &host.super_.targets { release(env, *t); }
+    let (deps, targets) = {
+        let host = env.objc.borrow::<UIPinchGestureRecognizerHostObject>(this);
+        (host.super_.dependencies, host.super_.targets.clone())
+    };
+    for (t, _) in targets { release(env, t); }
     release(env, deps);
     env.objc.dealloc_object(this, &mut env.mem)
 }
@@ -828,9 +849,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<UIRotationGestureRecognizerHostObject>(this);
-    let deps = host.super_.dependencies;
-    for (t, _) in &host.super_.targets { release(env, *t); }
+    let (deps, targets) = {
+        let host = env.objc.borrow::<UIRotationGestureRecognizerHostObject>(this);
+        (host.super_.dependencies, host.super_.targets.clone())
+    };
+    for (t, _) in targets { release(env, t); }
     release(env, deps);
     env.objc.dealloc_object(this, &mut env.mem)
 }
@@ -888,9 +911,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<UISwipeGestureRecognizerHostObject>(this);
-    let deps = host.super_.dependencies;
-    for (t, _) in &host.super_.targets { release(env, *t); }
+    let (deps, targets) = {
+        let host = env.objc.borrow::<UISwipeGestureRecognizerHostObject>(this);
+        (host.super_.dependencies, host.super_.targets.clone())
+    };
+    for (t, _) in targets { release(env, t); }
     release(env, deps);
     env.objc.dealloc_object(this, &mut env.mem)
 }
