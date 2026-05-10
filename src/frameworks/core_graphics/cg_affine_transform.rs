@@ -330,7 +330,10 @@ fn CGAffineTransformFromString(env: &mut Environment, string: id) -> CGAffineTra
 }
 
 fn CGAffineTransformToString(env: &mut Environment, t: CGAffineTransform) -> id {
-    let s = format!("[{}, {}, {}, {}, {}, {}]", t.a, t.b, t.c, t.d, t.tx, t.ty);
+    // Copy all fields out of the packed struct before passing to format!
+    // to avoid E0793 (unaligned reference to packed struct field).
+    let CGAffineTransform { a, b, c, d, tx, ty } = t;
+    let s = format!("[{}, {}, {}, {}, {}, {}]", a, b, c, d, tx, ty);
     let ns = crate::frameworks::foundation::ns_string::from_rust_string(env, s);
     crate::objc::autorelease(env, ns)
 }
