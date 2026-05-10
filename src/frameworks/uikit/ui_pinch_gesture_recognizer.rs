@@ -537,9 +537,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let host = env.objc.borrow::<UITapGestureRecognizerHostObject>(this);
-    let deps = host.super_.dependencies;
-    for (t, _) in &host.super_.targets { release(env, *t); }
+    let (deps, targets) = {
+        let host = env.objc.borrow::<UITapGestureRecognizerHostObject>(this);
+        (host.super_.dependencies, host.super_.targets.clone())
+    };
+    for (t, _) in targets { release(env, t); }
     release(env, deps);
     env.objc.dealloc_object(this, &mut env.mem)
 }
