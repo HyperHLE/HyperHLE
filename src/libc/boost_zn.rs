@@ -541,7 +541,7 @@ fn _ZNSt11_Deque_baseIN8GridData16ProcessChunkArgsESaIS1_EED2Ev(
 
 /// `std::_Deque_base<pair<int,int>, allocator<...>>::_M_initialize_map(size_t)`
 /// __ZNSt11_Deque_baseISt4pairIiiESaIS1_EE17_M_initialize_mapEm
-fn _lZNSt11_Deque_baseISt4pairIiiESaIS1_EE17_M_initialize_mapEm(
+fn _ZNSt11_Deque_baseISt4pairIiiESaIS1_EE17_M_initialize_mapEm(
     _env: &mut Environment,
     _this: MutVoidPtr,
     _num_elements: GuestUSize,
