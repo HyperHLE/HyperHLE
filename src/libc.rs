@@ -14,7 +14,7 @@
 pub mod arpa;
 pub mod asl;
 pub mod blocks;
-pub mod boost_zn
+pub mod boost_zn;
 pub mod clocale;
 pub mod crypto;
 pub mod ctype;
