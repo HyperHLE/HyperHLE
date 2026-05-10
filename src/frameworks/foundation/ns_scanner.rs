@@ -94,6 +94,151 @@ pub const CLASSES: ClassExports = objc_classes! {
     len == pos
 }
 
+// Add scanLocation getter/setter inside @implementation _touchHLE_NSScanner:
+
+- (NSUInteger)scanLocation {
+    env.objc.borrow::<NSScannerHostObject>(this).pos
+}
+
+- (())setScanLocation:(NSUInteger)location {
+    let len = env.objc.borrow::<NSScannerHostObject>(this).len;
+    let clamped = location.min(len);
+    env.objc.borrow_mut::<NSScannerHostObject>(this).pos = clamped;
+}
+
+// Also add caseSensitive which is commonly accessed alongside scanLocation:
+
+- (bool)caseSensitive {
+    false // NSScanner is case-insensitive by default
+}
+
+- (())setCaseSensitive:(bool)_v {
+    // Stub — case sensitivity not implemented.
+}
+
+// setCharactersToBeSkipped / string accessors
+
+- (())setCharactersToBeSkipped:(id)char_set {
+    let old = env.objc.borrow::<NSScannerHostObject>(this).to_be_skipped;
+    release(env, old);
+    retain(env, char_set);
+    env.objc.borrow_mut::<NSScannerHostObject>(this).to_be_skipped = char_set;
+}
+
+- (id)string {
+    env.objc.borrow::<NSScannerHostObject>(this).string
+}
+
+// scanLongLong / scanUnsignedLongLong
+
+- (bool)scanLongLong:(MutPtr<i64>)result {
+    skip_characters(env, this);
+    let NSScannerHostObject { to_be_skipped, string, len, pos } =
+        std::mem::take(env.objc.borrow_mut::<NSScannerHostObject>(this));
+    let left: id = msg![env; string substringFromIndex:pos];
+    if left == nil {
+        *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+            NSScannerHostObject { to_be_skipped, string, len, pos };
+        return false;
+    }
+    let st = to_rust_string(env, left).into_owned();
+    let mut cutoff = 0;
+    for (i, c) in st.char_indices() {
+        if c.is_ascii_digit() || ((c == '+' || c == '-') && i == 0) {
+            cutoff = i + 1;
+        } else { break; }
+    }
+    if cutoff == 0 {
+        *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+            NSScannerHostObject { to_be_skipped, string, len, pos };
+        return false;
+    }
+    if !result.is_null() {
+        let res: i64 = st[..cutoff].parse().unwrap_or(0);
+        env.mem.write(result, res);
+    }
+    *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+        NSScannerHostObject { to_be_skipped, string, len, pos: pos + cutoff as NSUInteger };
+    true
+}
+
+- (bool)scanUnsignedLongLong:(MutPtr<u64>)result {
+    skip_characters(env, this);
+    let NSScannerHostObject { to_be_skipped, string, len, pos } =
+        std::mem::take(env.objc.borrow_mut::<NSScannerHostObject>(this));
+    let left: id = msg![env; string substringFromIndex:pos];
+    if left == nil {
+        *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+            NSScannerHostObject { to_be_skipped, string, len, pos };
+        return false;
+    }
+    let st = to_rust_string(env, left).into_owned();
+    let mut cutoff = 0;
+    for (i, c) in st.char_indices() {
+        if c.is_ascii_digit() { cutoff = i + 1; } else { break; }
+    }
+    if cutoff == 0 {
+        *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+            NSScannerHostObject { to_be_skipped, string, len, pos };
+        return false;
+    }
+    if !result.is_null() {
+        let res: u64 = st[..cutoff].parse().unwrap_or(0);
+        env.mem.write(result, res);
+    }
+    *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+        NSScannerHostObject { to_be_skipped, string, len, pos: pos + cutoff as NSUInteger };
+    true
+}
+
+// Proper scanHexInt: implementation
+
+- (bool)scanHexInt:(MutPtr<u32>)result {
+    skip_characters(env, this);
+    let NSScannerHostObject { to_be_skipped, string, len, pos } =
+        std::mem::take(env.objc.borrow_mut::<NSScannerHostObject>(this));
+    let left: id = msg![env; string substringFromIndex:pos];
+    if left == nil {
+        *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+            NSScannerHostObject { to_be_skipped, string, len, pos };
+        return false;
+    }
+    let st = to_rust_string(env, left).into_owned();
+    // Strip optional 0x/0X prefix.
+    let (hex_str, prefix_len) = if st.starts_with("0x") || st.starts_with("0X") {
+        (&st[2..], 2usize)
+    } else {
+        (st.as_str(), 0usize)
+    };
+    let mut cutoff = 0;
+    for c in hex_str.chars() {
+        if c.is_ascii_hexdigit() { cutoff += 1; } else { break; }
+    }
+    if cutoff == 0 {
+        *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+            NSScannerHostObject { to_be_skipped, string, len, pos };
+        return false;
+    }
+    if !result.is_null() {
+        let res = u32::from_str_radix(&hex_str[..cutoff], 16).unwrap_or(0);
+        env.mem.write(result, res);
+    }
+    let advance = (prefix_len + cutoff) as NSUInteger;
+    *env.objc.borrow_mut::<NSScannerHostObject>(this) =
+        NSScannerHostObject { to_be_skipped, string, len, pos: pos + advance };
+    true
+}
+
+// NSCopying
+- (id)copyWithZone:(NSZonePtr)_zone {
+    let copy: id = msg_class![env; _touchHLE_NSScanner alloc];
+    let src = env.objc.borrow::<NSScannerHostObject>(this).clone();
+    retain(env, src.string);
+    retain(env, src.to_be_skipped);
+    *env.objc.borrow_mut::<NSScannerHostObject>(copy) = src;
+    copy
+}
+
 - (bool)scanUpToCharactersFromSet:(id)cset intoString:(MutPtr<id>)str {
     skip_characters(env, this);
 
