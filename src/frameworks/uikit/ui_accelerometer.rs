@@ -4,9 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! `UIAccelerometer`.
-//!
-//! Useful resources:
-//! - [Apple's documentation for UIAcceleration](https://developer.apple.com/documentation/uikit/uiacceleration) has a really nice diagram of how the accelerometer axes relate to an iPhone.
 
 use crate::frameworks::foundation::NSTimeInterval;
 use crate::objc::{
@@ -16,19 +13,42 @@ use crate::objc::{
 use crate::Environment;
 use std::time::{Duration, Instant};
 
+// =========================================================================
+// MARK: - State
+// =========================================================================
+
 #[derive(Default)]
 pub struct State {
-    /// [UIAccelerometer sharedAccelerometer]
+    /// `[UIAccelerometer sharedAccelerometer]` — singleton.
     shared_accelerometer: Option<id>,
-    /// Something implementing UIAccelerometerDelegate, weak reference
+    /// Something implementing `UIAccelerometerDelegate` — weak reference.
     delegate: Option<id>,
     update_interval: Option<NSTimeInterval>,
     due_by: Option<Instant>,
+    /// Whether the accelerometer is currently "active" (delegate is set).
+    active: bool,
+    /// Whether the app has called setDelegate: at least once.
+    ever_set_delegate: bool,
+    /// Last delivered acceleration values (for querying without a delegate).
+    last_x: f64,
+    last_y: f64,
+    last_z: f64,
+    last_timestamp: NSTimeInterval,
 }
+
+// =========================================================================
+// MARK: - Types / constants
+// =========================================================================
 
 type UIAccelerationValue = f64;
 
 const DEFAULT_UPDATE_INTERVAL: f64 = 1.0 / 60.0;
+const MIN_UPDATE_INTERVAL:     f64 = 1.0 / 100.0; // 100 Hz — hardware limit
+const MAX_UPDATE_INTERVAL:     f64 = 1.0;          // 1 Hz minimum
+
+// =========================================================================
+// MARK: - UIAcceleration host object
+// =========================================================================
 
 struct UIAccelerationHostObject {
     x: UIAccelerationValue,
@@ -38,65 +58,142 @@ struct UIAccelerationHostObject {
 }
 impl HostObject for UIAccelerationHostObject {}
 
+// =========================================================================
+// MARK: - ObjC classes
+// =========================================================================
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
 
-// This is a singleton.
+// =========================================================================
+// UIAccelerometer — singleton
+// =========================================================================
+
 @implementation UIAccelerometer: NSObject
 
 + (id)sharedAccelerometer {
-    if let Some(accelerometer) =
-        env.framework_state.uikit.ui_accelerometer.shared_accelerometer {
-        accelerometer
-    } else {
-        let new = env.objc.alloc_static_object(
-            this,
-            Box::new(TrivialHostObject),
-            &mut env.mem
-        );
-        env.framework_state.uikit.ui_accelerometer.shared_accelerometer = Some(new);
-        new
-   }
+    if let Some(acc) = env.framework_state.uikit.ui_accelerometer.shared_accelerometer {
+        return acc;
+    }
+    let new = env.objc.alloc_static_object(
+        this,
+        Box::new(TrivialHostObject),
+        &mut env.mem,
+    );
+    env.framework_state.uikit.ui_accelerometer.shared_accelerometer = Some(new);
+    new
 }
-- (id)retain { this }
-- (())release {}
-- (id)autorelease { this }
 
-// TODO: more accessors
+// Singleton — memory management is a no-op.
+- (id)retain      { this }
+- (())release     {}
+- (id)autorelease { this }
+- (u32)retainCount { u32::MAX }
+
+// MARK: Delegate
 
 - (id)delegate {
     env.framework_state.uikit.ui_accelerometer.delegate.unwrap_or(nil)
 }
+
 - (())setDelegate:(id)delegate {
     if delegate == nil {
         env.framework_state.uikit.ui_accelerometer.delegate = None;
+        env.framework_state.uikit.ui_accelerometer.active   = false;
+        log_dbg!("UIAccelerometer: delegate cleared, stopping updates");
     } else {
-        env.framework_state.uikit.ui_accelerometer.delegate = Some(delegate);
+        env.framework_state.uikit.ui_accelerometer.delegate        = Some(delegate);
+        env.framework_state.uikit.ui_accelerometer.active          = true;
+        env.framework_state.uikit.ui_accelerometer.ever_set_delegate = true;
+        // Reset due_by so the first update is delayed by one interval,
+        // matching Apple's behaviour (avoids crashing early-init delegates).
+        env.framework_state.uikit.ui_accelerometer.due_by = None;
         env.window().print_accelerometer_notice(&env.options);
+        log_dbg!("UIAccelerometer: delegate set, starting updates");
     }
 }
 
+// MARK: Update interval
+
 - (NSTimeInterval)updateInterval {
-    env.framework_state.uikit.ui_accelerometer.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
+    env.framework_state.uikit.ui_accelerometer
+        .update_interval
+        .unwrap_or(DEFAULT_UPDATE_INTERVAL)
 }
+
 - (())setUpdateInterval:(NSTimeInterval)interval {
-    // The system can limit this value, and must (some apps pass 0 and this can
-    // cause a division-by-zero. 60Hz has been chosen here to match 60fps.
-    let interval = interval.max(1.0 / 60.0);
-    env.framework_state.uikit.ui_accelerometer.update_interval = Some(interval);
+    // Clamp to hardware limits. Some apps pass 0 which causes divide-by-zero.
+    let clamped = interval.clamp(MIN_UPDATE_INTERVAL, MAX_UPDATE_INTERVAL);
+    if (clamped - interval).abs() > 1e-6 {
+        log_dbg!(
+            "UIAccelerometer setUpdateInterval: {:.4}s clamped to {:.4}s",
+            interval, clamped
+        );
+    }
+    env.framework_state.uikit.ui_accelerometer.update_interval = Some(clamped);
+    // Reset scheduling so the new interval takes effect immediately.
+    env.framework_state.uikit.ui_accelerometer.due_by = None;
+}
+
+// MARK: Last known values (iOS 4 deprecated API polyfill)
+
+// Some apps read raw acceleration values directly from the shared accelerometer
+// object rather than waiting for the delegate callback.  We expose the last
+// delivered values for this purpose.
+
+- (UIAccelerationValue)x {
+    env.framework_state.uikit.ui_accelerometer.last_x
+}
+
+- (UIAccelerationValue)y {
+    env.framework_state.uikit.ui_accelerometer.last_y
+}
+
+- (UIAccelerationValue)z {
+    env.framework_state.uikit.ui_accelerometer.last_z
+}
+
+- (NSTimeInterval)timestamp {
+    env.framework_state.uikit.ui_accelerometer.last_timestamp
+}
+
+// MARK: isActive (non-Apple extension used by some games)
+
+- (bool)isActive {
+    env.framework_state.uikit.ui_accelerometer.active
+}
+
+// MARK: Description
+
+- (id)description {
+    let (x, y, z, interval, active) = {
+        let s = &env.framework_state.uikit.ui_accelerometer;
+        (
+            s.last_x, s.last_y, s.last_z,
+            s.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
+            s.active,
+        )
+    };
+    let s = format!(
+        "<UIAccelerometer: x={:.3} y={:.3} z={:.3}; interval={:.4}s; active={}>",
+        x, y, z, interval, active
+    );
+    let cstr = env.mem.alloc_and_write_cstr(s.as_bytes());
+    msg_class![env; NSString stringWithUTF8String:cstr]
 }
 
 @end
+
+// =========================================================================
+// UIAcceleration
+// =========================================================================
 
 @implementation UIAcceleration: NSObject
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(UIAccelerationHostObject {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-        timestamp: 0.0,
+        x: 0.0, y: 0.0, z: 0.0, timestamp: 0.0,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -114,62 +211,91 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<UIAccelerationHostObject>(this).timestamp
 }
 
+- (id)description {
+    let (x, y, z, ts) = {
+        let h = env.objc.borrow::<UIAccelerationHostObject>(this);
+        (h.x, h.y, h.z, h.timestamp)
+    };
+    let s = format!(
+        "<UIAcceleration: x={:.3} y={:.3} z={:.3} timestamp={:.3}>",
+        x, y, z, ts
+    );
+    let cstr = env.mem.alloc_and_write_cstr(s.as_bytes());
+    msg_class![env; NSString stringWithUTF8String:cstr]
+}
+
 @end
 
 };
 
-/// For use by `NSRunLoop` via [super::handle_events]: check if an accelerometer
-/// update is due and send one if appropriate.
-///
-/// Returns the time an accelerometer update is due, if any.
-pub(super) fn handle_accelerometer(env: &mut Environment) -> Option<Instant> {
-    let state = &mut env.framework_state.uikit.ui_accelerometer;
+// =========================================================================
+// MARK: - handle_accelerometer (called by NSRunLoop)
+// =========================================================================
 
+/// Check if an accelerometer update is due and deliver it.
+/// Returns the time the next update is due, if any.
+pub(super) fn handle_accelerometer(env: &mut Environment) -> Option<Instant> {
+    let state = &env.framework_state.uikit.ui_accelerometer;
+
+    // No delegate — nothing to do.
     let delegate = state.delegate?;
+    if !state.active { return None; }
 
     let ns_interval = state.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL);
     let rust_interval = Duration::from_secs_f64(ns_interval);
-
     let now = Instant::now();
-    if let Some(due_by) = state.due_by {
-        if due_by > now {
-            return Some(due_by);
-        }
 
-        // See NSTimer implementation for a discussion of what this does.
-        // I don't know if iPhone OS uses this approach for accelerometer
-        // updates, but there's no obvious reason not to.
-        let overdue_by = now.duration_since(due_by);
-        // TODO: Use `.div_duration_f64()` once that is stabilized.
-        let advance_by = (overdue_by.as_secs_f64() / ns_interval).max(1.0).ceil();
-        assert!(advance_by == (advance_by as u32) as f64);
-        let advance_by = advance_by as u32;
-        if advance_by > 1 {
-            log_dbg!("Warning: Accelerometer is lagging. It is overdue by {}s and has missed {} interval(s)!", overdue_by.as_secs_f64(), advance_by - 1);
-        }
-        let advance_by = rust_interval.checked_mul(advance_by).unwrap();
-        let new_due_by = due_by.checked_add(advance_by).unwrap();
-        state.due_by = Some(new_due_by);
-    } else {
-        // In Resident Evil 4 the delegate is set before it fully initializes.
-        // If the first message is sent immediately, it crashes.
-        // This change prevents it by not sending the first message until the
-        // time interval first passes
-        let new_due_by = now.checked_add(rust_interval).unwrap();
-        state.due_by = Some(new_due_by);
-        if new_due_by > now {
-            return Some(new_due_by);
+    // Schedule the first update one interval from now (avoids crashing
+    // delegates that aren't fully initialised yet).
+    let due_by = match env.framework_state.uikit.ui_accelerometer.due_by {
+        Some(t) => t,
+        None => {
+            let first_due = now.checked_add(rust_interval).unwrap();
+            env.framework_state.uikit.ui_accelerometer.due_by = Some(first_due);
+            return Some(first_due);
         }
     };
 
-    // UIKit creates and drains autorelease pools when handling events.
+    if due_by > now {
+        return Some(due_by);
+    }
+
+    // Advance the deadline, catching up any missed intervals.
+    let overdue_by = now.duration_since(due_by);
+    let advance_intervals = (overdue_by.as_secs_f64() / ns_interval)
+        .max(1.0)
+        .ceil() as u32;
+    if advance_intervals > 1 {
+        log_dbg!(
+            "UIAccelerometer: lagging by {:.3}s, skipping {} interval(s)",
+            overdue_by.as_secs_f64(),
+            advance_intervals - 1
+        );
+    }
+    let advance = rust_interval.checked_mul(advance_intervals).unwrap();
+    let next_due = due_by.checked_add(advance).unwrap();
+    env.framework_state.uikit.ui_accelerometer.due_by = Some(next_due);
+
+    // UIKit creates and drains an autorelease pool per event.
     let pool: id = msg_class![env; NSAutoreleasePool new];
 
+    // Get current acceleration values from the window.
     let (x, y, z) = env.window().get_acceleration(&env.options);
     let timestamp: NSTimeInterval = {
-        let process_info = msg_class![env; NSProcessInfo processInfo];
-        msg![env; process_info systemUptime]
+        let pi: id = msg_class![env; NSProcessInfo processInfo];
+        msg![env; pi systemUptime]
     };
+
+    // Cache the values on the shared accelerometer for direct queries.
+    {
+        let s = &mut env.framework_state.uikit.ui_accelerometer;
+        s.last_x         = x.into();
+        s.last_y         = y.into();
+        s.last_z         = z.into();
+        s.last_timestamp = timestamp;
+    }
+
+    // Build the UIAcceleration object.
     let acceleration: id = msg_class![env; UIAcceleration alloc];
     *env.objc.borrow_mut(acceleration) = UIAccelerationHostObject {
         x: x.into(),
@@ -182,18 +308,25 @@ pub(super) fn handle_accelerometer(env: &mut Environment) -> Option<Instant> {
     let accelerometer: id = msg_class![env; UIAccelerometer sharedAccelerometer];
 
     log_dbg!(
-        "Sending [{:?} accelerometer:{:?} didAccelerate:{:?}]",
-        delegate,
-        accelerometer,
-        acceleration,
+        "UIAccelerometer: delivering x={:.3} y={:.3} z={:.3} to delegate {:?}",
+        x, y, z, delegate
     );
-    let sel: SEL = env
-        .objc
-        .register_host_selector("accelerometer:didAccelerate:".to_string(), &mut env.mem);
+
+    // Guard with respondsToSelector: so delegates that don't implement
+    // the optional method don't crash.
+    let sel: SEL = env.objc.lookup_selector("accelerometer:didAccelerate:")
+        .unwrap_or_else(|| {
+            env.objc.register_host_selector(
+                "accelerometer:didAccelerate:".to_string(),
+                &mut env.mem,
+            )
+        });
     let responds: bool = msg![env; delegate respondsToSelector:sel];
     if responds {
         let _: () = msg![env; delegate accelerometer:accelerometer
                                        didAccelerate:acceleration];
+    } else {
+        log_dbg!("UIAccelerometer: delegate {:?} does not respond to accelerometer:didAccelerate:", delegate);
     }
 
     release(env, pool);
