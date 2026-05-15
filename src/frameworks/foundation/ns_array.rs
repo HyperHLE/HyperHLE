@@ -11,7 +11,7 @@ use super::ns_property_list_serialization::{
 };
 use super::{
     _nib_archive_decoder, ns_keyed_unarchiver, ns_string, ns_url, NSComparisonResult, NSNotFound,
-    NSRange, NSUInteger,
+    NSOrderedSame, NSRange, NSUInteger,
 };
 use crate::abi::{CallFromHost, GuestFunction};
 use crate::frameworks::foundation::ns_string::from_rust_string;
@@ -975,11 +975,11 @@ pub const CLASSES: ClassExports = objc_classes! {
             for di in 0..dc {
                 let desc: id = msg![*env; descs_id objectAtIndex:di];
                 let result: NSComparisonResult = msg![*env; desc compareObject:obj_l toObject:obj_r];
-                if result != NSComparisonResult::ORDERED_SAME {
+                if result != NSOrderedSame {
                     return result;
                 }
             }
-            NSComparisonResult::ORDERED_SAME
+            NSOrderedSame
         },
         &mut |(_, array, _), l, r| {
             let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
