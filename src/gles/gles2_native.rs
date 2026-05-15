@@ -707,6 +707,14 @@ impl GLES for GLES2Native<'_> {
     unsafe fn GetVertexAttribfv(&mut self, index: GLuint, pname: GLenum, params: *mut GLfloat) {
         gles2::GetVertexAttribfv(index, pname, params)
     }
+    unsafe fn GetVertexAttribPointerv(
+        &mut self,
+        index: GLuint,
+        pname: GLenum,
+        pointer: *mut *mut GLvoid,
+    ) {
+        gles2::GetVertexAttribPointerv(index, pname, pointer)
+    }
 
     // Uniforms
     unsafe fn Uniform1f(&mut self, location: GLint, v0: GLfloat) {
@@ -837,6 +845,53 @@ impl GLES for GLES2Native<'_> {
     }
     unsafe fn StencilMaskSeparate(&mut self, face: GLenum, mask: GLuint) {
         gles2::StencilMaskSeparate(face, mask)
+    }
+
+    // Uniform query
+    unsafe fn GetUniformiv(&mut self, program: GLuint, location: GLint, params: *mut GLint) {
+        gles2::GetUniformiv(program, location, params)
+    }
+    unsafe fn GetUniformfv(&mut self, program: GLuint, location: GLint, params: *mut GLfloat) {
+        gles2::GetUniformfv(program, location, params)
+    }
+
+    // Shader/program query
+    unsafe fn GetAttachedShaders(
+        &mut self,
+        program: GLuint,
+        maxCount: GLsizei,
+        count: *mut GLsizei,
+        shaders: *mut GLuint,
+    ) {
+        gles2::GetAttachedShaders(program, maxCount, count, shaders)
+    }
+    unsafe fn GetShaderSource(
+        &mut self,
+        shader: GLuint,
+        bufSize: GLsizei,
+        length: *mut GLsizei,
+        source: *mut GLchar,
+    ) {
+        gles2::GetShaderSource(shader, bufSize, length, source)
+    }
+    unsafe fn GetShaderPrecisionFormat(
+        &mut self,
+        shadertype: GLenum,
+        precisiontype: GLenum,
+        range: *mut GLint,
+        precision: *mut GLint,
+    ) {
+        gles2::GetShaderPrecisionFormat(shadertype, precisiontype, range, precision)
+    }
+    unsafe fn ShaderBinary(
+        &mut self,
+        count: GLsizei,
+        shaders: *const GLuint,
+        binaryformat: GLenum,
+        binary: *const GLvoid,
+        length: GLsizei,
+    ) {
+        gles2::ShaderBinary(count, shaders, binaryformat, binary, length)
     }
 
     // Fixed-function methods (ES 1.x) – no-ops on a real ES 2.0 driver. This
