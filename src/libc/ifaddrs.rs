@@ -93,7 +93,10 @@ fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
         "en1" => 4,
         "awdl0" => 5,
         _ => {
-            log_dbg!("if_nametoindex(\"{}\"): unknown interface, returning 0", name);
+            log_dbg!(
+                "if_nametoindex(\"{}\"): unknown interface, returning 0",
+                name
+            );
             set_errno(env, ENXIO);
             return 0;
         }

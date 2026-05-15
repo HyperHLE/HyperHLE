@@ -10,8 +10,7 @@ use crate::dyld::{ConstantExports, HostConstant};
 const AVPlayerItemDidPlayToEndTimeNotification: &str = "AVPlayerItemDidPlayToEndTimeNotification";
 const AVPlayerItemFailedToPlayToEndTimeNotification: &str =
     "AVPlayerItemFailedToPlayToEndTimeNotification";
-const AVPlayerItemFailedToPlayToEndTimeErrorKey: &str =
-    "AVPlayerItemFailedToPlayToEndTimeErrorKey";
+const AVPlayerItemFailedToPlayToEndTimeErrorKey: &str = "AVPlayerItemFailedToPlayToEndTimeErrorKey";
 
 pub const CONSTANTS: ConstantExports = &[
     (

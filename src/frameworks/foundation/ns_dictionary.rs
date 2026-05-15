@@ -1054,19 +1054,19 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("Warning: [_touchHLE_NSMutableDictionary_non_retaining setObject:forKey:] attempt to use nil key — ignoring");
         return;
     }
-    
+
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.insert(env, key, object);
     *env.objc.borrow_mut(this) = host_obj;
 }
 
 - (())removeObjectForKey:(id)key {
-    // ИСПРАВЛЕНИЕ: Безопасная обработка nil-ключей 
+    // ИСПРАВЛЕНИЕ: Безопасная обработка nil-ключей
     if key == nil {
         log!("Warning: [_touchHLE_NSMutableDictionary_non_retaining removeObjectForKey:] key is nil — ignored");
         return;
     }
-    
+
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.remove(env, key);
     *env.objc.borrow_mut(this) = host_obj;

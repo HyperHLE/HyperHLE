@@ -186,7 +186,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
-    
+
     // Очищаем и высвобождаем динамические свойства KVC
     let mut to_release = Vec::new();
     unsafe {
@@ -202,7 +202,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             }
         });
     }
-    
+
     for val_bits in to_release {
         let val: id = unsafe { std::mem::transmute(val_bits) };
         let _: () = msg![env; val release];
@@ -320,15 +320,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     let class: Class = ObjC::read_isa(this, &env.mem);
     let class_name_string = env.objc.get_class_name(class).to_owned();
     let key_string = to_rust_string(env, key);
-    
+
     log!("Warning: Object {:?} of class {:?} does not have a setter for {} — storing dynamically",
         this, class_name_string, key_string);
-    
+
     // Честно сохраняем значение и делаем retain
     if value != nil {
         retain(env, value);
     }
-    
+
     unsafe {
         let target_bits = this.to_bits();
         let mut found = false;
@@ -516,7 +516,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)valueForKey:(id)key {
     let key_str = super::ns_string::to_rust_string(env, key);
     if key_str.is_empty() { return nil; }
-    
+
     let camel_case_key_string = format!(
         "{}{}",
         key_str.as_bytes()[0].to_ascii_uppercase() as char,

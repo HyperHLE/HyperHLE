@@ -201,12 +201,15 @@ fn normalize_key(env: &mut Environment, key: id) -> Option<String> {
         log!("Warning: NSKeyedArchiver received nil key. Ignoring to prevent crash.");
         return None;
     }
-    
+
     let key_str = to_rust_string(env, key);
-    
+
     if key_str.starts_with('$') {
         // Если ключ начинается с $, добавляем еще один $, чтобы избежать конфликтов с системными ключами
-        log!("Warning: NSKeyedArchiver mangling key starting with '$': {}", key_str);
+        log!(
+            "Warning: NSKeyedArchiver mangling key starting with '$': {}",
+            key_str
+        );
         Some(format!("${}", key_str))
     } else {
         // Конвертируем Cow в String
@@ -302,11 +305,13 @@ fn encode_object(env: &mut Environment, archiver: id, object: id) -> Uid {
 fn encode_object_for_key(env: &mut Environment, archiver: id, object: id, normalized_key: String) {
     let uid = encode_object(env, archiver, object);
     let scope = get_value_to_encode_for_current_key(env, archiver);
-    
+
     if scope.contains_key(&normalized_key) {
-        log!("Warning: NSKeyedArchiver overwriting existing object for key '{}'", normalized_key);
+        log!(
+            "Warning: NSKeyedArchiver overwriting existing object for key '{}'",
+            normalized_key
+        );
     }
-    
+
     scope.insert(normalized_key, Value::Uid(uid));
 }
-

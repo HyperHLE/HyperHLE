@@ -250,7 +250,10 @@ impl State {
                     presentation.position = from_value + by_value * interpolation_amount;
                 }
                 _ => {
-                    log_dbg!("Warning: Skipping animation on unsupported key path {:?}", key_path);
+                    log_dbg!(
+                        "Warning: Skipping animation on unsupported key path {:?}",
+                        key_path
+                    );
                     continue;
                 }
             }

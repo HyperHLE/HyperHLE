@@ -82,9 +82,7 @@ fn host_audio_backend_available() -> bool {
     // PulseAudio / PipeWire user sockets.
     if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
         let runtime = std::path::Path::new(&runtime);
-        if runtime.join("pulse").join("native").exists()
-            || runtime.join("pipewire-0").exists()
-        {
+        if runtime.join("pulse").join("native").exists() || runtime.join("pipewire-0").exists() {
             return true;
         }
     }
@@ -410,4 +408,3 @@ impl OpenAL<'_> {
         al_sys::alSpeedOfSound(speed)
     }
 }
-

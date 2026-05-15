@@ -64,7 +64,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setShouldResolveExternalEntities:(bool)should_resolve {
         env.objc.borrow_mut::<NSXMLParserHostObject>(this).should_resolve_external_entities = should_resolve;
 }
-    
+
 - (())setShouldResolveExternalEntities:(bool)should {
     todo_objc_setter!(this, should);
 }
@@ -329,7 +329,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)shouldResolveExternalEntities {
         env.objc.borrow::<NSXMLParserHostObject>(this).should_resolve_external_entities
 }
-    
+
 - (())dealloc {
     let &NSXMLParserHostObject { data, error, .. } = env.objc.borrow(this);
     release(env, data);

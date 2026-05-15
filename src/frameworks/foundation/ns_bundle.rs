@@ -974,20 +974,20 @@ fn path_for_resource_helper(
         return ns_string::from_rust_string(env, exec_path_str);
     }
     path = msg![env; path stringByAppendingPathComponent:name];
- 
+
     if extension != nil {
         let ext_str = ns_string::to_rust_string(env, extension);
         if !ext_str.is_empty() {
             path = msg![env; path stringByAppendingPathExtension:extension];
         }
     }
- 
+
     let file_manager: id = msg_class![env; NSFileManager defaultManager];
     let file_exists: bool = msg![env; file_manager fileExistsAtPath:path];
     if file_exists {
         return path;
     }
- 
+
     // Case-insensitive fallback: scan the parent directory.
     let path_str = ns_string::to_rust_string(env, path);
     let rust_path = std::path::Path::new(path_str.as_ref());
