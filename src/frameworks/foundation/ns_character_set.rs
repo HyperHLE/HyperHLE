@@ -563,6 +563,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     for c in other_chars { host.set.insert(c); }
 }
 
+- (())formUnionWithCharacterSet:(id)other { // NSCharacterSet*
+    () = msg![env; this unionWithCharacterSet:other];
+}
+
 - (())intersectWithCharacterSet:(id)other { // NSCharacterSet*
     let other_set: HashSet<unichar> = {
         let h = env.objc.borrow::<CharacterSetHostObject>(other);

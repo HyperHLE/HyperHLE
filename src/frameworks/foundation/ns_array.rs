@@ -751,6 +751,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+- (id)sortedArrayUsingDescriptors:(id)sort_descriptors { // NSArray<NSSortDescriptor*>*
+    let count: NSUInteger = msg![env; this count];
+    if count <= 1 {
+        return msg![env; this copy];
+    }
+    let mutable_copy: id = msg![env; this mutableCopy];
+    () = msg![env; mutable_copy sortUsingDescriptors:sort_descriptors];
+    let sorted: id = msg![env; mutable_copy copy];
+    release(env, mutable_copy);
+    autorelease(env, sorted)
+}
+
 @end
 
 // Special variant for use by CFArray with NULL callbacks: objects aren't
@@ -939,6 +951,42 @@ pub const CLASSES: ClassExports = objc_classes! {
         },
     );
     let (env, _) = user_data;
+    env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
+}
+
+- (())sortUsingDescriptors:(id)sort_descriptors { // NSArray<NSSortDescriptor*>*
+    let desc_count: NSUInteger = msg![env; sort_descriptors count];
+    if desc_count == 0 {
+        return;
+    }
+    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
+    let mut array = std::mem::take(&mut host_object.array);
+    let len = array.len().try_into().unwrap();
+    let mut user_data = (env, &mut array, sort_descriptors);
+    qsort_generic(
+        &mut user_data,
+        len,
+        &mut |(env, array, descs), l, r| {
+            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
+            let obj_l = array[l];
+            let obj_r = array[r];
+            let descs_id = *descs;
+            let dc: NSUInteger = msg![*env; descs_id count];
+            for di in 0..dc {
+                let desc: id = msg![*env; descs_id objectAtIndex:di];
+                let result: NSComparisonResult = msg![*env; desc compareObject:obj_l toObject:obj_r];
+                if result != NSComparisonResult::ORDERED_SAME {
+                    return result;
+                }
+            }
+            NSComparisonResult::ORDERED_SAME
+        },
+        &mut |(_, array, _), l, r| {
+            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
+            array.swap(l, r);
+        },
+    );
+    let (env, _, _) = user_data;
     env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
 }
 

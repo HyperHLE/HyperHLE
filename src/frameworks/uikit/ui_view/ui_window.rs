@@ -332,6 +332,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// Window life-cycle notifications
 /// TODO: more notifications
 const UIWindowDidBecomeKeyNotification: &str = "UIWindowDidBecomeKeyNotification";
+const UIWindowDidBecomeVisibleNotification: &str = "UIWindowDidBecomeVisibleNotification";
+const UIWindowDidBecomeHiddenNotification: &str = "UIWindowDidBecomeHiddenNotification";
+const UIWindowDidResignKeyNotification: &str = "UIWindowDidResignKeyNotification";
 /// Keyboard notifications
 /// TODO: more keyboard notifications
 pub const UIKeyboardWillShowNotification: &str = "UIKeyboardWillShowNotification";
@@ -344,6 +347,18 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_UIWindowDidBecomeKeyNotification",
         HostConstant::NSString(UIWindowDidBecomeKeyNotification),
+    ),
+    (
+        "_UIWindowDidBecomeVisibleNotification",
+        HostConstant::NSString(UIWindowDidBecomeVisibleNotification),
+    ),
+    (
+        "_UIWindowDidBecomeHiddenNotification",
+        HostConstant::NSString(UIWindowDidBecomeHiddenNotification),
+    ),
+    (
+        "_UIWindowDidResignKeyNotification",
+        HostConstant::NSString(UIWindowDidResignKeyNotification),
     ),
     // _UIKeyboardWillShowNotification, _UIKeyboardDidShowNotification,
     // _UIKeyboardWillHideNotification, _UIKeyboardDidHideNotification and

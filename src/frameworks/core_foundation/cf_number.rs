@@ -149,6 +149,25 @@ pub const CONSTANTS: ConstantExports = &[
             env.mem.alloc_and_write(num).cast_void().cast_const()
         }),
     ),
+    // kCFNumberNaN: a CFNumberRef wrapping NaN.
+    (
+        "_kCFNumberNaN",
+        HostConstant::Custom(|env| {
+            let nan: f64 = f64::NAN;
+            let num = msg_class![env; NSNumber alloc];
+            let num: id = msg![env; num initWithDouble:nan];
+            env.mem.alloc_and_write(num).cast_void().cast_const()
+        }),
+    ),
+    // kCFCoreFoundationVersionNumber: a double constant indicating the CF
+    // version.  478.47 corresponds roughly to iPhone OS 3.0.
+    (
+        "_kCFCoreFoundationVersionNumber",
+        HostConstant::Custom(|env| {
+            let val: f64 = 478.47;
+            env.mem.alloc_and_write(val).cast_void().cast_const()
+        }),
+    ),
 ];
 
 pub const FUNCTIONS: FunctionExports = &[

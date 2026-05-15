@@ -82,16 +82,24 @@ const IF_NAMESIZE: usize = 16;
 
 /// `unsigned int if_nametoindex(const char *ifname)`
 ///
-/// Returns the index for the named interface, or 0 on error.
-/// Stub: we have no real interfaces, so always returns 0 / ENXIO.
+/// Returns a synthetic index for well-known interface names so callers that
+/// check `if_nametoindex("en0") != 0` before proceeding do not bail out.
 fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
     let name = env.mem.cstr_at_utf8(ifname).unwrap_or("<invalid>");
-    log!(
-        "TODO: if_nametoindex(\"{}\") – returning 0 (not implemented)",
-        name
-    );
-    set_errno(env, ENXIO);
-    0
+    let idx = match name {
+        "lo0" => 1,
+        "en0" => 2,
+        "pdp_ip0" => 3,
+        "en1" => 4,
+        "awdl0" => 5,
+        _ => {
+            log_dbg!("if_nametoindex(\"{}\"): unknown interface, returning 0", name);
+            set_errno(env, ENXIO);
+            return 0;
+        }
+    };
+    log_dbg!("if_nametoindex(\"{}\") -> {}", name, idx);
+    idx
 }
 
 /// `char *if_indextoname(unsigned int ifindex, char *ifname)`

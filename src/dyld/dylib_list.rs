@@ -64,6 +64,24 @@ pub const MESSAGE_UI: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::message_ui::FUNCTIONS],
 };
 
+// EventKit (stub — no real calendar/reminders implementation yet)
+pub const EVENT_KIT: super::HostDylib = super::HostDylib {
+    path: "/System/Library/Frameworks/EventKit.framework/EventKit",
+    aliases: &[],
+    class_exports: &[],
+    constant_exports: &[],
+    function_exports: &[frameworks::event_kit::FUNCTIONS],
+};
+
+// CoreData (stub — no real object-graph persistence implementation yet)
+pub const CORE_DATA: super::HostDylib = super::HostDylib {
+    path: "/System/Library/Frameworks/CoreData.framework/CoreData",
+    aliases: &[],
+    class_exports: &[],
+    constant_exports: &[],
+    function_exports: &[frameworks::core_data::FUNCTIONS],
+};
+
 // AddressBookUI (stub — no real contacts-picker implementation yet)
 pub const ADDRESS_BOOK_UI: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/AddressBookUI.framework/AddressBookUI",
@@ -110,6 +128,8 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &MAP_KIT,
     &MESSAGE_UI,
     &ADDRESS_BOOK_UI,
+    &EVENT_KIT,
+    &CORE_DATA,
 ];
 
 #[cfg(test)]

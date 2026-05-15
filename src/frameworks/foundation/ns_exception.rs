@@ -493,7 +493,6 @@ pub const CONSTANTS: ConstantExports = &[
 /// exceptions are already converted to Rust panics or bypassed, but we
 /// save the handler address to maintain accurate guest state.
 fn NSSetUncaughtExceptionHandler(env: &mut Environment, handler: MutVoidPtr) {
-    // Сохраняем переданный гостевым приложением обработчик в состояние
     env.framework_state
         .foundation
         .ns_exception
@@ -505,4 +504,16 @@ fn NSSetUncaughtExceptionHandler(env: &mut Environment, handler: MutVoidPtr) {
     );
 }
 
-pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSSetUncaughtExceptionHandler(_))];
+/// Returns the previously registered uncaught-exception handler, or NULL if
+/// none has been set.
+fn NSGetUncaughtExceptionHandler(env: &mut Environment) -> MutVoidPtr {
+    env.framework_state
+        .foundation
+        .ns_exception
+        .uncaught_exception_handler
+}
+
+pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(NSSetUncaughtExceptionHandler(_)),
+    export_c_func!(NSGetUncaughtExceptionHandler()),
+];

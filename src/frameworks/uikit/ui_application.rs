@@ -656,6 +656,9 @@ const UIApplicationWillResignActiveNotification: &str = "UIApplicationWillResign
 const UIApplicationWillTerminateNotification: &str = "UIApplicationWillTerminateNotification";
 const UIApplicationLaunchOptionsRemoteNotificationKey: &str =
     "UIApplicationLaunchOptionsRemoteNotificationKey";
+const UIApplicationLaunchOptionsLocationKey: &str = "UIApplicationLaunchOptionsLocationKey";
+const UIApplicationLaunchOptionsNewsstandDownloadsKey: &str =
+    "UIApplicationLaunchOptionsNewsstandDownloadsKey";
 const UIApplicationDidReceiveMemoryWarningNotification: &str =
     "UIApplicationDidReceiveMemoryWarningNotification";
 pub const CONSTANTS: ConstantExports = &[
@@ -690,6 +693,14 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_UIApplicationLaunchOptionsRemoteNotificationKey",
         HostConstant::NSString(UIApplicationLaunchOptionsRemoteNotificationKey),
+    ),
+    (
+        "_UIApplicationLaunchOptionsLocationKey",
+        HostConstant::NSString(UIApplicationLaunchOptionsLocationKey),
+    ),
+    (
+        "_UIApplicationLaunchOptionsNewsstandDownloadsKey",
+        HostConstant::NSString(UIApplicationLaunchOptionsNewsstandDownloadsKey),
     ),
 ];
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(UIApplicationMain(_, _, _, _))];

@@ -867,6 +867,23 @@ pub const CONSTANTS: ConstantExports = &[
         "_kSecPublicKeyAttrs",
         HostConstant::NSString("kSecPublicKeyAttrs"),
     ),
+    // kSecAttrKeyClass values
+    (
+        "_kSecAttrKeyClass",
+        HostConstant::NSString("kSecAttrKeyClass"),
+    ),
+    (
+        "_kSecAttrKeyClassPublic",
+        HostConstant::NSString("kSecAttrKeyClassPublic"),
+    ),
+    (
+        "_kSecAttrKeyClassPrivate",
+        HostConstant::NSString("kSecAttrKeyClassPrivate"),
+    ),
+    (
+        "_kSecAttrKeyClassSymmetric",
+        HostConstant::NSString("kSecAttrKeyClassSymmetric"),
+    ),
 ];
 
 // =========================================================================

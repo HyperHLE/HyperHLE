@@ -139,11 +139,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     let clean_str = rust_str.replace('$', "").replace(',', "").replace('%', "");
     let trimmed = clean_str.trim();
 
+    if trimmed.is_empty() {
+        return nil;
+    }
+
     if let Ok(val) = trimmed.parse::<f64>() {
         let ns_number_class = env.objc.get_known_class("NSNumber", &mut env.mem);
         msg![env; ns_number_class numberWithDouble:val]
     } else {
-        log!("Warning: NSNumberFormatter failed to parse string '{}'", rust_str);
+        log_dbg!("NSNumberFormatter: could not parse '{}'", rust_str);
         nil
     }
 }
