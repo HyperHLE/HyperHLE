@@ -59,6 +59,8 @@ pub const MPMoviePlayerWillEnterFullscreenNotification: &str =
     "MPMoviePlayerWillEnterFullscreenNotification";
 pub const MPMoviePlayerWillExitFullscreenNotification: &str =
     "MPMoviePlayerWillExitFullscreenNotification";
+pub const MPMoviePlayerLoadStateDidChangeNotification: &str =
+    "MPMoviePlayerLoadStateDidChangeNotification";
 const MPMoviePlayerPlaybackDidFinishReasonUserInfoKey: &str =
     "MPMoviePlayerPlaybackDidFinishReasonUserInfoKey";
 
@@ -91,6 +93,10 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_MPMoviePlayerWillExitFullscreenNotification",
         HostConstant::NSString(MPMoviePlayerWillExitFullscreenNotification),
+    ),
+    (
+        "_MPMoviePlayerLoadStateDidChangeNotification",
+        HostConstant::NSString(MPMoviePlayerLoadStateDidChangeNotification),
     ),
 ];
 
