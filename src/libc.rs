@@ -11,6 +11,7 @@
 //!
 //! - Apple's [iOS Manual Pages](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/) (contains what would be `man` pages if iOS had a command line)
 
+pub mod arch;
 pub mod arpa;
 pub mod asl;
 pub mod blocks;
@@ -63,6 +64,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ssp::CONSTANTS,
     ],
     function_exports: &[
+        arch::FUNCTIONS,
         arpa::inet::FUNCTIONS,
         asl::FUNCTIONS,
         blocks::FUNCTIONS,
