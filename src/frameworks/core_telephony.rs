@@ -10,6 +10,7 @@
 //! rather than crashing.
 
 use crate::frameworks::foundation::ns_string;
+use crate::dyld::{ConstantExports, HostConstant};
 use crate::objc::{
    id, msg, msg_class, nil, objc_classes, release, retain,
    ClassExports, HostObject, NSZonePtr,
@@ -116,18 +117,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MARK: Properties
 
-/// The name of the user's cellular service provider.
-/// Returns nil when no service is available.
+// The name of the user's cellular service provider.
+// Returns nil when no service is available.
 - (id)carrierName { // NSString*
    env.objc.borrow::<CTCarrierHostObject>(this).carrier_name
 }
 
-/// The ISO country code for the user's cellular service provider.
+// The ISO country code for the user's cellular service provider.
 - (id)isoCountryCode { // NSString*
    env.objc.borrow::<CTCarrierHostObject>(this).iso_country_code
 }
 
-/// The mobile country code for the user's cellular service provider.
+// The mobile country code for the user's cellular service provider.
 - (id)mobileCountryCode { // NSString*
    env.objc.borrow::<CTCarrierHostObject>(this).mobile_country_code
 }
@@ -207,7 +208,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MARK: Delegate
 
-/// The delegate is a weak reference (not retained) per Apple's docs.
+// The delegate is a weak reference (not retained) per Apple's docs.
 - (id)delegate {
    env.objc.borrow::<CTTelephonyNetworkInfoHostObject>(this).delegate
 }
@@ -219,16 +220,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MARK: Cellular provider
 
-/// Returns a `CTCarrier` object describing the subscriber's cellular provider.
-/// In touchHLE this is always a stub carrier with all-nil properties,
-/// representing "no service".
+// Returns a `CTCarrier` object describing the subscriber's cellular provider.
+// In touchHLE this is always a stub carrier with all-nil properties,
+// representing "no service".
 - (id)subscriberCellularProvider { // CTCarrier*
    env.objc.borrow::<CTTelephonyNetworkInfoHostObject>(this)
        .subscriber_cellular_provider
 }
 
-/// iOS 12+ variant that returns a dictionary keyed by service identifier.
-/// We return a single-entry dictionary with a dummy service ID.
+// iOS 12+ variant that returns a dictionary keyed by service identifier.
+// We return a single-entry dictionary with a dummy service ID.
 - (id)serviceSubscriberCellularProviders { // NSDictionary<NSString*, CTCarrier*>*
    let provider = env.objc.borrow::<CTTelephonyNetworkInfoHostObject>(this)
        .subscriber_cellular_provider;
@@ -242,14 +243,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MARK: Radio access technology
 
-/// The current radio access technology, or nil if not connected.
-/// touchHLE reports nil (no cellular connection).
+// The current radio access technology, or nil if not connected.
+// touchHLE reports nil (no cellular connection).
 - (id)currentRadioAccessTechnology { // NSString*
    env.objc.borrow::<CTTelephonyNetworkInfoHostObject>(this)
        .current_radio_access_technology
 }
 
-/// iOS 12+ dictionary variant.
+// iOS 12+ dictionary variant.
 - (id)serviceCurrentRadioAccessTechnology { // NSDictionary<NSString*, NSString*>*
    // Return an empty dictionary — no cellular service.
    let dict: id = msg_class![env; NSDictionary dictionary];
@@ -282,7 +283,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 // MARK: - Constant exports
 // =========================================================================
 
-use crate::dyld::{ConstantExports, HostConstant};
 
 pub const CONSTANTS: ConstantExports = &[
    // Radio access technology strings
