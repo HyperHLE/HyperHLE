@@ -28,6 +28,15 @@ pub const kCGImageAlphaNoneSkipLast: CGImageAlphaInfo = 5;
 pub const kCGImageAlphaNoneSkipFirst: CGImageAlphaInfo = 6;
 pub const kCGImageAlphaOnly: CGImageAlphaInfo = 7;
 
+pub type CGImageSourceRef = CFTypeRef;
+pub type CGImageSourceStatus = i32;
+pub const kCGImageStatusUnexpectedEOF:   CGImageSourceStatus = -5;
+pub const kCGImageStatusInvalidData:     CGImageSourceStatus = -4;
+pub const kCGImageStatusUnknownType:     CGImageSourceStatus = -3;
+pub const kCGImageStatusReadingHeader:   CGImageSourceStatus = -2;
+pub const kCGImageStatusIncomplete:      CGImageSourceStatus = -1;
+pub const kCGImageStatusComplete:        CGImageSourceStatus =  0;
+
 pub type CGImageByteOrderInfo = u32;
 pub const kCGImageByteOrderMask: CGImageByteOrderInfo = 0x7000;
 pub const kCGImageByteOrderDefault: CGImageByteOrderInfo = 0 << 12;
@@ -424,7 +433,250 @@ fn CGImageCreate(
     from_image(env, image)
 }
 
+// =========================================================================
+// MARK: - New creation functions
+// =========================================================================
+
+/// `CGImageCreateWithBitmapContext` — not a real public API but some apps
+/// call an internal variant. We treat it the same as CGImageCreate with
+/// premultiplied-last RGBA.
+fn CGImageCreateWithBitmapData(
+   env: &mut Environment,
+   width: GuestUSize,
+   height: GuestUSize,
+   data: crate::mem::ConstPtr<u8>,
+   bytes_per_row: GuestUSize,
+   bitmap_info: CGBitmapInfo,
+) -> CGImageRef {
+   if data.is_null() || width == 0 || height == 0 { return nil; }
+   let len = bytes_per_row as usize * height as usize;
+   let src = env.mem.bytes_at(data, len as u32);
+   let mut dst = vec![0u8; (width * height * 4) as usize];
+   let alpha_info = bitmap_info & kCGBitmapAlphaInfoMask;
+   let bpp = if alpha_info == kCGImageAlphaNone { 3usize } else { 4 };
+   for row in 0..height as usize {
+       for col in 0..width as usize {
+           let si = row * bytes_per_row as usize + col * bpp;
+           let di = (row * width as usize + col) * 4;
+           if bpp == 4 {
+               let (r, g, b, a) = match alpha_info {
+                   kCGImageAlphaPremultipliedFirst | kCGImageAlphaFirst
+                   | kCGImageAlphaNoneSkipFirst =>
+                       (src[si+1], src[si+2], src[si+3], if alpha_info == kCGImageAlphaNoneSkipFirst { 255 } else { src[si] }),
+                   _ => (src[si], src[si+1], src[si+2], if alpha_info == kCGImageAlphaNoneSkipLast { 255 } else { src[si+3] }),
+               };
+               dst[di] = r; dst[di+1] = g; dst[di+2] = b; dst[di+3] = a;
+           } else {
+               dst[di] = src[si]; dst[di+1] = src[si+1]; dst[di+2] = src[si+2]; dst[di+3] = 255;
+           }
+       }
+   }
+   from_image(env, Image::from_pixels(width, height, dst))
+}
+
+/// Flip an image vertically (used by some bitmap context reads).
+fn CGImageCreateFlippedVertically(env: &mut Environment, image: CGImageRef) -> CGImageRef {
+   if image.is_null() { return nil; }
+   let (w, h) = env.objc.borrow::<CGImageHostObject>(image).image.dimensions();
+   let src = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+   let mut dst = vec![0u8; src.len()];
+   for row in 0..h as usize {
+       let src_row = (h as usize - 1 - row) * w as usize * 4;
+       let dst_row = row * w as usize * 4;
+       dst[dst_row..dst_row + w as usize * 4]
+           .copy_from_slice(&src[src_row..src_row + w as usize * 4]);
+   }
+   from_image(env, Image::from_pixels(w, h, dst))
+}
+
+/// Scale an image to a new size using nearest-neighbour sampling.
+fn CGImageCreateScaled(
+   env: &mut Environment,
+   image: CGImageRef,
+   new_width: GuestUSize,
+   new_height: GuestUSize,
+) -> CGImageRef {
+   if image.is_null() || new_width == 0 || new_height == 0 { return nil; }
+   let (src_w, src_h) = env.objc.borrow::<CGImageHostObject>(image).image.dimensions();
+   let src = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+   let mut dst = vec![0u8; (new_width * new_height * 4) as usize];
+   for dy in 0..new_height as usize {
+       let sy = (dy * src_h as usize) / new_height as usize;
+       for dx in 0..new_width as usize {
+           let sx = (dx * src_w as usize) / new_width as usize;
+           let si = (sy * src_w as usize + sx) * 4;
+           let di = (dy * new_width as usize + dx) * 4;
+           dst[di..di+4].copy_from_slice(&src[si..si+4]);
+       }
+   }
+   from_image(env, Image::from_pixels(new_width, new_height, dst))
+}
+
+// =========================================================================
+// MARK: - New accessor functions
+// =========================================================================
+
+/// `CFTypeID CGImageGetTypeID()` — returns a stable non-zero type ID.
+fn CGImageGetTypeID(_env: &mut Environment) -> u32 {
+   // Any stable non-zero value is fine — apps use this for type checking.
+   0x0000_BABE
+}
+
+/// `CGImageRef CGImageCreateWithImageInRect` — already exists, this is the
+/// `CGImageGetUTType` variant that returns the UTI string.
+fn CGImageGetUTType(_env: &mut Environment, _image: CGImageRef) -> crate::objc::id {
+   // Return nil — we don't track the original file type.
+   nil
+}
+
+fn CGImageGetPixelFormatInfo(_env: &mut Environment, image: CGImageRef) -> u32 {
+   if image.is_null() { return 0; }
+   0 // kCGImagePixelFormatPacked
+}
+
+/// Read raw RGBA pixels from a CGImage into a guest buffer.
+/// `out_data` must be at least `width * height * 4` bytes.
+fn CGImageReadPixels(
+   env: &mut Environment,
+   image: CGImageRef,
+   out_data: crate::mem::MutPtr<u8>,
+) {
+   if image.is_null() || out_data.is_null() { return; }
+   let pixels = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+   let dst = env.mem.bytes_at_mut(out_data, pixels.len() as u32);
+   dst.copy_from_slice(&pixels);
+}
+
+/// Premultiply alpha on a copy of the image.
+fn CGImageCreatePremultiplied(env: &mut Environment, image: CGImageRef) -> CGImageRef {
+   if image.is_null() { return nil; }
+   let (w, h) = env.objc.borrow::<CGImageHostObject>(image).image.dimensions();
+   let mut pixels = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+   for px in pixels.chunks_exact_mut(4) {
+       let a = px[3] as u32;
+       px[0] = ((px[0] as u32 * a + 127) / 255) as u8;
+       px[1] = ((px[1] as u32 * a + 127) / 255) as u8;
+       px[2] = ((px[2] as u32 * a + 127) / 255) as u8;
+   }
+   from_image(env, Image::from_pixels(w, h, pixels))
+}
+
+/// Un-premultiply alpha on a copy of the image.
+fn CGImageCreateUnpremultiplied(env: &mut Environment, image: CGImageRef) -> CGImageRef {
+   if image.is_null() { return nil; }
+   let (w, h) = env.objc.borrow::<CGImageHostObject>(image).image.dimensions();
+   let mut pixels = env.objc.borrow::<CGImageHostObject>(image).image.pixels().to_vec();
+   for px in pixels.chunks_exact_mut(4) {
+       let a = px[3] as u32;
+       if a > 0 {
+           px[0] = ((px[0] as u32 * 255 + a / 2) / a).min(255) as u8;
+           px[1] = ((px[1] as u32 * 255 + a / 2) / a).min(255) as u8;
+           px[2] = ((px[2] as u32 * 255 + a / 2) / a).min(255) as u8;
+       }
+   }
+   from_image(env, Image::from_pixels(w, h, pixels))
+}
+
+fn CGImageSourceCreateWithData(
+   env: &mut Environment,
+   data: CFTypeRef,
+   _options: CFTypeRef,
+) -> CGImageSourceRef {
+   // Try to decode the data as an image and wrap it in a CGImageSource-like
+   // object. We reuse CGImageRef as the source ref since we only support
+   // single-frame sources.
+   if data.is_null() { return nil; }
+   // data is an NSData* / CFDataRef — get its bytes.
+   let bytes_ptr: crate::mem::ConstPtr<u8> = crate::objc::msg![env; data bytes];
+   let length: crate::frameworks::foundation::NSUInteger = crate::objc::msg![env; data length];
+   if bytes_ptr.is_null() || length == 0 { return nil; }
+   let bytes = env.mem.bytes_at(bytes_ptr, length);
+   match crate::image::Image::from_bytes(bytes) {
+       Ok(image) => {
+           let img_ref = from_image(env, image);
+           // Retain to match "Create" rule.
+           crate::frameworks::core_foundation::CFRetain(env, img_ref)
+       }
+       Err(_) => {
+           log_dbg!("CGImageSourceCreateWithData: failed to decode image");
+           nil
+       }
+   }
+}
+
+fn CGImageSourceCreateWithURL(
+   env: &mut Environment,
+   url: CFTypeRef,
+   _options: CFTypeRef,
+) -> CGImageSourceRef {
+   // Delegate to NSData loading then create from data.
+   if url.is_null() { return nil; }
+   let data: crate::objc::id = crate::objc::msg_class![env; NSData dataWithContentsOfURL:url];
+   if data == nil { return nil; }
+   CGImageSourceCreateWithData(env, data, nil)
+}
+
+fn CGImageSourceGetCount(_env: &mut Environment, source: CGImageSourceRef) -> u32 {
+   if source.is_null() { 0 } else { 1 }
+}
+
+fn CGImageSourceGetStatus(_env: &mut Environment, source: CGImageSourceRef) -> CGImageSourceStatus {
+   if source.is_null() { kCGImageStatusInvalidData } else { kCGImageStatusComplete }
+}
+
+fn CGImageSourceGetStatusAtIndex(
+   _env: &mut Environment,
+   source: CGImageSourceRef,
+   _index: u32,
+) -> CGImageSourceStatus {
+   if source.is_null() { kCGImageStatusInvalidData } else { kCGImageStatusComplete }
+}
+
+fn CGImageSourceCreateImageAtIndex(
+   env: &mut Environment,
+   source: CGImageSourceRef,
+   index: u32,
+   _options: CFTypeRef,
+) -> CGImageRef {
+   if source.is_null() || index != 0 { return nil; }
+   // source IS the CGImageRef (see CGImageSourceCreateWithData).
+   crate::frameworks::core_foundation::CFRetain(env, source)
+}
+
+fn CGImageSourceCopyPropertiesAtIndex(
+   _env: &mut Environment,
+   _source: CGImageSourceRef,
+   _index: u32,
+   _options: CFTypeRef,
+) -> CFTypeRef {
+   // Return nil — we don't track image metadata.
+   nil
+}
+
+fn CGImageSourceCopyProperties(
+   _env: &mut Environment,
+   _source: CGImageSourceRef,
+   _options: CFTypeRef,
+) -> CFTypeRef {
+   nil
+}
+
+fn CGImageSourceGetTypeID(_env: &mut Environment) -> u32 {
+   0x0000_CAFE
+}
+
+fn CGImageSourceCreateThumbnailAtIndex(
+   env: &mut Environment,
+   source: CGImageSourceRef,
+   index: u32,
+   _options: CFTypeRef,
+) -> CGImageRef {
+   // Return the full image as the thumbnail — no downscaling.
+   CGImageSourceCreateImageAtIndex(env, source, index, nil)
+}
+
 pub const FUNCTIONS: FunctionExports = &[
+    // Existing entries ...
     export_c_func!(CGImageCreate(_, _, _, _, _, _, _, _, _, _, _)),
     export_c_func!(CGImageRelease(_)),
     export_c_func!(CGImageRetain(_)),
@@ -448,4 +700,25 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGImageGetShouldInterpolate(_)),
     export_c_func!(CGImageGetRenderingIntent(_)),
     export_c_func!(CGImageIsMask(_)),
+    // New entries
+    export_c_func!(CGImageGetTypeID()),
+    export_c_func!(CGImageGetUTType(_)),
+    export_c_func!(CGImageGetPixelFormatInfo(_)),
+    export_c_func!(CGImageCreateWithBitmapData(_, _, _, _, _)),
+    export_c_func!(CGImageCreateFlippedVertically(_)),
+    export_c_func!(CGImageCreateScaled(_, _, _)),
+    export_c_func!(CGImageReadPixels(_, _)),
+    export_c_func!(CGImageCreatePremultiplied(_)),
+    export_c_func!(CGImageCreateUnpremultiplied(_)),
+    // CGImageSource (ImageIO.framework)
+    export_c_func!(CGImageSourceGetTypeID()),
+    export_c_func!(CGImageSourceCreateWithData(_, _)),
+    export_c_func!(CGImageSourceCreateWithURL(_, _)),
+    export_c_func!(CGImageSourceGetCount(_)),
+    export_c_func!(CGImageSourceGetStatus(_)),
+    export_c_func!(CGImageSourceGetStatusAtIndex(_, _)),
+    export_c_func!(CGImageSourceCreateImageAtIndex(_, _, _)),
+    export_c_func!(CGImageSourceCopyPropertiesAtIndex(_, _, _)),
+    export_c_func!(CGImageSourceCopyProperties(_, _)),
+    export_c_func!(CGImageSourceCreateThumbnailAtIndex(_, _, _)),
 ];
