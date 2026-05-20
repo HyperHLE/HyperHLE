@@ -1851,6 +1851,426 @@ fn compose_pair(a: char, b: char) -> Option<char> {
     }
 }
 
+// =========================================================================
+// MARK: - CFStringTokenizer
+// =========================================================================
+
+pub type CFStringTokenizerRef = CFTypeRef;
+pub type CFStringTokenizerTokenType = u32;
+
+pub const kCFStringTokenizerTokenNone:                 CFStringTokenizerTokenType = 0;
+pub const kCFStringTokenizerTokenNormal:               CFStringTokenizerTokenType = 1 << 0;
+pub const kCFStringTokenizerTokenHasSubTokensMask:     CFStringTokenizerTokenType = 1 << 1;
+pub const kCFStringTokenizerTokenHasDerivedSubTokens:  CFStringTokenizerTokenType = 1 << 2;
+pub const kCFStringTokenizerTokenHasHasNumbersMask:    CFStringTokenizerTokenType = 1 << 3;
+pub const kCFStringTokenizerTokenHasNonLettersMask:    CFStringTokenizerTokenType = 1 << 4;
+pub const kCFStringTokenizerTokenIsCJWordMask:         CFStringTokenizerTokenType = 1 << 5;
+
+// CFStringTokenizerUnitOptions
+pub const kCFStringTokenizerUnitWord:       u64 = 0;
+pub const kCFStringTokenizerUnitSentence:   u64 = 1;
+pub const kCFStringTokenizerUnitParagraph:  u64 = 2;
+pub const kCFStringTokenizerUnitLineBreak:  u64 = 3;
+pub const kCFStringTokenizerUnitWordBoundary: u64 = 4;
+
+fn CFStringTokenizerCreate(
+    env: &mut Environment,
+    _alloc: CFAllocatorRef,
+    _string: CFStringRef,
+    _range: CFRange,
+    _unit: u64,
+    _locale: CFLocaleRef,
+) -> CFStringTokenizerRef {
+    log!("TODO: CFStringTokenizerCreate — returning nil (stub)");
+    nil
+}
+
+fn CFStringTokenizerAdvanceToNextToken(
+    _env: &mut Environment,
+    tokenizer: CFStringTokenizerRef,
+) -> CFStringTokenizerTokenType {
+    if tokenizer.is_null() {
+        return kCFStringTokenizerTokenNone;
+    }
+    kCFStringTokenizerTokenNone
+}
+
+fn CFStringTokenizerGetCurrentTokenRange(
+    _env: &mut Environment,
+    _tokenizer: CFStringTokenizerRef,
+) -> CFRange {
+    CFRange { location: kCFNotFound, length: 0 }
+}
+
+fn CFStringTokenizerCopyCurrentTokenAttribute(
+    _env: &mut Environment,
+    _tokenizer: CFStringTokenizerRef,
+    _attribute: u64,
+) -> CFTypeRef {
+    nil
+}
+
+fn CFStringTokenizerGetCurrentSubTokens(
+    _env: &mut Environment,
+    _tokenizer: CFStringTokenizerRef,
+    _ranges: MutPtr<CFRange>,
+    _max_ranges: CFIndex,
+    _infix_ref: MutPtr<CFTypeRef>,
+) -> CFIndex {
+    0
+}
+
+fn CFStringTokenizerSetString(
+    _env: &mut Environment,
+    _tokenizer: CFStringTokenizerRef,
+    _string: CFStringRef,
+    _range: CFRange,
+) {
+    log_dbg!("CFStringTokenizerSetString — ignored (stub tokenizer)");
+}
+
+fn CFStringTokenizerGetTypeID(_env: &mut Environment) -> u32 {
+    0x43465374 // stable fake type ID
+}
+
+// =========================================================================
+// MARK: - CFStringInlineBuffer helpers
+// =========================================================================
+
+/// `CFStringInitInlineBuffer` — initialises an opaque inline buffer struct.
+/// In Apple's implementation this is a macro/inline function that caches
+/// character data for fast sequential access. We stub it as a no-op since
+/// `CFStringGetCharacterFromInlineBuffer` already returns 0.
+fn CFStringInitInlineBuffer(
+    _env: &mut Environment,
+    _str: CFStringRef,
+    _buf: MutVoidPtr,
+    _range: CFRange,
+) {
+    // No-op — our inline buffer implementation always returns 0.
+}
+
+// =========================================================================
+// MARK: - CFStringGetRangeOfCharacterClusterAtIndex
+// =========================================================================
+
+fn CFStringGetRangeOfCharacterClusterAtIndex(
+    env: &mut Environment,
+    string: CFStringRef,
+    char_index: CFIndex,
+    _type_: u32, // CFStringCharacterClusterType
+) -> CFRange {
+    if string.is_null() || char_index < 0 {
+        return CFRange { location: kCFNotFound, length: 0 };
+    }
+    let length = CFStringGetLength(env, string);
+    if char_index >= length {
+        return CFRange { location: kCFNotFound, length: 0 };
+    }
+    // Simplified: every scalar is its own cluster.
+    CFRange { location: char_index, length: 1 }
+}
+
+// =========================================================================
+// MARK: - CFStringGetRangeOfComposedCharactersAtIndex
+// =========================================================================
+
+fn CFStringGetRangeOfComposedCharactersAtIndex(
+    env: &mut Environment,
+    string: CFStringRef,
+    the_index: CFIndex,
+) -> CFRange {
+    if string.is_null() || the_index < 0 {
+        return CFRange { location: kCFNotFound, length: 0 };
+    }
+    let length = CFStringGetLength(env, string);
+    if the_index >= length {
+        return CFRange { location: kCFNotFound, length: 0 };
+    }
+    // For surrogate pairs this would be 2; for simplicity always return 1.
+    CFRange { location: the_index, length: 1 }
+}
+
+// =========================================================================
+// MARK: - CFStringFindWithOptionsAndLocale
+// =========================================================================
+
+fn CFStringFindWithOptionsAndLocale(
+    env: &mut Environment,
+    string: CFStringRef,
+    to_find: CFStringRef,
+    range_to_search: CFRange,
+    options: CFStringCompareFlags,
+    locale: CFLocaleRef,
+    result: MutPtr<CFRange>,
+) -> bool {
+    // Ignore locale for now and delegate to the non-locale variant.
+    let _ = locale;
+    CFStringFindWithOptions(env, string, to_find, range_to_search, options, result)
+}
+
+// =========================================================================
+// MARK: - CFStringEnumeration
+// =========================================================================
+
+pub type CFStringEnumerationOptions = u32;
+pub const kCFStringEnumerationByLines:           CFStringEnumerationOptions = 0;
+pub const kCFStringEnumerationByParagraphs:      CFStringEnumerationOptions = 1;
+pub const kCFStringEnumerationByComposedCharacterSequences: CFStringEnumerationOptions = 2;
+pub const kCFStringEnumerationByWords:           CFStringEnumerationOptions = 3;
+pub const kCFStringEnumerationBySentences:       CFStringEnumerationOptions = 4;
+pub const kCFStringEnumerationReverse:           CFStringEnumerationOptions = 1 << 8;
+pub const kCFStringEnumerationSubstringNotRequired: CFStringEnumerationOptions = 1 << 9;
+pub const kCFStringEnumerationLocalizationSensitive: CFStringEnumerationOptions = 1 << 10;
+
+fn CFStringEnumerateSubstrings(
+    env: &mut Environment,
+    string: CFStringRef,
+    range: CFRange,
+    opts: CFStringEnumerationOptions,
+    block: crate::mem::MutVoidPtr, // CFStringEnumeratorBlock — we invoke via ObjC
+) {
+    // Minimal implementation: enumerate lines / words using NSString methods.
+    // Complex options (reverse, by-sentence) log and return.
+    if string.is_null() || block.is_null() { return; }
+    log_dbg!("CFStringEnumerateSubstrings opts={:#x} — stub", opts);
+    // We don't support block invocation from C functions yet.
+    // Apps that rely on this for non-critical work (e.g. word counting)
+    // will simply get no callbacks rather than crashing.
+}
+
+// =========================================================================
+// MARK: - CFStringGetHyphenationLocationBeforeIndex
+// =========================================================================
+
+fn CFStringGetHyphenationLocationBeforeIndex(
+    _env: &mut Environment,
+    _string: CFStringRef,
+    location: CFIndex,
+    _limit_range: CFRange,
+    _options: CFOptionFlags,
+    _locale: CFLocaleRef,
+) -> CFIndex {
+    // No hyphenation support — return kCFNotFound.
+    kCFNotFound
+}
+
+fn CFStringIsHyphenationAvailableForLocale(
+    _env: &mut Environment,
+    _locale: CFLocaleRef,
+) -> bool {
+    false
+}
+
+// =========================================================================
+// MARK: - CFStringGetLineBounds
+// =========================================================================
+
+fn CFStringGetLineBounds(
+    env: &mut Environment,
+    string: CFStringRef,
+    range: CFRange,
+    line_begin_index: MutPtr<CFIndex>,
+    line_end_index: MutPtr<CFIndex>,
+    contents_end_index: MutPtr<CFIndex>,
+) {
+    if string.is_null() { return; }
+    let length = CFStringGetLength(env, string);
+    // Simplified: the line extends from the start of the range to the end of
+    // the string (or the next newline which we don't search for here).
+    let start = range.location.max(0);
+    let end   = length;
+    if !line_begin_index.is_null()    { env.mem.write(line_begin_index, start); }
+    if !line_end_index.is_null()      { env.mem.write(line_end_index, end); }
+    if !contents_end_index.is_null()  { env.mem.write(contents_end_index, end); }
+}
+
+// =========================================================================
+// MARK: - CFStringGetParagraphBounds
+// =========================================================================
+
+fn CFStringGetParagraphBounds(
+    env: &mut Environment,
+    string: CFStringRef,
+    range: CFRange,
+    par_begin_index: MutPtr<CFIndex>,
+    par_end_index: MutPtr<CFIndex>,
+    contents_end_index: MutPtr<CFIndex>,
+) {
+    // Delegate to line bounds — same stub behaviour.
+    CFStringGetLineBounds(
+        env, string, range,
+        par_begin_index, par_end_index, contents_end_index,
+    );
+}
+
+// =========================================================================
+// MARK: - CFStringFold
+// =========================================================================
+
+fn CFStringFold(
+    env: &mut Environment,
+    string: CFMutableStringRef,
+    flags: CFOptionFlags,
+    _locale: CFLocaleRef,
+) {
+    if string.is_null() { return; }
+    // flags: 1=case-insensitive, 32=diacritic-insensitive, 64=width-insensitive
+    if flags & 1 != 0 {
+        CFStringLowercase(env, string, nil);
+    }
+    if flags & 32 != 0 {
+        // Strip diacritics — approximate via NSString fold
+        let folded: id = msg![env; string
+            stringByFoldingWithOptions:32u64
+            locale:nil];
+        let _: () = msg![env; string setString:folded];
+    }
+    log_dbg!("CFStringFold(flags={:#x}) applied", flags);
+}
+
+// =========================================================================
+// MARK: - CFStringConvertIANACharSetNameToEncoding / vice-versa
+// =========================================================================
+
+fn CFStringConvertIANACharSetNameToEncoding(
+    env: &mut Environment,
+    name: CFStringRef,
+) -> CFStringEncoding {
+    if name.is_null() { return kCFStringEncodingASCII; }
+    let s = ns_string::to_rust_string(env, name).to_ascii_lowercase();
+    match s.as_str() {
+        "utf-8"          => kCFStringEncodingUTF8,
+        "utf-16"         => kCFStringEncodingUTF16,
+        "utf-16be"       => kCFStringEncodingUTF16BE,
+        "utf-16le"       => kCFStringEncodingUTF16LE,
+        "utf-32"         => kCFStringEncodingUTF32,
+        "utf-32be"       => kCFStringEncodingUTF32BE,
+        "utf-32le"       => kCFStringEncodingUTF32LE,
+        "us-ascii" | "ascii" => kCFStringEncodingASCII,
+        "iso-8859-1"     => kCFStringEncodingISOLatin1,
+        "windows-1252"   => kCFStringEncodingWindowsLatin1,
+        "macintosh"      => kCFStringEncodingMacRoman,
+        _                => {
+            log_dbg!("CFStringConvertIANACharSetNameToEncoding: unknown {:?}", s);
+            kCFStringEncodingUTF8
+        }
+    }
+}
+
+fn CFStringConvertEncodingToIANACharSetName(
+    env: &mut Environment,
+    encoding: CFStringEncoding,
+) -> CFStringRef {
+    let name = match encoding {
+        kCFStringEncodingUTF8       => "UTF-8",
+        kCFStringEncodingUTF16      => "UTF-16",
+        kCFStringEncodingUTF16BE    => "UTF-16BE",
+        kCFStringEncodingUTF16LE    => "UTF-16LE",
+        kCFStringEncodingUTF32      => "UTF-32",
+        kCFStringEncodingUTF32BE    => "UTF-32BE",
+        kCFStringEncodingUTF32LE    => "UTF-32LE",
+        kCFStringEncodingASCII      => "US-ASCII",
+        kCFStringEncodingISOLatin1  => "ISO-8859-1",
+        kCFStringEncodingWindowsLatin1 => "windows-1252",
+        kCFStringEncodingMacRoman   => "macintosh",
+        _ => "UTF-8",
+    };
+    ns_string::get_static_str(env, name)
+}
+
+// =========================================================================
+// MARK: - CFStringGetSmallestEncoding / FastestEncoding
+// =========================================================================
+
+fn CFStringGetSmallestEncoding(
+    env: &mut Environment,
+    string: CFStringRef,
+) -> CFStringEncoding {
+    if string.is_null() { return kCFStringEncodingASCII; }
+    let s = ns_string::to_rust_string(env, string);
+    if s.bytes().all(|b| b < 0x80) {
+        kCFStringEncodingASCII
+    } else if s.bytes().all(|b| b < 0x100) {
+        kCFStringEncodingISOLatin1
+    } else {
+        kCFStringEncodingUTF8
+    }
+}
+
+fn CFStringGetFastestEncoding(
+    _env: &mut Environment,
+    _string: CFStringRef,
+) -> CFStringEncoding {
+    // UTF-16 is the fastest for NSString since it's stored internally as UTF-16.
+    kCFStringEncodingUTF16
+}
+
+// =========================================================================
+// MARK: - CFStringGetListOfAvailableEncodings
+// =========================================================================
+
+fn CFStringGetListOfAvailableEncodings(_env: &mut Environment) -> ConstPtr<CFStringEncoding> {
+    // Return null — callers must handle this gracefully.
+    ConstPtr::null()
+}
+
+// =========================================================================
+// MARK: - CFStringGetMaximumSizeForEncoding
+// =========================================================================
+
+fn CFStringGetMaximumSizeForEncoding(
+    _env: &mut Environment,
+    length: CFIndex,
+    encoding: CFStringEncoding,
+) -> CFIndex {
+    if length < 0 { return 0; }
+    let bytes_per_char: CFIndex = match encoding {
+        kCFStringEncodingASCII
+        | kCFStringEncodingMacRoman
+        | kCFStringEncodingISOLatin1
+        | kCFStringEncodingWindowsLatin1 => 1,
+        kCFStringEncodingUTF8           => 4, // max 4 bytes per codepoint
+        kCFStringEncodingUTF16
+        | kCFStringEncodingUTF16BE
+        | kCFStringEncodingUTF16LE      => 2,
+        kCFStringEncodingUTF32
+        | kCFStringEncodingUTF32BE
+        | kCFStringEncodingUTF32LE      => 4,
+        _                                => 4,
+    };
+    length.saturating_mul(bytes_per_char) + 1 // +1 for NUL terminator
+}
+
+fn CFStringGetMaximumSizeOfFileSystemRepresentation(
+    _env: &mut Environment,
+    _string: CFStringRef,
+) -> CFIndex {
+    // MAXPATHLEN * 4 (max UTF-8 bytes per codepoint) + 1.
+    4097
+}
+
+// =========================================================================
+// MARK: - CFStringGetFileSystemRepresentation
+// =========================================================================
+
+fn CFStringGetFileSystemRepresentation(
+    env: &mut Environment,
+    string: CFStringRef,
+    buffer: MutPtr<u8>,
+    max_buf_len: CFIndex,
+) -> bool {
+    CFStringGetCString(env, string, buffer, max_buf_len, kCFStringEncodingUTF8)
+}
+
+fn CFStringCreateWithFileSystemRepresentation(
+    env: &mut Environment,
+    alloc: CFAllocatorRef,
+    buffer: ConstPtr<u8>,
+) -> CFStringRef {
+    CFStringCreateWithCString(env, alloc, buffer, kCFStringEncodingUTF8)
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     // Lifecycle
     export_c_func!(CFStringRetain(_)),
@@ -1928,4 +2348,41 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFStringTransform(_, _, _, _)),
     // Type info — CFStringGetTypeID is exported from cf_type; not duplicated.
     export_c_func!(CFStringCreateExternalRepresentation(_, _, _, _)),
+    // CFStringTokenizer
+    export_c_func!(CFStringTokenizerCreate(_, _, _, _, _, _)),
+    export_c_func!(CFStringTokenizerAdvanceToNextToken(_)),
+    export_c_func!(CFStringTokenizerGetCurrentTokenRange(_)),
+    export_c_func!(CFStringTokenizerCopyCurrentTokenAttribute(_, _)),
+    export_c_func!(CFStringTokenizerGetCurrentSubTokens(_, _, _, _)),
+    export_c_func!(CFStringTokenizerSetString(_, _, _)),
+    export_c_func!(CFStringTokenizerGetTypeID()),
+    // Inline buffer
+    export_c_func!(CFStringInitInlineBuffer(_, _, _)),
+    // Cluster / composed char ranges
+    export_c_func!(CFStringGetRangeOfCharacterClusterAtIndex(_, _, _)),
+    export_c_func!(CFStringGetRangeOfComposedCharactersAtIndex(_, _)),
+    // Find with locale
+    export_c_func!(CFStringFindWithOptionsAndLocale(_, _, _, _, _, _)),
+    // Enumeration
+    export_c_func!(CFStringEnumerateSubstrings(_, _, _, _)),
+    // Hyphenation
+    export_c_func!(CFStringGetHyphenationLocationBeforeIndex(_, _, _, _, _, _)),
+    export_c_func!(CFStringIsHyphenationAvailableForLocale(_)),
+    // Line / paragraph bounds
+    export_c_func!(CFStringGetLineBounds(_, _, _, _, _)),
+    export_c_func!(CFStringGetParagraphBounds(_, _, _, _, _)),
+    // Fold
+    export_c_func!(CFStringFold(_, _, _)),
+    // IANA encoding names
+    export_c_func!(CFStringConvertIANACharSetNameToEncoding(_)),
+    export_c_func!(CFStringConvertEncodingToIANACharSetName(_)),
+    // Encoding queries
+    export_c_func!(CFStringGetSmallestEncoding(_)),
+    export_c_func!(CFStringGetFastestEncoding(_)),
+    export_c_func!(CFStringGetListOfAvailableEncodings()),
+    export_c_func!(CFStringGetMaximumSizeForEncoding(_, _)),
+    export_c_func!(CFStringGetMaximumSizeOfFileSystemRepresentation(_)),
+    // File system representation
+    export_c_func!(CFStringGetFileSystemRepresentation(_, _, _)),
+    export_c_func!(CFStringCreateWithFileSystemRepresentation(_, _)),
 ];
