@@ -10,7 +10,7 @@
 //! rather than crashing.
 
 use crate::frameworks::foundation::ns_string;
-use crate::dyld::{ConstantExports, HostConstant};
+use crate::dyld::{ConstantExports, FunctionExports, HostConstant};
 use crate::objc::{
    id, msg, msg_class, nil, objc_classes, release, retain,
    ClassExports, HostObject, NSZonePtr,
@@ -314,3 +314,5 @@ pub const CONSTANTS: ConstantExports = &[
    ("_CTServiceRadioAccessTechnologyDidChangeNotification",
        HostConstant::NSString(CTServiceRadioAccessTechnologyDidChangeNotification)),
 ];
+
+pub const FUNCTIONS: FunctionExports = &[];
