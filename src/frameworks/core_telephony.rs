@@ -133,12 +133,12 @@ pub const CLASSES: ClassExports = objc_classes! {
    env.objc.borrow::<CTCarrierHostObject>(this).mobile_country_code
 }
 
-/// The mobile network code for the user's cellular service provider.
+// The mobile network code for the user's cellular service provider.
 - (id)mobileNetworkCode { // NSString*
    env.objc.borrow::<CTCarrierHostObject>(this).mobile_network_code
 }
 
-/// Whether the carrier allows VoIP calls on its network.
+// Whether the carrier allows VoIP calls on its network.
 - (bool)allowsVOIP {
    env.objc.borrow::<CTCarrierHostObject>(this).allows_voip
 }
