@@ -5,7 +5,9 @@
 // These are used by apps that inspect the running architecture at runtime,
 // e.g. to choose code paths or log diagnostic information.
 
+use crate::dyld::FunctionExports;
 use crate::mem::{ConstPtr, MutPtr, SafeRead};
+use crate::export_c_func;
 
 /// `NXArchInfo` — describes a Mach-O architecture.
 #[repr(C, packed)]
