@@ -2349,7 +2349,7 @@ pub const FUNCTIONS: FunctionExports = &[
     // Type info — CFStringGetTypeID is exported from cf_type; not duplicated.
     export_c_func!(CFStringCreateExternalRepresentation(_, _, _, _)),
     // CFStringTokenizer
-    export_c_func!(CFStringTokenizerCreate(_, _, _, _, _, _)),
+    export_c_func!(CFStringTokenizerCreate(_, _, _, _, _)),
     export_c_func!(CFStringTokenizerAdvanceToNextToken(_)),
     export_c_func!(CFStringTokenizerGetCurrentTokenRange(_)),
     export_c_func!(CFStringTokenizerCopyCurrentTokenAttribute(_, _)),
@@ -2366,7 +2366,7 @@ pub const FUNCTIONS: FunctionExports = &[
     // Enumeration
     export_c_func!(CFStringEnumerateSubstrings(_, _, _, _)),
     // Hyphenation
-    export_c_func!(CFStringGetHyphenationLocationBeforeIndex(_, _, _, _, _, _)),
+    export_c_func!(CFStringGetHyphenationLocationBeforeIndex(_, _, _, _, _)),
     export_c_func!(CFStringIsHyphenationAvailableForLocale(_)),
     // Line / paragraph bounds
     export_c_func!(CFStringGetLineBounds(_, _, _, _, _)),
