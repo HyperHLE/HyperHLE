@@ -6,8 +6,10 @@
 //! Miscellaneous parts of `unistd.h`
 
 use crate::dyld::{export_c_func, FunctionExports};
-use crate::fs::GuestPath;
-use crate::libc::errno::{set_errno, EACCES, EINVAL, ENOENT, ENOSYS, EROFS};
+use crate::fs::{FsError, GuestPath};
+use crate::libc::errno::{
+    set_errno, EACCES, EINVAL, ENOENT, ENOSYS, ENOTDIR, ENOTEMPTY, EPERM, EROFS,
+};
 use crate::libc::posix_io::{FileDescriptor, STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO};
 use crate::mem::{ConstPtr, GuestISize, GuestUSize, MutPtr, PAGE_SIZE};
 use crate::Environment;
@@ -249,21 +251,94 @@ fn fork(env: &mut Environment) -> i32 {
 }
 
 fn unlink(env: &mut Environment, path: ConstPtr<u8>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
-    log_dbg!("unlink({:?} '{:?}')", path, env.mem.cstr_at_utf8(path));
+    let Ok(path_str) = env.mem.cstr_at_utf8(path) else {
+        log!(
+            "Warning: unlink({:?}) called with non-UTF-8 path; returning -1/ENOENT",
+            path
+        );
+        set_errno(env, ENOENT);
+        return -1;
+    };
+    let path_owned = path_str.to_owned();
+    let guest_path = GuestPath::new(&path_owned);
 
-    let path_str = env.mem.cstr_at_utf8(path).unwrap();
-    let guest_path = GuestPath::new(&path_str);
+    // POSIX `unlink(2)` is for files only — calling it on a directory must
+    // fail with EPERM (Apple) / EISDIR (Linux). We map that to EPERM, the
+    // documented Darwin behaviour.
+    if env.fs.is_dir(guest_path) {
+        log_dbg!("unlink('{}') => -1, EPERM (path is a directory)", path_owned);
+        set_errno(env, EPERM);
+        return -1;
+    }
+
+    log_dbg!("unlink({:?} '{}')", path, path_owned);
+
     match env.fs.remove(guest_path) {
         Ok(()) => 0,
-        Err(_) => {
-            log!(
-                "unlink({:?} '{:?}') failed",
-                path,
-                env.mem.cstr_at_utf8(path)
-            );
+        Err(e) => {
+            let errno = match e {
+                FsError::DoesNotExist | FsError::NonexistentParentDir => ENOENT,
+                FsError::InvalidParentDir => ENOTDIR,
+                FsError::AccessDenied | FsError::ReadonlyParentDir => EACCES,
+                // Should not happen here — unlink targets a file — but map
+                // defensively.
+                FsError::DirectoryNotEmpty => EPERM,
+                FsError::AlreadyExist => EINVAL,
+            };
+            log!("unlink('{}') failed: {:?}", path_owned, e);
+            set_errno(env, errno);
+            -1
+        }
+    }
+}
+
+/// `int rmdir(const char *path);` — POSIX/Darwin `rmdir(2)`. Removes the
+/// directory at `path`, which must be empty. Returns 0 on success and -1
+/// with `errno` set on failure. See Apple `man 2 rmdir`:
+/// <https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/rmdir.2.html>
+fn rmdir(env: &mut Environment, path: ConstPtr<u8>) -> i32 {
+    set_errno(env, 0);
+
+    let Ok(path_str) = env.mem.cstr_at_utf8(path) else {
+        log!(
+            "Warning: rmdir({:?}) called with non-UTF-8 path; returning -1/ENOENT",
+            path
+        );
+        set_errno(env, ENOENT);
+        return -1;
+    };
+    let path_owned = path_str.to_owned();
+    let guest_path = GuestPath::new(&path_owned);
+
+    if !env.fs.exists(guest_path) {
+        log_dbg!("rmdir('{}') => -1, ENOENT", path_owned);
+        set_errno(env, ENOENT);
+        return -1;
+    }
+
+    if !env.fs.is_dir(guest_path) {
+        log_dbg!("rmdir('{}') => -1, ENOTDIR (not a directory)", path_owned);
+        set_errno(env, ENOTDIR);
+        return -1;
+    }
+
+    match env.fs.remove(guest_path) {
+        Ok(()) => {
+            log_dbg!("rmdir('{}') => 0", path_owned);
+            0
+        }
+        Err(e) => {
+            let errno = match e {
+                FsError::DirectoryNotEmpty => ENOTEMPTY,
+                FsError::DoesNotExist | FsError::NonexistentParentDir => ENOENT,
+                FsError::InvalidParentDir => ENOTDIR,
+                FsError::AccessDenied | FsError::ReadonlyParentDir => EACCES,
+                FsError::AlreadyExist => EINVAL,
+            };
+            log!("rmdir('{}') failed: {:?}", path_owned, e);
+            set_errno(env, errno);
             -1
         }
     }
@@ -393,6 +468,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(isatty(_)),
     export_c_func!(access(_, _)),
     export_c_func!(unlink(_)),
+    export_c_func!(rmdir(_)),
     export_c_func!(gethostname(_, _)),
     export_c_func!(getpagesize()),
     export_c_func!(getgid()),

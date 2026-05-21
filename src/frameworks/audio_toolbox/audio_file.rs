@@ -1072,25 +1072,6 @@ pub fn AudioFormatGetProperty(
 }
 
 // =========================================================================
-// MARK: - Offline Rendering (AudioQueue)
-// =========================================================================
-
-/// Устанавливает режим offline-рендеринга и формат для очереди воспроизведения.
-/// inFormat == NULL — возврат в обычный режим (вывод на устройство).
-/// inLayout == NULL — не используется при отключении offline-режима.
-/// Реализация-заглушка: offline-рендеринг в touchHLE не поддерживается,
-/// функция всегда возвращает успех, чтобы не блокировать инициализацию.
-fn AudioQueueSetOfflineRenderFormat(
-    _env: &mut Environment,
-    _in_aq: MutVoidPtr,
-    _in_format: ConstVoidPtr,
-    _in_layout: ConstVoidPtr,
-) -> OSStatus {
-    log!("TODO: AudioQueueSetOfflineRenderFormat stubbed");
-    kAudioFileSuccess
-}
-
-// =========================================================================
 // MARK: - Exports
 // =========================================================================
 
@@ -1122,5 +1103,4 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioFileStreamOpen(_, _, _, _, _)),
     export_c_func!(AudioFormatGetPropertyInfo(_, _, _, _)),
     export_c_func!(AudioFormatGetProperty(_, _, _, _, _)),
-    export_c_func!(AudioQueueSetOfflineRenderFormat(_, _, _)),
 ];

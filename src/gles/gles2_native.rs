@@ -837,6 +837,32 @@ impl GLES for GLES2Native<'_> {
     unsafe fn CompileShader(&mut self, shader: GLuint) {
         gles2::CompileShader(shader)
     }
+    unsafe fn GetShaderPrecisionFormat(
+        &mut self,
+        shadertype: GLenum,
+        precisiontype: GLenum,
+        range: *mut GLint,
+        precision: *mut GLint,
+    ) {
+        // Delegate to the real OpenGL ES 2.0 driver — required for shaders
+        // that contain `precision` qualifiers and for apps (e.g. Minecraft PE
+        // 0.10.x) that probe the shader compiler before linking.
+        // <https://registry.khronos.org/OpenGL-Refpages/es2.0/xhtml/glGetShaderPrecisionFormat.xml>
+        gles2::GetShaderPrecisionFormat(shadertype, precisiontype, range, precision)
+    }
+    unsafe fn ReleaseShaderCompiler(&mut self) {
+        gles2::ReleaseShaderCompiler()
+    }
+    unsafe fn ShaderBinary(
+        &mut self,
+        count: GLsizei,
+        shaders: *const GLuint,
+        binaryformat: GLenum,
+        binary: *const GLvoid,
+        length: GLsizei,
+    ) {
+        gles2::ShaderBinary(count, shaders, binaryformat, binary, length)
+    }
     unsafe fn GetShaderiv(&mut self, shader: GLuint, pname: GLenum, params: *mut GLint) {
         gles2::GetShaderiv(shader, pname, params)
     }

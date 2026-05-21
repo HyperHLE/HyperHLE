@@ -967,10 +967,17 @@ impl Mem {
             }
         }
 
-        let iter = self
-            .bytes_at(ptr.cast(), len * guest_size_of::<wchar_t>())
-            .chunks(4)
-            .map(|chunk| char::from_u32(u32::from_le_bytes(chunk.try_into().unwrap())).unwrap());
+        // iOS/macOS uses 4-byte wchar_t (UTF-32LE). char::from_u32 returns
+        // None for surrogate values (U+D800..U+DFFF) and codepoints above
+        // U+10FFFF; in those cases we substitute U+FFFD REPLACEMENT CHARACTER
+        // instead of panicking so that bogus data from the guest does not
+        // crash the host.
+        let bytes = self.bytes_at(ptr.cast(), len * guest_size_of::<wchar_t>());
+        let iter = bytes.chunks_exact(4).map(|chunk| {
+            // chunks_exact(4) guarantees the length, so try_into never fails.
+            let code = u32::from_le_bytes(chunk.try_into().unwrap());
+            char::from_u32(code).unwrap_or('\u{FFFD}')
+        });
         String::from_iter(iter)
     }
 

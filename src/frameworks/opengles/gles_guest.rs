@@ -2233,6 +2233,36 @@ fn glCompileShader(env: &mut Environment, shader: GLuint) {
         }
     });
 }
+/// OpenGL ES 2.0 `glGetShaderPrecisionFormat`. Defined here so that guest
+/// apps that probe shader compiler precision (e.g. Minecraft PE 0.10.x) get
+/// real numbers from the driver instead of a return-0 stub installed by dyld
+/// for an unimplemented symbol.
+/// <https://registry.khronos.org/OpenGL-Refpages/es2.0/xhtml/glGetShaderPrecisionFormat.xml>
+fn glGetShaderPrecisionFormat(
+    env: &mut Environment,
+    shadertype: GLenum,
+    precisiontype: GLenum,
+    range: MutPtr<GLint>,
+    precision: MutPtr<GLint>,
+) {
+    with_ctx_and_mem(env, |gles, mem| unsafe {
+        let mut host_range: [GLint; 2] = [0, 0];
+        let mut host_precision: GLint = 0;
+        gles.GetShaderPrecisionFormat(
+            shadertype,
+            precisiontype,
+            host_range.as_mut_ptr(),
+            &mut host_precision,
+        );
+        if !range.is_null() {
+            mem.write(range + 0, host_range[0]);
+            mem.write(range + 1, host_range[1]);
+        }
+        if !precision.is_null() {
+            mem.write(precision, host_precision);
+        }
+    });
+}
 fn glAttachShader(env: &mut Environment, program: GLuint, shader: GLuint) {
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.AttachShader(program, shader)
@@ -2938,6 +2968,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glDeleteProgram(_)),
     export_c_func!(glDeleteShader(_)),
     export_c_func!(glCompileShader(_)),
+    export_c_func!(glGetShaderPrecisionFormat(_, _, _, _)),
     export_c_func!(glAttachShader(_, _)),
     export_c_func!(glDetachShader(_, _)),
     export_c_func!(glLinkProgram(_)),

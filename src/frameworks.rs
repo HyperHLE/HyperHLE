@@ -30,6 +30,7 @@ pub mod audio_toolbox;
 pub mod avfoundation;
 pub mod captive_network;
 pub mod carbon_core;
+pub mod cf_http_message;
 pub mod cf_network;
 pub mod common_crypto;
 pub mod core_animation;

@@ -103,6 +103,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (())layoutSubviews {
 }
 
+// Per Apple's [`+initialize`
+// docs](https://developer.apple.com/documentation/objectivec/nsobject/1418639-initialize),
+// the runtime sends this exactly once to every class before it receives any
+// other message. Subclasses commonly chain to `[super initialize]`; if no
+// class in the inheritance chain implemented +initialize then the dispatch
+// would fall off the top of the chain and print a `superclass does not
+// respond to selector "initialize"` warning (this used to break
+// `ASIHTTPRequest` + initialize, which calls `[super initialize]`).
+// Provide an explicit no-op at the root so `[super initialize]` is always
+// safe.
++ (())initialize {
+}
+
 + (bool)instancesRespondToSelector:(SEL)selector {
     env.objc.class_has_method(this, selector)
 }

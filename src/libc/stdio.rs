@@ -10,8 +10,8 @@ use super::posix_io::{
     STDIN_FILENO, STDOUT_FILENO,
 };
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
-use crate::fs::GuestPath;
-use crate::libc::errno::{set_errno, EINVAL};
+use crate::fs::{FsError, GuestPath};
+use crate::libc::errno::{set_errno, EACCES, EINVAL, ENOENT, ENOTDIR, ENOTEMPTY};
 use crate::libc::string::strlen;
 use crate::mem::{ConstPtr, ConstVoidPtr, GuestUSize, Mem, MutPtr, MutVoidPtr, Ptr, SafeRead};
 use crate::Environment;
@@ -708,27 +708,45 @@ fn putchar(env: &mut Environment, c: u8) -> i32 {
     0
 }
 
+/// `int remove(const char *path);` — POSIX/Darwin `remove(3)`.
+/// Calls `unlink(2)` for files and `rmdir(2)` for directories; our
+/// `Fs::remove()` already chooses the right operation based on the node
+/// type, so we just dispatch and translate `FsError` to errno per Apple's
+/// `man 3 remove` / `man 2 unlink` / `man 2 rmdir`.
 fn remove(env: &mut Environment, path: ConstPtr<u8>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     if Ptr::is_null(path) {
-        // TODO: set errno
-        log!("remove({:?}) => -1, attempted to remove null", path);
+        log!("remove(NULL) => -1, ENOENT");
+        set_errno(env, ENOENT);
         return -1;
     }
 
-    match env
-        .fs
-        .remove(GuestPath::new(&env.mem.cstr_at_utf8(path).unwrap()))
-    {
+    let Ok(path_str) = env.mem.cstr_at_utf8(path) else {
+        log!(
+            "Warning: remove({:?}) called with non-UTF-8 path; returning -1/ENOENT",
+            path
+        );
+        set_errno(env, ENOENT);
+        return -1;
+    };
+    let path_owned = path_str.to_owned();
+
+    match env.fs.remove(GuestPath::new(&path_owned)) {
         Ok(()) => {
-            log_dbg!("remove({:?}) => 0", path);
+            log_dbg!("remove('{}') => 0", path_owned);
             0
         }
-        Err(_) => {
-            // TODO: set errno
-            log!("Warning: remove({:?}) failed, returning -1", path);
+        Err(e) => {
+            let errno = match e {
+                FsError::DirectoryNotEmpty => ENOTEMPTY,
+                FsError::DoesNotExist | FsError::NonexistentParentDir => ENOENT,
+                FsError::InvalidParentDir => ENOTDIR,
+                FsError::AccessDenied | FsError::ReadonlyParentDir => EACCES,
+                FsError::AlreadyExist => EINVAL,
+            };
+            log!("Warning: remove('{}') failed: {:?}", path_owned, e);
+            set_errno(env, errno);
             -1
         }
     }

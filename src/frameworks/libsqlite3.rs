@@ -162,6 +162,20 @@ pub fn sqlite3_exec(env: &mut Environment, p_db: u32, sql_ptr: u32, _callback: u
     }
 }
 
+// ---------- sqlite3_prepare (legacy V1) ----------
+//
+// Per Apple/SQLite documentation
+// (<https://www.sqlite.org/c3ref/prepare.html>), `sqlite3_prepare()` is the
+// deprecated predecessor of `sqlite3_prepare_v2()`. They share an identical
+// C signature; the only documented difference is that statements created with
+// V1 do not automatically re-prepare themselves after a schema change. For
+// HLE purposes this is invisible to the caller, so we route through the
+// existing V2 implementation. (Apps such as `HitNRun` link the legacy
+// variant.)
+pub fn sqlite3_prepare(env: &mut Environment, p_db: u32, sql_ptr: u32, n_byte: i32, pp_stmt: u32, pp_tail: u32) -> u32 {
+    sqlite3_prepare_v2(env, p_db, sql_ptr, n_byte, pp_stmt, pp_tail)
+}
+
 // ---------- sqlite3_prepare_v2 ----------
 pub fn sqlite3_prepare_v2(env: &mut Environment, p_db: u32, sql_ptr: u32, _n_byte: i32, pp_stmt: u32, _pp_tail: u32) -> u32 {
     let sql = read_cstring(env, sql_ptr);
@@ -644,6 +658,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(sqlite3_close(_)),
     export_c_func!(sqlite3_close_v2(_)),
     export_c_func!(sqlite3_exec(_, _, _, _, _)),
+    export_c_func!(sqlite3_prepare(_, _, _, _, _)),
     export_c_func!(sqlite3_prepare_v2(_, _, _, _, _)),
     export_c_func!(sqlite3_bind_int(_, _, _)),
     export_c_func!(sqlite3_bind_int64(_, _, _)),

@@ -77,12 +77,17 @@ fn task_set_exception_ports(
     assert_eq!(task, MACH_TASK_SELF);
     assert_eq!(exception_mask, EXC_MASK_BAD_ACCESS);
     assert_eq!(behavior, EXCEPTION_DEFAULT);
-    // This function is used by Unity to install an `exception handler`.
-    // (See mono's [mini-darwin.c](https://github.com/mono/mono/blob/62121afbb28f0b62f100ec9a942d10c5e0f4814f/mono/mini/mini-darwin.c#L188))
-    // We would prefer to crash on exception anyway,
-    // so it should be fine to just have a stub.
-    log!(
-        "TODO: task_set_exception_ports({:#x}, {}, {}, {}, {})",
+    // Mono's exception handler thread (Unity) installs an EXC_BAD_ACCESS
+    // handler with this call. Per Apple's
+    // [task_set_exception_ports](https://developer.apple.com/documentation/kernel/1402141-task_set_exception_ports?language=objc)
+    // docs the kernel is supposed to forward matching exceptions to
+    // `new_port`. touchHLE does not deliver guest faults via Mach ports —
+    // the underlying ARM emulator panics on a bad access — so storing the
+    // port is observably equivalent to a successful no-op for the guest.
+    // We log it at debug verbosity (this is hot in Mono start-up) and
+    // return success so the caller's installation logic continues normally.
+    log_dbg!(
+        "task_set_exception_ports({:#x}, mask={:#x}, port={:#x}, behavior={}, flavor={})",
         task,
         exception_mask,
         new_port,

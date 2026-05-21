@@ -23,9 +23,12 @@ pub const CORE_AUDIO: super::HostDylib = super::HostDylib {
 pub const CF_NETWORK: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/CFNetwork.framework/CFNetwork",
     aliases: &[],
-    class_exports: &[],
+    class_exports: &[frameworks::cf_http_message::CLASSES],
     constant_exports: &[frameworks::cf_network::CONSTANTS],
-    function_exports: &[frameworks::cf_network::FUNCTIONS],
+    function_exports: &[
+        frameworks::cf_network::FUNCTIONS,
+        frameworks::cf_http_message::FUNCTIONS,
+    ],
 };
 
 // MobileCoreServices (stub — no UTType implementation yet)

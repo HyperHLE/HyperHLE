@@ -74,6 +74,15 @@ struct AudioQueueHostObject {
     is_running_handler: bool,
     is_input: bool,
     input_delay: u32,
+    /// Stored `kAudioQueueProperty_HardwareCodecPolicy` value. Defaults to
+    /// `kAudioQueueHardwareCodecPolicy_Default` (0). touchHLE has no hardware
+    /// codecs, so this is informational only.
+    hardware_codec_policy: u32,
+    /// PCM format set via `AudioQueueSetOfflineRenderFormat`. `None` means the
+    /// queue is in real-time mode (default). `Some(format)` means the queue is
+    /// in offline-rendering mode and the caller is expected to drive playback
+    /// via `AudioQueueOfflineRender`.
+    offline_render_format: Option<AudioStreamBasicDescription>,
 }
 
 /// Track whether the audio queue is meant to be running, in order to handle
@@ -125,12 +134,30 @@ const kAudioQueueProperty_MagicCookie: AudioQueuePropertyID = fourcc(b"aqmc");
 const kAudioQueueProperty_StreamDescription: AudioQueuePropertyID = fourcc(b"aqft");
 const kAudioQueueProperty_MaximumOutputPacketSize: AudioQueuePropertyID = fourcc(b"aqmv");
 const kAudioQueueProperty_EnableLevelMetering: AudioQueuePropertyID = fourcc(b"aqme");
+/// `kAudioQueueProperty_HardwareCodecPolicy` from Apple's `AudioQueue.h`.
+/// Controls whether the queue uses hardware or software codecs. touchHLE only
+/// ships software codecs (the host has no audio hardware codec), so this is
+/// stored as a hint and the codec choice never changes.
+const kAudioQueueProperty_HardwareCodecPolicy: AudioQueuePropertyID = fourcc(b"aqcp");
 type AudioQueuePropertyListenerProc = GuestFunction;
+
+/// `AudioQueueHardwareCodecPolicy` from Apple's `AudioQueue.h`.
+#[allow(dead_code)]
+mod codec_policy {
+    pub const DEFAULT: u32 = 0;
+    pub const USE_SOFTWARE_ONLY: u32 = 1;
+    pub const USE_HARDWARE_ONLY: u32 = 2;
+    pub const PREFER_SOFTWARE: u32 = 3;
+    pub const PREFER_HARDWARE: u32 = 4;
+}
 
 const kAudioQueueErr_InvalidBuffer: OSStatus = -66687;
 const kAudioQueueErr_InvalidPropertySize: OSStatus = -66683;
 const kAudioQueueErr_BufferInQueue: OSStatus = -66679;
 const kAudioQueueErr_InvalidProperty: OSStatus = -66684;
+/// `kAudioQueueErr_QueueNotStopped` from Apple's `AudioQueue.h`. Returned by
+/// `AudioQueueSetOfflineRenderFormat` when the queue is currently running.
+const kAudioQueueErr_QueueNotStopped: OSStatus = -66677;
 
 pub fn AudioQueueNewOutput(
     env: &mut Environment,
@@ -206,6 +233,8 @@ pub fn AudioQueueNewOutput(
         is_running_handler: false,
         is_input: false,
         input_delay: 0,
+        hardware_codec_policy: codec_policy::DEFAULT,
+        offline_render_format: None,
     };
 
     let aq_ref = env.mem.alloc_and_write(OpaqueAudioQueue { _filler: 0 });
@@ -478,6 +507,7 @@ fn property_size(property_id: AudioQueuePropertyID) -> Option<GuestUSize> {
         }
         kAudioQueueProperty_MaximumOutputPacketSize => Some(guest_size_of::<u32>()),
         kAudioQueueProperty_EnableLevelMetering => Some(guest_size_of::<u32>()),
+        kAudioQueueProperty_HardwareCodecPolicy => Some(guest_size_of::<u32>()),
         _ => None,
     }
 }
@@ -584,6 +614,12 @@ fn AudioQueueGetProperty(
             // Level metering is not implemented; report it as disabled (0).
             env.mem.write(out_property_data.cast::<u32>(), 0u32);
         }
+        kAudioQueueProperty_HardwareCodecPolicy => {
+            env.mem.write(
+                out_property_data.cast::<u32>(),
+                host_object.hardware_codec_policy,
+            );
+        }
         _ => {
             // We only advertise known properties as readable via
             // property_size; if we somehow get here with a different ID it
@@ -603,7 +639,7 @@ fn AudioQueueGetProperty(
 }
 
 fn AudioQueueSetProperty(
-    _env: &mut Environment,
+    env: &mut Environment,
     in_aq: AudioQueueRef,
     in_property_id: AudioQueuePropertyID,
     in_property_data: ConstVoidPtr,
@@ -611,18 +647,147 @@ fn AudioQueueSetProperty(
 ) -> OSStatus {
     return_if_null!(in_aq);
 
-    log!(
-        "TODO: AudioQueueSetProperty({:?}, {}, {:?}, {})",
-        in_aq,
-        debug_fourcc(in_property_id),
-        in_property_data,
-        in_data_size
-    );
-
+    // Per Apple `AudioQueue.h`: magic-cookie writes have format-specific
+    // semantics we don't model, so refuse them rather than silently
+    // succeeding (returning success here previously confused some apps).
     if in_property_id == kAudioQueueProperty_MagicCookie {
         return kAudioQueueErr_InvalidProperty;
     }
 
+    match in_property_id {
+        kAudioQueueProperty_HardwareCodecPolicy => {
+            let required = guest_size_of::<u32>();
+            if in_data_size < required || in_property_data.is_null() {
+                return kAudioQueueErr_InvalidPropertySize;
+            }
+            let policy = env.mem.read(in_property_data.cast::<u32>());
+            // Apple defines five valid policy values; anything else is
+            // rejected to match Audio Queue Services behaviour.
+            let valid = matches!(
+                policy,
+                codec_policy::DEFAULT
+                    | codec_policy::USE_SOFTWARE_ONLY
+                    | codec_policy::USE_HARDWARE_ONLY
+                    | codec_policy::PREFER_SOFTWARE
+                    | codec_policy::PREFER_HARDWARE
+            );
+            if !valid {
+                return kAudioQueueErr_InvalidProperty;
+            }
+            let Some(host_object) = State::get(&mut env.framework_state)
+                .audio_queues
+                .get_mut(&in_aq)
+            else {
+                return kAudioQueueErr_InvalidProperty;
+            };
+            host_object.hardware_codec_policy = policy;
+            log_dbg!(
+                "AudioQueueSetProperty(kAudioQueueProperty_HardwareCodecPolicy = {})",
+                policy
+            );
+            0 // success
+        }
+        kAudioQueueProperty_EnableLevelMetering => {
+            // We don't implement level metering, but we accept the write so
+            // the caller's setup code keeps going. The matching getter
+            // always reports metering as disabled.
+            let required = guest_size_of::<u32>();
+            if in_data_size < required || in_property_data.is_null() {
+                return kAudioQueueErr_InvalidPropertySize;
+            }
+            0 // success
+        }
+        _ => {
+            // Per Apple `AudioQueue.h`, an unknown property ID yields
+            // `kAudioQueueErr_InvalidProperty`. Log it so we can spot apps
+            // that depend on an unsupported property.
+            log!(
+                "Warning: AudioQueueSetProperty({:?}, {}, {:?}, {}): unsupported property; \
+                 returning kAudioQueueErr_InvalidProperty.",
+                in_aq,
+                debug_fourcc(in_property_id),
+                in_property_data,
+                in_data_size,
+            );
+            kAudioQueueErr_InvalidProperty
+        }
+    }
+}
+
+/// `AudioQueueSetOfflineRenderFormat` from Apple's `AudioQueue.h`.
+///
+/// > Sets the format for offline rendering. If `inFormat` is non-NULL, the
+/// > queue switches to offline rendering mode using the given PCM format.
+/// > Passing NULL leaves offline rendering mode.
+///
+/// Apple requires the queue to be stopped and the format (when non-NULL) to be
+/// uncompressed PCM. The channel layout argument is accepted for API
+/// compatibility but not modelled by touchHLE — every guest we have seen
+/// passes NULL here, matching Apple's own examples.
+fn AudioQueueSetOfflineRenderFormat(
+    env: &mut Environment,
+    in_aq: AudioQueueRef,
+    in_format: ConstPtr<AudioStreamBasicDescription>,
+    _in_layout: ConstVoidPtr,
+) -> OSStatus {
+    return_if_null!(in_aq);
+
+    let Some(host_object) = State::get(&mut env.framework_state)
+        .audio_queues
+        .get_mut(&in_aq)
+    else {
+        return kAudioQueueErr_InvalidProperty;
+    };
+
+    // Per Apple docs, the queue must not be running when offline rendering is
+    // (re)configured.
+    if host_object.is_running != AudioQueueIsRunning::Stopped {
+        log!(
+            "AudioQueueSetOfflineRenderFormat({:?}): queue is running; \
+             returning kAudioQueueErr_QueueNotStopped.",
+            in_aq
+        );
+        return kAudioQueueErr_QueueNotStopped;
+    }
+
+    if in_format.is_null() {
+        // NULL format leaves offline rendering mode.
+        host_object.offline_render_format = None;
+        log_dbg!(
+            "AudioQueueSetOfflineRenderFormat({:?}): leaving offline mode",
+            in_aq
+        );
+        return 0;
+    }
+
+    let format = env.mem.read(in_format);
+
+    // Apple's offline rendering only supports uncompressed PCM destinations.
+    if format.format_id != kAudioFormatLinearPCM {
+        log!(
+            "AudioQueueSetOfflineRenderFormat({:?}): non-PCM format {} \
+             rejected (offline rendering only supports PCM).",
+            in_aq,
+            debug_fourcc(format.format_id)
+        );
+        return kAudioQueueErr_InvalidProperty;
+    }
+    if !is_supported_audio_format(&format) {
+        log!(
+            "AudioQueueSetOfflineRenderFormat({:?}): unsupported PCM format \
+             {:?}.",
+            in_aq,
+            format
+        );
+        return kAudioQueueErr_InvalidProperty;
+    }
+
+    host_object.offline_render_format = Some(format);
+    log_dbg!(
+        "AudioQueueSetOfflineRenderFormat({:?}): entering offline mode with {:?}",
+        in_aq,
+        format
+    );
     0 // success
 }
 
@@ -1456,6 +1621,8 @@ pub fn AudioQueueNewInput(
         is_running_handler: false,
         is_input: false,
         input_delay: 0,
+        hardware_codec_policy: codec_policy::DEFAULT,
+        offline_render_format: None,
     };
 
     let aq_ref = env.mem.alloc_and_write(OpaqueAudioQueue { _filler: 0 });
@@ -1485,6 +1652,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioQueueGetPropertySize(_, _, _)),
     export_c_func!(AudioQueueGetProperty(_, _, _, _)),
     export_c_func!(AudioQueueSetProperty(_, _, _, _)),
+    export_c_func!(AudioQueueSetOfflineRenderFormat(_, _, _)),
     export_c_func!(AudioQueuePrime(_, _, _)),
     export_c_func!(AudioQueueStart(_, _)),
     export_c_func!(AudioQueuePause(_)),

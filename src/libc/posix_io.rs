@@ -38,6 +38,25 @@ impl State {
     }
 }
 
+/// A single byte-range advisory lock recorded against a file descriptor.
+///
+/// The byte range is `start..end` (half-open) with `end == i64::MAX`
+/// representing "to the end of the file" — the convention POSIX uses when
+/// `flock::len == 0`. See Apple `man 2 fcntl` ("File Locking").
+#[derive(Clone, Copy, Debug)]
+pub struct LockRange {
+    pub start: i64,
+    /// Exclusive end; `i64::MAX` means "until EOF / unlimited".
+    pub end: i64,
+    pub lock_type: i16,
+}
+
+impl LockRange {
+    fn overlaps(&self, other: &LockRange) -> bool {
+        self.start < other.end && other.start < self.end
+    }
+}
+
 pub struct PosixFileHostObject {
     pub file: GuestFile,
     pub needs_flush: bool,
@@ -48,6 +67,12 @@ pub struct PosixFileHostObject {
     status_flags: i32,
     /// Guest path this fd was opened with (for F_GETPATH)
     path: Option<String>,
+    /// Advisory byte-range locks currently held on this descriptor (via
+    /// `fcntl` F_SETLK / F_SETLKW). Released on `close(2)`.
+    locks: Vec<LockRange>,
+    /// Whole-file advisory lock held via `flock(2)`. `Some(F_RDLCK)` for
+    /// `LOCK_SH`, `Some(F_WRLCK)` for `LOCK_EX`, `None` for unlocked.
+    flock_state: Option<i16>,
 }
 
 // TODO: stdin/stdout/stderr handling somehow
@@ -147,11 +172,8 @@ unsafe impl SafeRead for flock {}
 
 pub type FLockFlag = i32;
 pub const LOCK_SH: FLockFlag = 1;
-#[allow(dead_code)]
 pub const LOCK_EX: FLockFlag = 2;
-#[allow(dead_code)]
 pub const LOCK_NB: FLockFlag = 4;
-#[allow(dead_code)]
 pub const LOCK_UN: FLockFlag = 8;
 
 #[repr(C, packed)]
@@ -339,6 +361,8 @@ pub fn open_direct(env: &mut Environment, path: ConstPtr<u8>, flags: i32) -> Fil
                 flags: 0,
                 status_flags: flags & (O_ACCMODE | O_APPEND | O_NONBLOCK),
                 path: Some(actual_path_string.clone()),
+                locks: Vec::new(),
+                flock_state: None,
             };
             find_or_create_fd(env, host_object)
         }
@@ -925,40 +949,55 @@ fn fcntl(
         // Advisory record locking
         // ----------------------------------------------------------------
         F_GETLK => {
+            // POSIX `fcntl(F_GETLK)` reports whether a lock that would
+            // block the request is held by **another process**. HyperHLE
+            // is a single guest process, so there is no external
+            // contender — per Apple `man 2 fcntl` we always report
+            // F_UNLCK after validating the request struct.
             let lock_ptr: MutPtr<flock> = args.start().next(env);
             let mut lock = env.mem.read(lock_ptr);
-            if let Err(error_code) = validate_lock(env, fd, &lock) {
+            if let Err(error_code) = resolve_lock_range(env, fd, &lock) {
                 set_errno(env, error_code);
                 return -1;
             }
-            log!(
-                "TODO: fcntl({}, F_GETLK) — locking unimplemented, reporting \
-                 F_UNLCK",
-                fd
-            );
             lock.lock_type = F_UNLCK;
             env.mem.write(lock_ptr, lock);
         }
-        F_SETLK => {
+        F_SETLK | F_SETLKW => {
+            // POSIX advisory locks are owned by the process, not the fd:
+            // locks held by the same process **never** conflict with each
+            // other (`man 2 fcntl`, "File Locking"). HyperHLE is a single
+            // guest process, so there are no inter-process conflicts to
+            // detect. We still validate the request struct and track the
+            // lock per-fd so it is released on `close(2)`.
             let lock_ptr: MutPtr<flock> = args.start().next(env);
             let lock = env.mem.read(lock_ptr);
-            if let Err(error_code) = validate_lock(env, fd, &lock) {
-                set_errno(env, error_code);
-                return -1;
+            let requested = match resolve_lock_range(env, fd, &lock) {
+                Ok(r) => r,
+                Err(error_code) => {
+                    set_errno(env, error_code);
+                    return -1;
+                }
+            };
+
+            if let Some(file) = env.libc_state.posix_io.file_for_fd(fd) {
+                if requested.lock_type == F_UNLCK {
+                    release_range_from_locks(&mut file.locks, &requested);
+                } else {
+                    // Replace any existing lock on the overlapping range
+                    // (POSIX: a new lock from the same owner promotes /
+                    // demotes the existing one).
+                    release_range_from_locks(&mut file.locks, &requested);
+                    file.locks.push(requested);
+                }
             }
-            log!("TODO: fcntl({}, F_SETLK, {:?}) — locking ignored", fd, lock);
-        }
-        F_SETLKW => {
-            let lock_ptr: MutPtr<flock> = args.start().next(env);
-            let lock = env.mem.read(lock_ptr);
-            if let Err(error_code) = validate_lock(env, fd, &lock) {
-                set_errno(env, error_code);
-                return -1;
-            }
-            log!(
-                "TODO: fcntl({}, F_SETLKW, {:?}) — locking ignored",
+            log_dbg!(
+                "fcntl({}, {}, {:?} [{}, {})) => 0",
                 fd,
-                lock
+                cmd,
+                requested.lock_type,
+                requested.start,
+                requested.end
             );
         }
 
@@ -1061,9 +1100,37 @@ fn fcntl(
     0
 }
 
+/// `int flock(int fd, int operation);` — BSD-style whole-file advisory
+/// locking, as documented by Apple `man 2 flock`:
+/// <https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/flock.2.html>
+///
+/// `flock(2)` advisory locks only contend between *different* processes.
+/// HyperHLE is a single guest process, so any number of locks within the
+/// guest can coexist. We still validate the operation, track the lock
+/// state per fd for diagnostics, and release on `close(2)`.
 fn flock(env: &mut Environment, fd: FileDescriptor, operation: FLockFlag) -> i32 {
     set_errno(env, 0);
-    log!("TODO: flock({:?}, {:?})", fd, operation);
+
+    if env.libc_state.posix_io.file_for_fd(fd).is_none() {
+        set_errno(env, EBADF);
+        return -1;
+    }
+
+    let op = operation & !LOCK_NB;
+    let new_state: Option<i16> = match op {
+        LOCK_UN => None,
+        LOCK_SH => Some(F_RDLCK),
+        LOCK_EX => Some(F_WRLCK),
+        _ => {
+            set_errno(env, EINVAL);
+            return -1;
+        }
+    };
+
+    if let Some(file) = env.libc_state.posix_io.file_for_fd(fd) {
+        file.flock_state = new_state;
+    }
+    log_dbg!("flock({}, {}) => 0", fd, operation);
     0
 }
 
@@ -1182,6 +1249,8 @@ pub fn find_or_create_socket(env: &mut Environment) -> FileDescriptor {
         flags: 0,
         status_flags: O_RDWR,
         path: None,
+        locks: Vec::new(),
+        flock_state: None,
     };
     find_or_create_fd(env, host_object)
 }
@@ -1197,7 +1266,17 @@ pub fn is_socket(env: &mut Environment, fd: FileDescriptor) -> bool {
     }
 }
 
-fn validate_lock(env: &mut Environment, fd: FileDescriptor, lock: &flock) -> Result<(), i32> {
+/// Resolve an `flock` request to an absolute byte range
+/// `[start, end)` (with `end == i64::MAX` for "to EOF / unlimited").
+///
+/// Mirrors the logic in `validate_lock` but returns the resolved range so the
+/// fcntl(F_SETLK/F_SETLKW/F_GETLK) handlers can store it. Returns the same
+/// error codes as `validate_lock`.
+fn resolve_lock_range(
+    env: &mut Environment,
+    fd: FileDescriptor,
+    lock: &flock,
+) -> Result<LockRange, i32> {
     let lock_type = lock.lock_type;
     if !matches!(lock_type, F_RDLCK | F_UNLCK | F_WRLCK) {
         return Err(EINVAL);
@@ -1220,14 +1299,64 @@ fn validate_lock(env: &mut Environment, fd: FileDescriptor, lock: &flock) -> Res
             let size: i64 = file.file.stream_len().unwrap_or(0).try_into().unwrap_or(0);
             size + lock.start
         }
-        _ => {
-            return Err(EINVAL);
-        }
+        _ => return Err(EINVAL),
     };
 
     if lock_start < 0 {
         return Err(EINVAL);
     }
 
-    Ok(())
+    // POSIX: `len == 0` means "lock from `start` to end of file / no
+    // upper bound". Negative `len` means the range extends backwards from
+    // `start` — also valid per Apple `man 2 fcntl`.
+    let (start, end) = if lock.len == 0 {
+        (lock_start, i64::MAX)
+    } else if lock.len > 0 {
+        (
+            lock_start,
+            lock_start.checked_add(lock.len).ok_or(EOVERFLOW)?,
+        )
+    } else {
+        let new_start = lock_start.checked_add(lock.len).ok_or(EINVAL)?;
+        if new_start < 0 {
+            return Err(EINVAL);
+        }
+        (new_start, lock_start)
+    };
+
+    Ok(LockRange {
+        start,
+        end,
+        lock_type,
+    })
+}
+
+/// Drop the portion of every range in `locks` that overlaps `release`,
+/// splitting ranges as necessary. Used to implement F_UNLCK (which may
+/// release a sub-range of a previously-held lock).
+fn release_range_from_locks(locks: &mut Vec<LockRange>, release: &LockRange) {
+    let mut new_locks: Vec<LockRange> = Vec::with_capacity(locks.len());
+    for existing in locks.drain(..) {
+        if !existing.overlaps(release) {
+            new_locks.push(existing);
+            continue;
+        }
+        // Keep the portion strictly before `release`, if any.
+        if existing.start < release.start {
+            new_locks.push(LockRange {
+                start: existing.start,
+                end: release.start,
+                lock_type: existing.lock_type,
+            });
+        }
+        // Keep the portion strictly after `release`, if any.
+        if existing.end > release.end {
+            new_locks.push(LockRange {
+                start: release.end,
+                end: existing.end,
+                lock_type: existing.lock_type,
+            });
+        }
+    }
+    *locks = new_locks;
 }
