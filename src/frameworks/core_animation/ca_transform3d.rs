@@ -173,10 +173,56 @@ impl CATransform3D {
        Self::make_translation(tx, ty, tz).concat(self)
    }
 
-   pub fn invert(self) -> Option<Self> {
-       let m: Matrix<4> = self.into();
-       m.inverse().map(|inv| inv.into())
-   }
+pub fn invert(self) -> Option<Self> {
+    // Matrix<4> has no inverse() — compute it directly via
+    // cofactor expansion (Cramer's rule on the 4×4 matrix).
+    let (m11,m12,m13,m14) = (self.m11,self.m12,self.m13,self.m14);
+    let (m21,m22,m23,m24) = (self.m21,self.m22,self.m23,self.m24);
+    let (m31,m32,m33,m34) = (self.m31,self.m32,self.m33,self.m34);
+    let (m41,m42,m43,m44) = (self.m41,self.m42,self.m43,self.m44);
+
+    // 2×2 sub-determinants used repeatedly below.
+    let s0  = m11*m22 - m21*m12;
+    let s1  = m11*m23 - m21*m13;
+    let s2  = m11*m24 - m21*m14;
+    let s3  = m12*m23 - m22*m13;
+    let s4  = m12*m24 - m22*m14;
+    let s5  = m13*m24 - m23*m14;
+    let c5  = m33*m44 - m43*m34;
+    let c4  = m32*m44 - m42*m34;
+    let c3  = m32*m43 - m42*m33;
+    let c2  = m31*m44 - m41*m34;
+    let c1  = m31*m43 - m41*m33;
+    let c0  = m31*m42 - m41*m32;
+
+    let det = s0*c5 - s1*c4 + s2*c3 + s3*c2 - s4*c1 + s5*c0;
+    if det.abs() < f32::EPSILON {
+        return None; // singular
+    }
+    let inv_det = 1.0 / det;
+
+    Some(CATransform3D {
+        m11: ( m22*c5 - m23*c4 + m24*c3) * inv_det,
+        m12: (-m12*c5 + m13*c4 - m14*c3) * inv_det,
+        m13: ( m42*s5 - m43*s4 + m44*s3) * inv_det,
+        m14: (-m32*s5 + m33*s4 - m34*s3) * inv_det,
+
+        m21: (-m21*c5 + m23*c2 - m24*c1) * inv_det,
+        m22: ( m11*c5 - m13*c2 + m14*c1) * inv_det,
+        m23: (-m41*s5 + m43*s2 - m44*s1) * inv_det,
+        m24: ( m31*s5 - m33*s2 + m34*s1) * inv_det,
+
+        m31: ( m21*c4 - m22*c2 + m24*c0) * inv_det,
+        m32: (-m11*c4 + m12*c2 - m14*c0) * inv_det,
+        m33: ( m41*s4 - m42*s2 + m44*s0) * inv_det,
+        m34: (-m31*s4 + m32*s2 - m34*s0) * inv_det,
+
+        m41: (-m21*c3 + m22*c1 - m23*c0) * inv_det,
+        m42: ( m11*c3 - m12*c1 + m13*c0) * inv_det,
+        m43: (-m41*s3 + m42*s1 - m43*s0) * inv_det,
+        m44: ( m31*s3 - m32*s1 + m33*s0) * inv_det,
+    })
+}
 
    /// Convert from a 2D CGAffineTransform (extends into 3D with zero z).
    pub fn from_affine(t: CGAffineTransform) -> Self {
@@ -282,11 +328,12 @@ fn CATransform3DConcat(
 }
 
 fn CATransform3DInvert(
-   _env: &mut Environment,
-   t: CATransform3D,
+    _env: &mut Environment,
+    t: CATransform3D,
 ) -> CATransform3D {
-   t.invert().unwrap_or(t)
+    t.invert().unwrap_or(t)   // unchanged — already correct
 }
+
 
 fn CATransform3DMakeAffineTransform(
    _env: &mut Environment,
