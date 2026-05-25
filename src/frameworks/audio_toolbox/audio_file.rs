@@ -458,10 +458,10 @@ pub fn AudioFileReadPackets(
         return paramErr;
     }
 
+    // Downgraded to log_dbg — fires on every CBR read, causes log spam.
     if !out_packet_descriptions.is_null() {
-        log!(
-            "Внимание: игнорирование не-null out_packet_descriptions \
-             в AudioFileReadPackets()"
+        log_dbg!(
+            "AudioFileReadPackets: ignoring non-null out_packet_descriptions"
         );
     }
 
@@ -479,6 +479,7 @@ pub fn AudioFileReadPackets(
     };
 
     let packets_to_read = env.mem.read(io_num_packets);
+
     if packet_size == 0 || packets_to_read == 0 {
         env.mem.write(io_num_packets, 0);
         if !out_num_bytes.is_null() {
@@ -497,15 +498,29 @@ pub fn AudioFileReadPackets(
 
     let starting_byte = match i64::from(packet_size).checked_mul(in_starting_packet) {
         Some(v) => v,
-        None => return kAudioFileBadPropertySizeError,
+        None => {
+            log_dbg!(
+                "AudioFileReadPackets: starting_byte overflow \
+                 (packet_size={}, in_starting_packet={})",
+                packet_size, in_starting_packet
+            );
+            return kAudioFileBadPropertySizeError;
+        }
     };
 
     let bytes_to_read = match packets_to_read.checked_mul(packet_size) {
         Some(v) => v,
-        None => return kAudioFileBadPropertySizeError,
+        None => {
+            log_dbg!(
+                "AudioFileReadPackets: bytes_to_read overflow \
+                 (packets_to_read={}, packet_size={})",
+                packets_to_read, packet_size
+            );
+            return kAudioFileBadPropertySizeError;
+        }
     };
 
-    if bytes_to_read == 0 || out_buffer.is_null() {
+    if out_buffer.is_null() {
         env.mem.write(io_num_packets, 0);
         if !out_num_bytes.is_null() {
             env.mem.write(out_num_bytes, 0);
@@ -529,19 +544,28 @@ pub fn AudioFileReadPackets(
     };
 
     if !out_num_bytes.is_null() {
-        env.mem
-            .write(out_num_bytes, bytes_read.try_into().unwrap_or(0));
+        env.mem.write(out_num_bytes, bytes_read.try_into().unwrap_or(0));
     }
 
     let packets_read = (bytes_read as u32) / packet_size;
     env.mem.write(io_num_packets, packets_read);
 
-    if (bytes_read as u32) < bytes_to_read {
+    log_dbg!(
+        "AudioFileReadPackets: start_pkt={} req={} read_pkts={} read_bytes={}",
+        in_starting_packet, packets_to_read, packets_read, bytes_read
+    );
+
+    // Only return eofErr when truly nothing was read.
+    // Returning eofErr on a partial read (last buffer fill) causes callers
+    // to log an error on every single buffer fill near end-of-file,
+    // which is the PvM log-spam / freeze source.
+    if bytes_read == 0 {
         eofErr
     } else {
         kAudioFileSuccess
     }
 }
+
 
 /// Per Apple Audio File Services Reference:
 /// AudioFileWritePackets writes packets of audio data to an audio file.
