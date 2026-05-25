@@ -357,7 +357,8 @@ pub struct Mem {
 impl Drop for Mem {
     fn drop(&mut self) {
         unsafe {
-            crate::mem::host::free_memory(self.bytes.cast(), std::mem::size_of::<Bytes>()).unwrap();
+            crate::mem::host::free_guest_memory(self.bytes.cast(), std::mem::size_of::<Bytes>())
+                .unwrap();
             // Free the read stub page
             if !self.null_stub_page.is_null() {
                 crate::mem::host::free_memory(self.null_stub_page.cast(), PAGE_SIZE as usize)
@@ -389,7 +390,7 @@ impl Mem {
     /// Create a fresh instance of guest memory.
     pub fn new() -> Mem {
         let size = std::mem::size_of::<Bytes>();
-        let ptr = unsafe { crate::mem::host::allocate_memory(size).unwrap() };
+        let ptr = unsafe { crate::mem::host::allocate_guest_memory(size).unwrap() };
 
         assert_eq!(
             ptr as usize & PAGE_SIZE_ALIGN_MASK as usize,
@@ -1014,5 +1015,31 @@ impl Mem {
             return;
         }
         self.allocator.reserve(allocator::Chunk::new(base, size));
+    }
+}
+
+#[cfg(test)]
+mod mem_tests {
+    use super::{Mem, MutPtr, Ptr};
+
+    #[test]
+    fn lazy_commit_far_addresses() {
+        let mut mem = Mem::new();
+
+        mem.set_null_segment_size(super::PAGE_SIZE);
+
+        let probes: [u32; 6] = [
+            0x0000_1000,
+            0x1000_0000,
+            0x4000_0000,
+            0x8000_0000,
+            0xC000_0000,
+            0xFFFE_F000,
+        ];
+        for &addr in &probes {
+            let p: MutPtr<u8> = Ptr::from_bits(addr);
+            mem.write(p, 0xAB);
+            assert_eq!(mem.read(p.cast_const()), 0xAB);
+        }
     }
 }
