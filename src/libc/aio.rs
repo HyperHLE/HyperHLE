@@ -47,24 +47,31 @@ pub struct State {
     results: HashMap<GuestUSize, AioResult>,
 }
 
-/// Prefix of Darwin's 32-bit `struct aiocb` covering the fields we need. The
-/// real struct continues with `aio_reqprio`, `aio_sigevent` and
-/// `aio_lio_opcode`, but reading only this prefix is fine because the guest
+/// Prefix of Darwin's 32-bit `struct aiocb` covering the fields we need, up to
+/// the `sigev_notify` member of the embedded `struct sigevent`. The real struct
+/// continues past this, but reading only this prefix is fine because the guest
 /// always allocates the full structure.
 ///
 /// On the iOS armv7 ABI 64-bit scalars such as `off_t` are only 4-byte
 /// aligned, so `aio_offset` sits immediately after the leading `int` with no
 /// padding — hence `#[repr(C, packed)]`, matching how the rest of HyperHLE
-/// models guest structs (`flock`, `iovec`, …). The resulting field offsets
-/// are: `aio_fildes` 0, `aio_offset` 4, `aio_buf` 12, `aio_nbytes` 16.
+/// models guest structs (`flock`, `iovec`, …). The resulting field offsets are:
+/// `aio_fildes` 0, `aio_offset` 4, `aio_buf` 12, `aio_nbytes` 16,
+/// `aio_reqprio` 20, `aio_sigevent.sigev_notify` 24.
 #[repr(C, packed)]
 struct aiocb {
     aio_fildes: FileDescriptor,
     aio_offset: off_t,
     aio_buf: MutVoidPtr,
     aio_nbytes: GuestUSize,
+    _aio_reqprio: i32,
+    sigev_notify: i32,
 }
 unsafe impl SafeRead for aiocb {}
+
+/// `sigev_notify` value meaning "no completion notification" — the app will
+/// poll with `aio_error`/`aio_return` instead. This is by far the common case.
+const SIGEV_NONE: i32 = 0;
 
 /// `LIO_NOWAIT`/`LIO_WAIT` opcode constants are not needed here, but the
 /// `aio_cancel` return values are part of the documented ABI.
@@ -83,6 +90,22 @@ fn do_transfer(env: &mut Environment, aiocbp: ConstPtr<aiocb>, is_write: bool) -
     let offset = cb.aio_offset;
     let buf = cb.aio_buf;
     let nbytes = cb.aio_nbytes;
+
+    // We complete the transfer synchronously, so SIGEV_NONE (the common case —
+    // the app polls with aio_error/aio_return) is handled perfectly. We do not
+    // yet deliver SIGEV_SIGNAL/SIGEV_THREAD completion notifications, though, so
+    // surface that as a warning rather than silently leaving an app waiting on
+    // a callback that never fires.
+    let sigev_notify = cb.sigev_notify;
+    if sigev_notify != SIGEV_NONE {
+        log!(
+            "Warning: aio request on fd {} asks for completion notification \
+             (sigev_notify={}), which is not yet delivered; the app may block \
+             if it relies on it instead of polling aio_error/aio_return.",
+            fildes,
+            sigev_notify
+        );
+    }
 
     let bytes = if is_write {
         pwrite(env, fildes, buf.cast_const(), nbytes, offset)
