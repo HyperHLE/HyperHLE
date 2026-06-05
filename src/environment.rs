@@ -945,7 +945,7 @@ impl Environment {
         }
     }
 
-    fn stack_trace_current(&self) {
+    pub(crate) fn stack_trace_current(&self) {
         if self.current_thread == 0 {
             echo_no_panic!("Attempting to produce stack trace for main thread:");
         } else {

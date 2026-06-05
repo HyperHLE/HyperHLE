@@ -129,6 +129,31 @@ jobs:
       - name: Build touchHLE
         run: cargo build --release
 
+      # The Windows runners only expose Microsoft's GDI generic OpenGL 1.1,
+      # which can't satisfy the OpenGL 2.1 context that touchHLE's GLES1-on-GL2
+      # layer requires. Both the native GLES path and the GL2 fallback therefore
+      # fail and the app aborts with "Couldn't create OpenGL ES 1.1 context!".
+      # Drop in Mesa3D's llvmpipe software renderer as a per-app opengl32.dll
+      # next to the binary so a complete OpenGL implementation is available
+      # without a GPU. Linux already gets llvmpipe via libgl1-mesa-dri and macOS
+      # ships a usable system OpenGL, so this is only needed on Windows.
+      - name: Set up software OpenGL (Mesa) on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          MESA_VERSION: "24.3.4"
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-delay 2 -o mesa.7z \
+            "https://github.com/pal1000/mesa-dist-win/releases/download/${MESA_VERSION}/mesa3d-${MESA_VERSION}-release-msvc.7z"
+          7z x mesa.7z -omesa
+          # The opengl32.dll loader plus its gallium/llvmpipe dependencies must
+          # sit next to touchHLE.exe so Windows loads Mesa instead of the system
+          # OpenGL. Copying the whole x64 set keeps every dependency satisfied.
+          cp mesa/x64/*.dll target/release/
+          # Force the software rasterizer; the runners have no usable GPU.
+          echo "GALLIUM_DRIVER=llvmpipe" >> "$GITHUB_ENV"
+
       - name: Download IPA
         shell: bash
         env:

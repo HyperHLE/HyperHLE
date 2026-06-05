@@ -773,16 +773,20 @@ fn exit(env: &mut Environment, exit_code: i32) {
         let _: () = func.call_from_host(env, ());
     }
 
-    // ИСПРАВЛЕНИЕ: Мы выводим в консоль, что приложение пытается закрыться,
-    // но саму команду закрытия эмулятора (std::process::exit) мы игнорируем!
-    // echo!("App called exit({}), ignoring to bypass DRM!", exit_code);
+    // Log the exit so it's clear in CI/run logs why the process stopped;
+    // previously this exited silently, which made the logs end abruptly with no
+    // explanation.
+    echo!("App called exit({}); touchHLE will now quit.", exit_code);
     std::process::exit(exit_code);
 }
 
-fn abort(_env: &mut Environment) {
-    // ИСПРАВЛЕНИЕ ДЛЯ BOX2D: Отключаем краш эмулятора при вызове abort()
-    // echo!("App called abort()! The guest application encountered a fatal
-    // error. Ignoring to bypass Box2D crash!");
+fn abort(env: &mut Environment) {
+    // abort() means the guest hit a fatal error (e.g. a failed assertion or an
+    // uncaught C++ exception calling std::terminate). Log it with a guest stack
+    // trace before quitting so the cause is visible, instead of exiting
+    // silently.
+    echo!("App called abort(); the guest encountered a fatal error.");
+    env.stack_trace_current();
     std::process::exit(1);
 }
 
