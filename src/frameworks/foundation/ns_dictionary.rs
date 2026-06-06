@@ -10,7 +10,10 @@ use super::ns_property_list_serialization::{
     deserialize_plist_from_file, NSPropertyListBinaryFormat_v1_0,
 };
 use super::ns_string::{from_rust_string, get_static_str, to_rust_string};
-use super::{_nib_archive_decoder, ns_array, ns_keyed_unarchiver, ns_string, ns_url, NSUInteger};
+use super::{
+    _nib_archive_decoder, ns_array, ns_keyed_archiver, ns_keyed_unarchiver, ns_string, ns_url,
+    NSUInteger,
+};
 use crate::abi::{CallFromHost, GuestFunction, VaList};
 use crate::frameworks::core_foundation::{CFHashCode, CFIndex};
 use crate::frameworks::foundation::ns_enumerator::{
@@ -1011,25 +1014,15 @@ pub const CLASSES: ClassExports = objc_classes! {
         let pairs: Vec<(id, id)> = host.map.values()
            .flat_map(|v| v.iter().copied())
            .collect();
+        let keys: Vec<id> = pairs.iter().map(|&(k, _)| k).collect();
+        let objects: Vec<id> = pairs.iter().map(|&(_, v)| v).collect();
 
-        let keys_array: id = msg_class![env; NSMutableArray new];
-        let objects_array: id = msg_class![env; NSMutableArray new];
-        for (k, v) in &pairs {
-            let key = *k;
-            let val = *v;
-            () = msg![env; keys_array addObject:key];
-            () = msg![env; objects_array addObject:val];
-        }
-
-        let keys_str = from_rust_string(env, "NS.keys".to_string());
-        let objects_str = from_rust_string(env, "NS.objects".to_string());
-        () = msg![env; coder encodeObject:keys_array forKey:keys_str];
-        () = msg![env; coder encodeObject:objects_array forKey:objects_str];
-
-        release(env, keys_str);
-        release(env, objects_str);
-        release(env, keys_array);
-        release(env, objects_array);
+        // NSKeyedArchiver stores a dictionary's contents as two parallel inline
+        // arrays of UID references, under "NS.keys" and "NS.objects" (Apple's
+        // format, which is what our decoder reads back). See
+        // `encode_objects_as_uid_array`.
+        ns_keyed_archiver::encode_objects_as_uid_array(env, coder, "NS.keys", &keys);
+        ns_keyed_archiver::encode_objects_as_uid_array(env, coder, "NS.objects", &objects);
     } else {
         log!(
             "Warning: -[_touchHLE_NSDictionary encodeWithCoder:] unsupported coder class {:?}",
