@@ -463,7 +463,21 @@ impl Dyld {
                 writeln!(file, "@end")?;
             }
             for (constant_symbol, _) in dylib.constant_exports.iter().copied().flatten() {
-                writeln!(file, "int {};", constant_symbol.strip_prefix("_").unwrap())?;
+                let name = constant_symbol.strip_prefix("_").unwrap();
+                // Some symbols (e.g. `OBJC_IVAR_$_NSObject.isa`) contain
+                // characters that aren't valid in a C identifier, so they
+                // can't be used as a declaration name directly. Emit a
+                // sanitized identifier with an `asm()` label so the stub still
+                // exports the real symbol name the app links against.
+                if name.contains(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$')) {
+                    let sanitized: String = name
+                        .chars()
+                        .map(|c| if c.is_ascii_alphanumeric() || c == '$' { c } else { '_' })
+                        .collect();
+                    writeln!(file, "int {sanitized} asm(\"{constant_symbol}\");")?;
+                } else {
+                    writeln!(file, "int {name};")?;
+                }
             }
             for (function_symbol, _) in dylib.function_exports.iter().copied().flatten() {
                 writeln!(

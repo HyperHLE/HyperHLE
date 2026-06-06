@@ -10,8 +10,8 @@ use super::ns_property_list_serialization::{
     deserialize_plist_from_file, NSPropertyListBinaryFormat_v1_0,
 };
 use super::{
-    _nib_archive_decoder, ns_keyed_unarchiver, ns_string, ns_url, NSComparisonResult, NSNotFound,
-    NSRange, NSUInteger,
+    _nib_archive_decoder, ns_keyed_archiver, ns_keyed_unarchiver, ns_string, ns_url,
+    NSComparisonResult, NSNotFound, NSRange, NSUInteger,
 };
 use crate::abi::{CallFromHost, GuestFunction};
 use crate::frameworks::foundation::ns_string::from_rust_string;
@@ -259,6 +259,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
+- (bool)isEqual:(id)other {
+    if this == other {
+        return true;
+    }
+    // Per Apple's docs, `-[NSArray isEqual:]` returns YES when `other` is an
+    // NSArray with equal contents. Without this override the NSObject default
+    // (pointer identity) is used, so two distinct-but-equal arrays — e.g. an
+    // array and its unarchived copy — compare unequal, which breaks
+    // `NSDictionary`/`NSArray` equality after a round-trip.
+    let class: Class = msg_class![env; NSArray class];
+    if !msg![env; other isKindOfClass:class] {
+        return false;
+    }
+    msg![env; this isEqualToArray:other]
+}
+
 - (bool)isEqualToArray:(id)other { // NSArray*
     let count: NSUInteger = msg![env; this count];
     let other_count: NSUInteger = msg![env; other count];
@@ -380,18 +396,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     if env.objc.class_is_subclass_of(class, keyed_arch_class) {
         let array = env.objc.borrow::<ArrayHostObject>(this).array.clone();
-        // NSKeyedArchiver stores arrays as NS.objects.0, NS.objects.1 ...
-        for (i, obj) in array.iter().copied().enumerate() {
-            let key = from_rust_string(env, format!("NS.objects.{}", i));
-            () = msg![env; coder encodeObject:obj forKey:key];
-            release(env, key);
-        }
-
-        // Encode total count so decoder knows how many to read
-        let count_key = from_rust_string(env, "NS.count".to_string());
-        let count = array.len() as NSUInteger;
-        () = msg![env; coder encodeInt:count forKey:count_key];
-        release(env, count_key);
+        // NSKeyedArchiver stores an array's contents as an inline array of UID
+        // references under "NS.objects" (Apple's format, which is what our
+        // decoder reads back). See `encode_objects_as_uid_array`.
+        ns_keyed_archiver::encode_objects_as_uid_array(env, coder, "NS.objects", &array);
     } else {
         log!(
             "Warning: NSArray encodeWithCoder: unsupported coder class, skipping"

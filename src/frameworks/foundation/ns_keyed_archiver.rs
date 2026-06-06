@@ -391,7 +391,32 @@ fn encode_object(env: &mut Environment, archiver: id, object: id) -> Uid {
             .push(Dictionary::new().into());
         let len = host_object.plist["$objects"].as_array().unwrap().len();
         let new_uid = Uid::new(len as u64 - 1);
-        if object == class {
+
+        // NSString (and its subclasses) are stored *inline* as plist string
+        // values in the `$objects` array, exactly like the decode side
+        // (`unarchive_key`) expects (`Value::String`). We must NOT route them
+        // through the generic `encodeWithCoder:` path: `_touchHLE_NSString`'s
+        // `encodeWithCoder:` allocates a fresh NSString for its contents and
+        // re-encodes that via `encodeObject:forKey:`, which is itself an
+        // NSString, which allocates another string, ... — infinite recursion
+        // that blows the objc_msgSend depth guard, corrupts string objects,
+        // and ultimately crashes the guest (observed with Talking Angela).
+        let nsstring_class = env.objc.get_known_class("NSString", &mut env.mem);
+        let is_string = class != nil && env.objc.class_is_subclass_of(class, nsstring_class);
+
+        if is_string && object != class {
+            let contents = to_rust_string(env, object).into_owned();
+            let host_object = env.objc.borrow_mut::<NSKeyedArchiverHostObject>(archiver);
+            *host_object
+                .plist
+                .get_mut("$objects")
+                .unwrap()
+                .as_array_mut()
+                .unwrap()
+                .get_mut(new_uid.get() as usize)
+                .unwrap() = Value::String(contents);
+            host_object.already_archived.insert(object, new_uid);
+        } else if object == class {
             // If the class selector returns itself, we're encoding a Class
             let classname = Value::String(env.objc.get_class_name(class).into());
             let mut classes = Vec::new();
@@ -469,4 +494,31 @@ fn encode_object_for_key(env: &mut Environment, archiver: id, object: id, normal
     }
 
     scope.insert(normalized_key, Value::Uid(uid));
+}
+
+/// Encode a list of objects as an *inline* plist array of UID references stored
+/// under `key` in the archiver's current encoding scope.
+///
+/// This is the on-disk layout Apple's `NSKeyedArchiver` uses for the contents
+/// of container classes (e.g. `NSArray`'s `NS.objects`, `NSDictionary`'s
+/// `NS.keys`/`NS.objects`), and it's exactly what the decode side
+/// (`ns_keyed_unarchiver::keys_for_key`, used by `decode_current_array` and
+/// `decode_current_dict`) expects. `NSArray`/`NSDictionary`'s `encodeWithCoder:`
+/// use this so that touchHLE-produced archives round-trip correctly; the
+/// previous bespoke layouts (`NS.objects.0`, `NS.objects.1`, … for arrays and a
+/// single object reference for dictionaries) could not be read back by the
+/// decoder, which produced empty collections on unarchive.
+pub fn encode_objects_as_uid_array(env: &mut Environment, archiver: id, key: &str, objects: &[id]) {
+    let uids: Vec<Value> = objects
+        .iter()
+        .map(|&object| Value::Uid(encode_object(env, archiver, object)))
+        .collect();
+    let scope = get_value_to_encode_for_current_key(env, archiver);
+    if scope.contains_key(key) {
+        log!(
+            "Warning: NSKeyedArchiver overwriting existing value for key '{}'",
+            key
+        );
+    }
+    scope.insert(key.to_string(), Value::Array(uids));
 }

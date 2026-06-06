@@ -1287,10 +1287,8 @@ pub const STUB_CONSTANTS: ConstantExports = &[
         "_GKSessionErrorDomain",
         HostConstant::NSString("com.apple.gamekit.GKSessionErrorDomain"),
     ),
-    (
-        "_AVPlayerItemTimeJumpedNotification",
-        HostConstant::NSString("AVPlayerItemTimeJumpedNotification"),
-    ),
+    // (`_AVPlayerItemTimeJumpedNotification` is defined once in the
+    // AVFoundation notification section above.)
     // -----------------------------------------------------------------
     // PassKit payment network identifiers (<PassKit/PKPaymentRequest.h>).
     // Documented values.
@@ -1299,10 +1297,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
     (
         "_PKPaymentNetworkMasterCard",
         HostConstant::NSString("MasterCard"),
-    ),
-    (
-        "_PHImageErrorKey",
-        HostConstant::NSString("PHImageErrorKey"),
     ),
     ("_PKPaymentNetworkAmex", HostConstant::NSString("Amex")),
     ("_PKPaymentNetworkDiscover", HostConstant::NSString("Discover")),
@@ -1317,14 +1311,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
         "_MKLaunchOptionsDirectionsModeDriving",
         HostConstant::NSString("Driving"),
     ),
-    (
-        "_SKReceiptPropertyIsExpired",
-        HostConstant::NSString("SKReceiptPropertyIsExpired"),
-    ),
-    (
-        "_SKReceiptPropertyIsRevoked",
-        HostConstant::NSString("SKReceiptPropertyIsRevoked"),
-    ),
     ("_MKMapRectNull", HostConstant::Custom(mk_map_rect_null)),
     // -----------------------------------------------------------------
     // UIKit activity type (<UIKit/UIActivity.h>). Documented value.
@@ -1332,10 +1318,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
     (
         "_UIActivityTypePostToTencentWeibo",
         HostConstant::NSString("com.apple.UIKit.activity.PostToTencentWeibo"),
-    ),
-    (
-        "_SKReceiptPropertyIsVolumePurchase",
-        HostConstant::NSString("SKReceiptPropertyIsVolumePurchase"),
     ),
     // -----------------------------------------------------------------
     // Notification names referenced by apps but never posted by touchHLE.
@@ -1374,10 +1356,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
         "_UISceneDidDisconnectNotification",
         HostConstant::NSString("UISceneDidDisconnectNotification"),
     ),
-    (
-        "_SKStoreProductParameterProductIdentifier",
-        HostConstant::NSString("SKStoreProductParameterProductIdentifier"),
-    ),
     // -----------------------------------------------------------------
     // NSMetadata / iCloud ubiquitous-item keys referenced by apps that
     // probe for iCloud document state.
@@ -1393,14 +1371,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
     (
         "_NSURLUbiquitousItemDownloadingStatusKey",
         HostConstant::NSString("NSURLUbiquitousItemDownloadingStatusKey"),
-    ),
-    (
-        "_UIAccessibilityScreenChangedNotification",
-        HostConstant::NSString("UIAccessibilityScreenChangedNotification"),
-    ),
-    (
-        "_UITextInputCurrentInputModeDidChangeNotification",
-        HostConstant::NSString("UITextInputCurrentInputModeDidChangeNotification"),
     ),
     (
         "_NSURLUbiquitousItemDownloadingStatusCurrent",
@@ -1426,10 +1396,8 @@ pub const STUB_CONSTANTS: ConstantExports = &[
         "_MPNowPlayingInfoPropertyPlaybackRate",
         HostConstant::NSString("MPNowPlayingInfoPropertyPlaybackRate"),
     ),
-    (
-        "_kCGImagePropertyExifDictionary",
-        HostConstant::NSString("{Exif}"),
-    ),
+    // (`_kCGImagePropertyExifDictionary` is defined in
+    // core_graphics::cg_image's constant list.)
     // -----------------------------------------------------------------
     // AVFoundation metadata key spaces / common keys
     // (<AVFoundation/AVMetadataIdentifiers.h>). Documented values.
@@ -1448,14 +1416,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
         "_kCGColorSpaceExtendedLinearSRGB",
         HostConstant::NSString("kCGColorSpaceExtendedLinearSRGB"),
     ),
-    (
-        "_kSecAttrIsPermanent",
-        HostConstant::NSString("isper"),
-    ),
-    (
-        "_kSecUseAuthenticationUI",
-        HostConstant::NSString("u_AuthUI"),
-    ),
     // -----------------------------------------------------------------
     // AVCaptureDevice "current value" sentinels
     // (<AVFoundation/AVCaptureDevice.h>).
@@ -1467,10 +1427,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
     (
         "_AVCaptureISOCurrent",
         HostConstant::Custom(av_capture_iso_current),
-    ),
-    (
-        "_kSecUseAuthenticationUIFail",
-        HostConstant::NSString("u_AuthUIF"),
     ),
     // -----------------------------------------------------------------
     // CoreAnimation CAEmitterLayer emitter shapes & render modes
@@ -1493,10 +1449,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
         "_kCAEmitterLayerBackToFront",
         HostConstant::NSString("backToFront"),
     ),
-    (
-        "_kCMTimeRangeZero",
-        HostConstant::Custom(kcm_timetime_range_zero),
-    ),
     ("_kCAEmitterLayerAdditive", HostConstant::NSString("additive")),
     // -----------------------------------------------------------------
     // UIKit table-view section-index search magic string
@@ -1510,10 +1462,6 @@ pub const STUB_CONSTANTS: ConstantExports = &[
     (
         "_AVEncoderBitRatePerChannelKey",
         HostConstant::NSString("AVEncoderBitRatePerChannelKey"),
-    ),
-    (
-        "_matrix_identity_float4x4",
-        HostConstant::Custom(matrix_identity_float4x4),
     ),
     // -----------------------------------------------------------------
     // sqlite3 constants.
