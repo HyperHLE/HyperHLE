@@ -8,62 +8,35 @@
 //! PCM.
 //!
 //! This should be the only module in touchHLE that makes use of [symphonia].
-
-// ============================================================
-// ИСПРАВЛЕНИЯ (относительно исходника):
-//
-// 1. probe() — сигнатура в Symphonia 0.6 изменилась:
-//      СТАРОЕ: get_probe().probe(&Default::default(), mss,
-//                               Default::default(), Default::default())
-//              возвращает ProbeResult (содержит fields tracks(), next_packet() и т.д.
-//              непосредственно)
-//      НОВОЕ:  get_probe().probe(&hint, mss, fmt_opts, meta_opts)
-//              возвращает ProbeResult { format: Box<dyn FormatReader>, .. }
-//              Дальнейший доступ к трекам/пакетам — через probed.format.
-//
-// 2. Доступ к трекам:
-//      СТАРОЕ: probed.tracks() — нет такого метода у ProbeResult
-//      НОВОЕ:  probed.format.tracks()
-//
-// 3. Поле codec_params у Track в Symphonia 0.6:
-//      СТАРОЕ: track.codec_params — Option<CodecParameters>, метод .audio()
-//              возвращает Option<&AudioCodecParameters>
-//      НОВОЕ:  track.codec_params — CodecParameters (не Option!),
-//              поле .codec: CodecType, сравниваем с CODEC_TYPE_NULL
-//              Для создания декодера передаём &track.codec_params напрямую.
-//
-// 4. Создание декодера:
-//      СТАРОЕ: get_codecs().make_audio_decoder(audio_codec_params, &Default::default())
-//      НОВОЕ:  get_codecs().make(&track.codec_params, &DecoderOptions::default())
-//
-// 5. Цикл чтения пакетов:
-//      СТАРОЕ: probed.next_packet() — нет такого метода у ProbeResult
-//      НОВОЕ:  probed.format.next_packet() → Result<Packet, Error>
-//              Конец потока — Error::IoError (UnexpectedEof) или специальный маркер;
-//              начиная с 0.5 next_packet() возвращает Result<Packet>, ошибка IoError
-//              трактуется как конец.
-//
-// 6. Экспорт PCM-семплов через RawSampleBuffer / SampleBuffer:
-//      СТАРОЕ: decoded_packet.copy_bytes_to_vec_interleaved_as::<i16>(buf)
-//              Метода copy_bytes_to_vec_interleaved_as не существует.
-//      НОВОЕ:  Создаём SampleBuffer::<i16> один раз (или пересоздаём при смене spec),
-//              вызываем buf.copy_interleaved_ref(audio_buf),
-//              забираем семплы через buf.samples() и конвертируем в little-endian байты.
-//
-// 7. AudioSpec (несуществующий тип):
-//      СТАРОЕ: use symphonia::core::audio::AudioSpec; + audio_spec.rate() + .channels().count()
-//      НОВОЕ:  SignalSpec — правильный тип. Поля: spec.rate (u32), spec.channels (Channels).
-//              Метод channels.count() существует и возвращает usize.
-// ============================================================
+//!
+//! Note on the Symphonia 0.6 API (which differs substantially from 0.5):
+//!
+//! - [`symphonia::default::get_probe`]'s `probe()` returns the
+//!   [`symphonia::core::formats::FormatReader`] directly (boxed), not a
+//!   `ProbeResult` with a `format` field.
+//! - [`symphonia::core::formats::probe::Hint`] is the probe hint type.
+//! - [`symphonia::core::formats::Track::codec_params`] is
+//!   `Option<CodecParameters>`, where [`CodecParameters`] is an enum whose
+//!   `Audio` variant carries [`AudioCodecParameters`].
+//! - Decoders are created with
+//!   [`symphonia::core::codecs::registry::CodecRegistry::make_audio_decoder`],
+//!   taking `&AudioCodecParameters` and [`AudioDecoderOptions`].
+//! - `FormatReader::next_packet()` returns `Result<Option<Packet>>`; `Ok(None)`
+//!   signals the end of the stream.
+//! - Decoded audio is a [`GenericAudioBufferRef`], which exposes
+//!   `copy_bytes_to_vec_interleaved_as::<i16>()` to produce interleaved
+//!   little-endian 16-bit PCM bytes directly.
+//! - The signal specification type is [`AudioSpec`] (with `rate()` and
+//!   `channels()` accessors), replacing 0.5's `SignalSpec`.
 
 use std::io::Cursor;
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::audio::{AudioDecoderOptions, CODEC_ID_NULL_AUDIO};
+use symphonia::core::codecs::CodecParameters;
 use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 /// PCM data decoded from a miscellaneous format file.
 pub struct SymphoniaDecodedToPcm {
@@ -79,30 +52,28 @@ pub struct SymphoniaDecodedToPcm {
 pub fn decode_symphonia_to_pcm(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecodedToPcm, ()> {
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-    // Symphonia 0.6: probe() принимает (&Hint, mss, FormatOptions, MetadataOptions)
-    // и возвращает ProbeResult { format, metadata }.
     let hint = Hint::new();
     let fmt_opts = FormatOptions::default();
     let meta_opts = MetadataOptions::default();
 
-    let probed = match symphonia::default::get_probe().probe(&hint, mss, fmt_opts, meta_opts) {
-        Ok(p) => p,
+    // In Symphonia 0.6, `probe()` returns the boxed `FormatReader` directly.
+    let mut format = match symphonia::default::get_probe().probe(&hint, mss, fmt_opts, meta_opts) {
+        Ok(reader) => reader,
         Err(e) => {
             log!("Symphonia probe failed: {:?}", e);
             return Err(());
         }
     };
 
-    // В Symphonia 0.6 format reader доступен через probed.format.
-    let mut format = probed.format;
-
-    // Ищем первый аудиотрек с известным кодеком.
-    // В 0.6 codec_params — CodecParameters (не Option), сравниваем .codec с CODEC_TYPE_NULL.
-    let track = match format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-    {
+    // Find the first audio track with a known codec. `codec_params` is an
+    // `Option<CodecParameters>`; we want the `Audio` variant with a non-null
+    // codec ID.
+    let track = match format.tracks().iter().find(|t| {
+        matches!(
+            &t.codec_params,
+            Some(CodecParameters::Audio(a)) if a.codec != CODEC_ID_NULL_AUDIO
+        )
+    }) {
         Some(t) => t,
         None => {
             log!("Symphonia: no supported audio tracks found in file");
@@ -111,12 +82,21 @@ pub fn decode_symphonia_to_pcm(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecoded
     };
 
     let track_id = track.id;
-    // Клонируем codec_params, чтобы не удерживать заимствование на format.
-    let codec_params = track.codec_params.clone();
+    // Clone the audio codec parameters so we don't keep a borrow on `format`.
+    let audio_params = match &track.codec_params {
+        Some(CodecParameters::Audio(a)) => a.clone(),
+        // Unreachable: the `find` above already guaranteed the audio variant.
+        _ => {
+            log!("Symphonia: selected track is not an audio track");
+            return Err(());
+        }
+    };
 
-    // Создаём декодер через get_codecs().make(&codec_params, &dec_opts).
-    let dec_opts = DecoderOptions::default();
-    let mut decoder = match symphonia::default::get_codecs().make(&codec_params, &dec_opts) {
+    // Create the decoder via `get_codecs().make_audio_decoder(...)`.
+    let dec_opts = AudioDecoderOptions::default();
+    let mut decoder = match symphonia::default::get_codecs()
+        .make_audio_decoder(&audio_params, &dec_opts)
+    {
         Ok(d) => d,
         Err(e) => {
             log!("Symphonia failed to create decoder: {:?}", e);
@@ -125,20 +105,20 @@ pub fn decode_symphonia_to_pcm(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecoded
     };
 
     let mut out_pcm = Vec::<u8>::new();
-    // SampleBuffer пересоздаётся при первом декодированном пакете.
-    let mut sample_buf: Option<SampleBuffer<i16>> = None;
-    let mut out_spec: Option<symphonia::core::audio::SignalSpec> = None;
+    // Reused scratch buffer for the interleaved bytes of each decoded packet.
+    let mut packet_bytes = Vec::<u8>::new();
+    let mut out_rate: Option<u32> = None;
+    let mut out_channels: Option<usize> = None;
 
     loop {
-        // format.next_packet() в Symphonia 0.6 возвращает Result<Packet, Error>.
-        // IoError трактуется как нормальное завершение потока.
+        // `next_packet()` returns `Ok(None)` at the end of the stream. An
+        // `IoError` is also treated as a normal end-of-stream.
         let packet = match format.next_packet() {
-            Ok(packet) => packet,
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(SymphoniaError::IoError(_)) => break,
-            Err(SymphoniaError::ResetRequired) => {
-                // Цепочечный OGG или похожие форматы — просто останавливаемся.
-                break;
-            }
+            // Chained OGG and similar formats — just stop here.
+            Err(SymphoniaError::ResetRequired) => break,
             Err(e) => {
                 log!("Symphonia packet read error: {:?} (stopping decode)", e);
                 break;
@@ -152,7 +132,7 @@ pub fn decode_symphonia_to_pcm(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecoded
         let decoded = match decoder.decode(&packet) {
             Ok(buf) => buf,
             Err(SymphoniaError::DecodeError(e)) => {
-                // Повреждённый фрейм — пропускаем, продолжаем.
+                // Corrupt frame — skip it and keep going.
                 log!("Symphonia decode error (recoverable): {:?}", e);
                 continue;
             }
@@ -162,34 +142,23 @@ pub fn decode_symphonia_to_pcm(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecoded
             }
         };
 
-        // Запоминаем spec из первого успешно декодированного пакета.
-        let spec = *decoded.spec();
-        if out_spec.is_none() {
-            out_spec = Some(spec);
+        // Remember the signal spec from the first successfully decoded packet.
+        let spec = decoded.spec();
+        if out_rate.is_none() {
+            out_rate = Some(spec.rate());
+            out_channels = Some(spec.channels().count());
         }
 
-        // Создаём или пересоздаём SampleBuffer при смене параметров сигнала.
-        let need_new_buf = sample_buf
-            .as_ref()
-            .map(|b| b.capacity() < decoded.capacity())
-            .unwrap_or(true);
-        if need_new_buf {
-            sample_buf = Some(SampleBuffer::<i16>::new(decoded.capacity() as u64, spec));
-        }
-
-        let buf = sample_buf.as_mut().unwrap();
-        // Копируем все каналы в перемежающийся порядок с конвертацией в i16.
-        buf.copy_interleaved_ref(decoded);
-
-        // Конвертируем i16 семплы в little-endian байты.
-        for &s in buf.samples() {
-            out_pcm.extend_from_slice(&s.to_le_bytes());
-        }
+        // Convert this packet's samples to interleaved little-endian i16 bytes
+        // and append them to the output. `copy_bytes_to_vec_interleaved_as`
+        // resizes its destination, so we use a scratch buffer per packet.
+        decoded.copy_bytes_to_vec_interleaved_as::<i16>(&mut packet_bytes);
+        out_pcm.extend_from_slice(&packet_bytes);
     }
 
-    let spec = match out_spec {
-        Some(s) => s,
-        None => {
+    let (sample_rate, channels) = match (out_rate, out_channels) {
+        (Some(rate), Some(channels)) => (rate, channels),
+        _ => {
             log!("Symphonia: file yielded no valid audio data");
             return Err(());
         }
@@ -202,8 +171,7 @@ pub fn decode_symphonia_to_pcm(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecoded
 
     Ok(SymphoniaDecodedToPcm {
         bytes: out_pcm,
-        sample_rate: spec.rate,
-        channels: spec.channels.count().try_into().unwrap(),
+        sample_rate,
+        channels: channels.try_into().unwrap(),
     })
 }
-
