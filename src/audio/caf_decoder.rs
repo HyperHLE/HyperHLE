@@ -26,6 +26,36 @@
 //! - Apple, *AudioServicesCreateSystemSoundID*
 //!   <https://developer.apple.com/documentation/audiotoolbox/audioservicescreatesystemsoundid(_:_:)>
 
+// ============================================================
+// ИСПРАВЛЕНИЯ (относительно исходника):
+//
+// 1. ulaw_to_linear — неверный знак:
+//    По стандарту ITU-T G.711 и реализации Sun/POSIX:
+//    В µ-law ПОСЛЕ инвертирования всех битов (!u_val):
+//      бит 7 (0x80) == 1  →  ПОЛОЖИТЕЛЬНОЕ число
+//      бит 7 (0x80) == 0  →  ОТРИЦАТЕЛЬНОЕ число
+//    Исходный код делал наоборот: возвращал BIAS-t при бите 7==1
+//    и t-BIAS при бите 7==0, что перепутывает знак всех семплов.
+//    ИСПРАВЛЕНО: при (u_val & 0x80) != 0 → (t - BIAS), иначе → (BIAS - t).
+//
+// 2. kCAFLinearPCMFormatFlagIsFloat и kCAFLinearPCMFormatFlagIsLittleEndian —
+//    биты проверяются корректно (bit 0 и bit 1 соответственно), как определено
+//    в Apple CAF Spec:
+//      kCAFLinearPCMFormatFlagIsFloat        = (1L << 0)   // 0x1
+//      kCAFLinearPCMFormatFlagIsLittleEndian = (1L << 1)   // 0x2
+//    Маски 0b01 и 0b10 правильны.
+//
+// 3. 8-bit LPCM в CAF — знаковый:
+//    Согласно CAF spec, 8-bit LPCM в CAF — знаковый (signed). При конвертации
+//    в 16-bit расширяем знак и масштабируем: (v as i16) << 8.
+//    Это оставлено без изменений (правильно).
+//
+// 4. IMA4 bytes_per_packet: спецификация Apple (Table 2-5) явно указывает
+//    mBytesPerPacket = mChannelsPerFrame * 34 при фиксированном размере.
+//    Поле может быть 0 при переменном размере (VBR), поэтому проверка
+//    `desc.bytes_per_packet != 0` перед сравнением оставлена корректной.
+// ============================================================
+
 use super::ima4::decode_ima4;
 use super::symphonia_formats::SymphoniaDecodedToPcm;
 use std::io::Cursor;
@@ -108,9 +138,9 @@ fn decode_caf_to_pcm_inner(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecodedToPc
         FormatType::AppleIma4 => {
             // CAF IMA4: each packet covers `frames_per_packet` (= 64) frames,
             // and one packet's worth of bytes is `34 * channels_per_frame`
-            // (per Apple's spec). For stereo, the packet data is the left
-            // channel's 34-byte sub-packet immediately followed by the right
-            // channel's 34-byte sub-packet.
+            // (per Apple's CAF spec, Table 2-5). For stereo, the packet data
+            // is the left channel's 34-byte sub-packet immediately followed
+            // by the right channel's 34-byte sub-packet.
             //
             // We decode each 34-byte sub-packet through `decode_ima4` exactly
             // like `audio_queue::decode_buffer` does, but eagerly for the
@@ -179,13 +209,15 @@ fn decode_caf_to_pcm_inner(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecodedToPc
             }
         }
         FormatType::LinearPcm => {
-            // CAF audio-description format flags (Apple CAF spec):
-            //   bit 0 — kCAFLinearPCMFormatFlagIsFloat
-            //   bit 1 — kCAFLinearPCMFormatFlagIsLittleEndian
+            // CAF audio-description format flags (Apple CAF spec,
+            // "mFormatFlags Field"):
+            //   kCAFLinearPCMFormatFlagIsFloat        = (1L << 0)  // bit 0
+            //   kCAFLinearPCMFormatFlagIsLittleEndian = (1L << 1)  // bit 1
+            //
             // Float PCM is rejected here because the rest of the pipeline only
             // accepts 16-bit signed integer little-endian PCM.
-            let is_float = (desc.format_flags & 0b01) != 0;
-            let is_little_endian = (desc.format_flags & 0b10) != 0;
+            let is_float = (desc.format_flags & 0x1) != 0;
+            let is_little_endian = (desc.format_flags & 0x2) != 0;
             if is_float {
                 return Err("LPCM float is not supported by this decoder");
             }
@@ -207,20 +239,22 @@ fn decode_caf_to_pcm_inner(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecodedToPc
                     buf[..sample.len()].copy_from_slice(sample);
                     let s16 = match (bits, is_little_endian) {
                         (8, _) => {
-                            // CAF 8-bit LPCM is signed (per spec); convert to
-                            // signed 16-bit by sign-extending.
+                            // CAF 8-bit LPCM is signed per spec; sign-extend to 16-bit
+                            // and scale (high-align): shift left by 8.
                             let v = buf[0] as i8;
                             (v as i16) << 8
                         }
                         (16, true) => i16::from_le_bytes([buf[0], buf[1]]),
                         (16, false) => i16::from_be_bytes([buf[0], buf[1]]),
                         (24, true) => {
+                            // Packed little-endian 24-bit signed → i16 (discard LSB byte).
                             let v = (buf[0] as i32)
                                 | ((buf[1] as i32) << 8)
                                 | (((buf[2] as i8) as i32) << 16);
                             (v >> 8) as i16
                         }
                         (24, false) => {
+                            // Packed big-endian 24-bit signed → i16 (discard LSB byte).
                             let v = (buf[2] as i32)
                                 | ((buf[1] as i32) << 8)
                                 | (((buf[0] as i8) as i32) << 16);
@@ -250,7 +284,6 @@ fn decode_caf_to_pcm_inner(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecodedToPc
             //
             // Reference: ITU-T Recommendation G.711 (11/88)
             // Also: Apple Core Audio Format Specification 1.0, format ID "ulaw"
-            // https://developer.apple.com/library/archive/documentation/MusicAudio/Reference/CAFSpec/CAF_spec/CAF_spec.html
 
             loop {
                 let pkt = match reader.next_packet() {
@@ -309,65 +342,84 @@ fn decode_caf_to_pcm_inner(file: Cursor<Vec<u8>>) -> Result<SymphoniaDecodedToPc
 
 /// Decode a single 8-bit µ-law (G.711) sample to 16-bit signed linear PCM.
 ///
-/// Implementation follows the ITU-T G.711 specification. The µ-law byte is
-/// stored in complemented form (all bits inverted). After complementing, the
-/// format is: S EEE QQQQ where S=sign, E=exponent (segment), Q=quantization.
+/// Implementation follows the ITU-T G.711 specification and the canonical
+/// Sun Microsystems public-domain reference implementation.
 ///
-/// The bias of 0x84 (132) is subtracted after reconstruction to produce the
-/// final linear value. Output range is approximately ±32124.
+/// The µ-law byte is stored in **complemented** form (all bits inverted).
+/// After un-complementing (`!u_val`) the layout is:
+///   bit 7  — sign bit: **1 = positive, 0 = negative**
+///   bits 6–4 — segment (exponent), 0–7
+///   bits 3–0 — quantization step within segment
 ///
-/// Reference: ITU-T Rec. G.711 (11/88), Sun Microsystems public domain
-/// implementation.
+/// The bias of 0x84 (132) is used during reconstruction. Output range ≈ ±32124.
+///
+/// # Bug fixed vs. original
+/// The original code had the sign check inverted:
+///   `if (u_val & 0x80) != 0 { BIAS - t }` — WRONG (returned negative for positive)
+///   `else { t - BIAS }`                     — WRONG (returned positive for negative)
+/// Correct behaviour (per G.711 and Sun reference):
+///   `if (u_val & 0x80) != 0 { t - BIAS }`  — positive sample
+///   `else { BIAS - t }`                     — negative sample (return negated)
+///
+/// Reference: ITU-T Rec. G.711 (11/88); Sun Microsystems g711.c (public domain).
 fn ulaw_to_linear(u_val: u8) -> i16 {
-    // Complement to obtain the normal µ-law value
+    // Un-complement to obtain the normal µ-law value.
     let u_val = !u_val;
 
-    // Extract the segment (exponent) and quantization bits
+    // Extract segment (exponent) and quantization bits.
     let segment = ((u_val & 0x70) >> 4) as i32;
     let quantization = (u_val & 0x0F) as i32;
 
-    // Reconstruct the magnitude: bias the quantization bits, then shift by
-    // segment, then remove the bias (0x84 = 132 = BIAS used during encoding).
+    // Reconstruct magnitude: bias the quantization nibble, shift by segment,
+    // then subtract the encoding bias (BIAS = 0x84 = 132).
     const BIAS: i32 = 0x84;
     let mut t = (quantization << 3) + BIAS;
     t <<= segment;
 
+    // FIX: bit 7 set after un-complement means POSITIVE sample.
+    // The original had the branches swapped, producing the wrong sign for
+    // every µ-law sample.
     if (u_val & 0x80) != 0 {
-        // Sign bit set means negative (after complement)
-        (BIAS - t) as i16
-    } else {
+        // Positive: t - BIAS
         (t - BIAS) as i16
+    } else {
+        // Negative: -(t - BIAS)
+        (BIAS - t) as i16
     }
 }
 
 /// Decode a single 8-bit A-law (G.711) sample to 16-bit signed linear PCM.
 ///
-/// Implementation follows the ITU-T G.711 specification. A-law encoding uses
-/// even-bit inversion (XOR with 0x55). After restoring, the format is:
-/// S EEE QQQQ where S=sign, E=exponent (segment), Q=quantization.
+/// Implementation follows the ITU-T G.711 specification.
+/// A-law encoding uses even-bit inversion (XOR with 0x55) for transmission.
+/// After restoring (`a_val ^ 0x55`) the layout is:
+///   bit 7  — sign bit: **1 = positive, 0 = negative**
+///   bits 6–4 — segment (exponent), 0–7
+///   bits 3–0 — quantization step within segment
 ///
-/// Output range is approximately ±32256.
+/// Output range ≈ ±32256.
 ///
-/// Reference: ITU-T Rec. G.711 (11/88), Sun Microsystems public domain
-/// implementation.
+/// Reference: ITU-T Rec. G.711 (11/88); Sun Microsystems g711.c (public domain).
 fn alaw_to_linear(a_val: u8) -> i16 {
-    // A-law uses toggle of even bits for transmission
+    // Restore even-bit inversion used in A-law transmission.
     let a_val = a_val ^ 0x55;
 
     let segment = ((a_val & 0x70) >> 4) as i32;
     let quantization = (a_val & 0x0F) as i32;
 
     let t = if segment == 0 {
-        // For segment 0, value is (quantization << 4) + 8
+        // Segment 0: linear reconstruction without exponent shift.
         (quantization << 4) + 8
     } else {
-        // For segments 1-7, value is ((quantization << 4) + 0x108) << (segment - 1)
+        // Segments 1–7: shift by (segment - 1) after adding segment bias.
         ((quantization << 4) + 0x108) << (segment - 1)
     };
 
+    // Bit 7 set → positive sample; bit 7 clear → negative.
     if (a_val & 0x80) != 0 {
         t as i16
     } else {
         -(t as i16)
     }
 }
+
