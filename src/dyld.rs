@@ -208,6 +208,119 @@ fn encode_a32_trap() -> u32 {
     0xe7ffdefe
 }
 
+/// Make `std::string((const char*)NULL)` construct an empty string instead of
+/// looping forever / corrupting memory.
+///
+/// See the call site in [Dyld::do_initial_linking] for the full rationale. In
+/// short: the char specialisation of libstdc++'s
+/// `basic_string::_S_construct<const char*>(beg, end, alloc,
+/// forward_iterator_tag)` handles a NULL `beg` by branching to a block that
+/// calls `std::__throw_logic_error`. Because touchHLE neuters that helper to a
+/// bare `BX LR`, control falls through into the normal copy path with
+/// `beg == NULL` and `end - beg == npos`, producing a `memcpy(dest, NULL,
+/// npos)` and a string whose length is `npos`.
+///
+/// The function already contains the correct behaviour we want for this case:
+/// an "empty string" block (taken when `beg == end`) that returns
+/// `_S_empty_rep()._M_refdata()`. We simply retarget the NULL-pointer branch so
+/// it jumps there instead.
+///
+/// The relevant Thumb-2 code (from the bundled `libstdc++.6.0.9.dylib`) is:
+/// ```text
+///   <entry>:   cmp r0, r1        ; beg == end ?
+///              ...
+///              bne  <dispatch>    ; fall through == "empty string" block
+///   <empty>:   ldr r0, [pc, ...]  ; r0 = &_S_empty_rep_storage   <-- retarget here
+///              ...
+///   <dispatch>:cmp r0, #0         ; beg == NULL ?
+///              bne <normal-copy>
+///              b   <throw>        ; beg == NULL                  <-- patched
+/// ```
+/// We locate the `cmp r0,#0` / `bne` / `b` triple and rewrite the final
+/// unconditional `b` so it targets `<empty>` (the halfword right after the
+/// first `bne`). The patch is verified against the expected instruction
+/// encodings and skipped (with a warning) if the library doesn't match, so an
+/// unexpected libstdc++ build can never be silently mis-patched.
+fn patch_string_s_construct_null(dylib: &MachO, mem: &mut Mem) {
+    const SYM: &str = "__ZNSs12_S_constructIPKcEEPcT_S3_RKSaIcESt20forward_iterator_tag";
+    let Some(&entry_with_thumb_bit) = dylib.exported_symbols.get(SYM) else {
+        return;
+    };
+    // This patch only understands the Thumb encoding shipped with touchHLE.
+    if entry_with_thumb_bit & 1 == 0 {
+        return;
+    }
+    let entry = entry_with_thumb_bit & !1;
+
+    let read_hw = |mem: &Mem, addr: u32| -> u16 { mem.read(Ptr::<u16, false>::from_bits(addr)) };
+
+    // Scan a bounded window of the function body.
+    const SCAN_HALFWORDS: u32 = 128;
+    // Address (halfword) of the empty-string block: the instruction right after
+    // the first `bne` that follows the initial `cmp r0, r1` (0x4288).
+    let mut empty_block: Option<u32> = None;
+    let mut seen_cmp_r0_r1 = false;
+    for i in 0..SCAN_HALFWORDS {
+        let addr = entry + i * 2;
+        let hw = read_hw(mem, addr);
+        if !seen_cmp_r0_r1 {
+            if hw == 0x4288 {
+                seen_cmp_r0_r1 = true;
+            }
+            continue;
+        }
+        // `bne` is a T1 conditional branch: 0xD1xx.
+        if hw & 0xff00 == 0xd100 {
+            empty_block = Some(addr + 2);
+            break;
+        }
+    }
+    let Some(empty_block) = empty_block else {
+        log!(
+            "Warning: could not locate std::string _S_construct empty-string \
+             block in {}; skipping NULL-construction patch.",
+            dylib.name
+        );
+        return;
+    };
+
+    // Find the `cmp r0,#0` (0x2800), `bne` (0xD1xx), `b` (0xE7xx) triple that
+    // dispatches the `beg != end` case.
+    for i in 0..SCAN_HALFWORDS {
+        let addr = entry + i * 2;
+        if read_hw(mem, addr) != 0x2800 {
+            continue;
+        }
+        let bne = read_hw(mem, addr + 2);
+        let b = read_hw(mem, addr + 4);
+        if bne & 0xff00 != 0xd100 || b & 0xf800 != 0xe000 {
+            continue;
+        }
+        // Re-encode the unconditional branch at `addr + 4` to target
+        // `empty_block`. T1 B: imm11 = (target - (pc + 4)) / 2, pc == addr + 4.
+        let b_addr = addr + 4;
+        let delta = (empty_block as i32) - (b_addr as i32 + 4);
+        let imm11 = (delta >> 1) & 0x7ff;
+        let new_b = 0xe000u16 | imm11 as u16;
+        mem.write(Ptr::<u16, true>::from_bits(b_addr), new_b);
+        log!(
+            "Patched libstdc++ std::string _S_construct in {} so \
+             std::string((char*)NULL) yields an empty string instead of \
+             looping/corrupting (b {:#06x} -> {:#06x}).",
+            dylib.name,
+            b,
+            new_b
+        );
+        return;
+    }
+
+    log!(
+        "Warning: could not locate std::string _S_construct NULL branch in {}; \
+         skipping NULL-construction patch.",
+        dylib.name
+    );
+}
+
 fn write_return_to_host_routine(mem: &mut Mem, svc: u32) -> GuestFunction {
     let routine = [
         encode_a32_svc(svc),
@@ -380,6 +493,27 @@ impl Dyld {
                     patch_count
                 );
             }
+
+            // `std::string(const char*)` with a NULL argument is constructed
+            // via `_S_construct(NULL, NULL + npos)`. libstdc++ detects the NULL
+            // pointer and calls `std::__throw_logic_error("basic_string::
+            // _S_construct null not valid")`. With the `__throw_*` helpers
+            // neutered to `BX LR` above, that throw becomes a no-op and
+            // execution falls through to the *normal* construction path, which
+            // does `memcpy(rep_data, NULL, npos)` and sets the string length to
+            // `npos`. The over-sized copy is skipped by `Mem::memmove`, but the
+            // resulting corrupt (length == npos) string sends some apps into an
+            // effectively infinite loop (e.g. Turbo Dismount's startup builds
+            // std::strings from a table that contains a NULL entry under
+            // touchHLE).
+            //
+            // The documented intent of the throw-neutering is for `std::
+            // string(NULL)` to behave like an *empty* string. We make that
+            // actually happen by retargeting the NULL-pointer branch inside
+            // `_S_construct` so it jumps to the function's existing
+            // "empty string" path (which returns `_S_empty_rep()._M_refdata()`)
+            // instead of the throw / over-sized-copy path.
+            patch_string_s_construct_null(dylib, mem);
         }
     }
 
