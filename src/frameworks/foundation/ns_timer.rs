@@ -24,6 +24,10 @@ struct NSTimerHostObject {
     selector: SEL,
     /// Strong reference
     user_info: id,
+    /// Strong reference to an `NSInvocation*`, used by the
+    /// `…:invocation:repeats:` variants. When non-nil, firing the timer calls
+    /// `[invocation invoke]` instead of sending `selector` to `target`.
+    invocation: id,
     repeats: bool,
     due_by: Option<Instant>,
     /// If the timer is currently running its callback, this is set so that the
@@ -71,6 +75,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         target,
         selector,
         user_info,
+        invocation: nil,
         repeats,
         due_by: Some(due_by),
         run_loop: nil,
@@ -109,18 +114,74 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, timer)
 }
 
++ (id)timerWithTimeInterval:(NSTimeInterval)ns_interval
+                 invocation:(id)invocation
+                    repeats:(bool)repeats {
+    // Like `timerWithTimeInterval:target:selector:userInfo:repeats:`, but the
+    // timer fires `[invocation invoke]` instead of a target/selector pair.
+    // Speak & Type (com.vinerbi.iphoneparlante) uses this to drive its splash
+    // screen, and stayed stuck on the splash when this returned nil.
+    let ns_interval = if ns_interval.is_finite() && ns_interval > 0.0001 {
+        ns_interval
+    } else {
+        0.0001
+    };
+    let rust_interval = ns_time_interval_to_duration_or_zero(ns_interval);
+
+    retain(env, invocation);
+
+    let due_by = Instant::now()
+        .checked_add(rust_interval)
+        .unwrap_or_else(Instant::now);
+    let host_object = Box::new(NSTimerHostObject {
+        ns_interval,
+        rust_interval,
+        target: nil,
+        selector: SEL::null(),
+        user_info: nil,
+        invocation,
+        repeats,
+        due_by: Some(due_by),
+        run_loop: nil,
+        is_running_callback: false,
+    });
+    let new = env.objc.alloc_object(this, host_object, &mut env.mem);
+
+    log_dbg!(
+        "New {} invocation timer {:?}, interval {}s, invocation {:?}",
+        if repeats { "repeating" } else { "single-use" },
+        new,
+        ns_interval,
+        invocation,
+    );
+    autorelease(env, new)
+}
+
++ (id)scheduledTimerWithTimeInterval:(NSTimeInterval)ti
+                          invocation:(id)invocation
+                             repeats:(bool)rep {
+    let timer: id = msg_class![env; NSTimer timerWithTimeInterval:ti invocation:invocation repeats:rep];
+
+    let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
+    let mode_str = crate::frameworks::foundation::ns_string::get_static_str(env, "NSDefaultRunLoopMode");
+    let _: () = msg![env; run_loop addTimer:timer forMode:mode_str];
+
+    timer
+}
+
 - (())dealloc {
     let _: () = msg![env; this invalidate];
 
     // ИСПРАВЛЕНИЕ: Используем блок для освобождения заимствования до вызова
     // release
-    let (target, user_info) = {
+    let (target, user_info, invocation) = {
         let host = env.objc.borrow::<NSTimerHostObject>(this);
-        (host.target, host.user_info)
+        (host.target, host.user_info, host.invocation)
     }; // Здесь заимствование уничтожается
 
     release(env, target);
     release(env, user_info);
+    release(env, invocation);
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
@@ -168,13 +229,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     let &NSTimerHostObject {
         target,
         selector,
+        invocation,
         repeats,
         ..
     } = env.objc.borrow(this);
     let pool: id = msg_class![env; NSAutoreleasePool new];
 
-    // Signature should be `- (void)timerDidFire:(NSTimer *)which`.
-    let _: () = msg_send(env, (target, selector, this));
+    if invocation != nil {
+        let _: () = msg![env; invocation invoke];
+    } else {
+        // Signature should be `- (void)timerDidFire:(NSTimer *)which`.
+        let _: () = msg_send(env, (target, selector, this));
+    }
 
     release(env, pool);
     if !repeats {
@@ -320,6 +386,7 @@ pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> 
         rust_interval,
         target,
         selector,
+        invocation,
         repeats,
         due_by,
         is_running_callback,
@@ -381,7 +448,11 @@ pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> 
     );
 
     let pool: id = msg_class![env; NSAutoreleasePool new];
-    let _: () = msg_send(env, (target, selector, timer));
+    if invocation != nil {
+        let _: () = msg![env; invocation invoke];
+    } else {
+        let _: () = msg_send(env, (target, selector, timer));
+    }
     release(env, pool);
 
     env.objc
