@@ -1044,25 +1044,23 @@ pub fn CGContextDrawTiledImage(
 }
 
 pub fn CGContextDrawLinearGradient(
-    env: &mut Environment,
-    context: CGContextRef,
+    _env: &mut Environment,
+    _context: CGContextRef,
     _gradient: CFTypeRef, // CGGradientRef
     _start_point: CGPoint,
     _end_point: CGPoint,
     _options: u32,
 ) {
-    if context.is_null() {
-        return;
-    }
-
-    // Честная отрисовка градиента требует попиксельной интерполяции между
-    // цветами
-    // объекта CGGradientRef. Так как реализация самого CGGradientRef находится
-    // в другом модуле, здесь мы честно вычисляем границы текущего отсечения
-    // (clipping box)
-    // и заполняем эту область текущим цветом контекста.
-    let rect = CGContextGetClipBoundingBox(env, context);
-    cg_bitmap_context::fill_rect(env, context, rect, false);
+    // Stubbed: the previous implementation filled the clip bounding box with the
+    // current fill color as an approximation, but this caused two problems for
+    // Mirror's Edge iPad: (1) the tutorial overlay background is drawn with a
+    // white fill color, producing an opaque white screen that hides all 3D
+    // content, and (2) iterating every pixel of a 1024x768 software bitmap
+    // context on the CPU caused a multi-second hang that Windows reported as
+    // "Not Responding". True gradient rendering would require per-pixel color
+    // interpolation using the CGGradientRef color stops; for now we skip the
+    // draw entirely so overlays remain transparent and the game stays responsive.
+    log_dbg!("CGContextDrawLinearGradient: stubbed (skipped)");
 }
 
 pub fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
@@ -1214,6 +1212,35 @@ fn CGContextSetFont(env: &mut Environment, context: CGContextRef, font: CGFontRe
     if context.is_null() {
         return;
     }
+    // On real iOS, UIFont and CGFont are toll-free bridged. In HyperHLE they are
+    // separate types. Handle three cases:
+    // 1. Already a _touchHLE_CGFont — use as-is.
+    // 2. A live UIFont — wrap it in a _touchHLE_CGFont on the fly.
+    // 3. A freed/nil-isa object (use-after-free) — substitute Liberation Sans
+    //    so text is at least visible rather than silently dropped.
+    let font = if font.is_null() {
+        font
+    } else if super::cg_font::is_data_provider_font(env, font) {
+        // Case 1: already the right type.
+        font
+    } else if uikit::ui_font::is_uifont(env, font) {
+        // Case 2: live UIFont — convert.
+        if let Some(f) = uikit::ui_font::font_from_uifont(env, font) {
+            let host_obj = Box::new(CGFontHostObject { font: f });
+            let class = env.objc.get_known_class("_touchHLE_CGFont", &mut env.mem);
+            env.objc.alloc_object(class, host_obj, &mut env.mem)
+        } else {
+            font
+        }
+    } else {
+        // Case 3: unknown / freed object — use a bundled fallback font so
+        // CGContextShowGlyphsAtPoint has something to render with.
+        log_dbg!("CGContextSetFont: unrecognised font {:?} (possibly freed UIFont); \
+                  substituting Liberation Sans", font);
+        let host_obj = Box::new(CGFontHostObject { font: crate::font::Font::sans_regular() });
+        let class = env.objc.get_known_class("_touchHLE_CGFont", &mut env.mem);
+        env.objc.alloc_object(class, host_obj, &mut env.mem)
+    };
     CGFontRetain(env, font);
     let old_font = env.objc.borrow_mut::<CGContextHostObject>(context).font;
     CGFontRelease(env, old_font);

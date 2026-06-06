@@ -423,6 +423,40 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+/// Returns `true` if `obj` is a UIFont instance (backed by [UIFontHostObject]).
+pub fn is_uifont(env: &mut Environment, obj: crate::objc::id) -> bool {
+    if obj.is_null() {
+        return false;
+    }
+    let class = env.objc.get_known_class("UIFont", &mut env.mem);
+    let obj_class = crate::objc::ObjC::read_isa(obj, &env.mem);
+    obj_class == class || env.objc.class_is_subclass_of(obj_class, class)
+}
+
+/// Returns the [Font] backing a UIFont object by re-loading it from its kind.
+/// Returns `None` if `obj` is not a UIFont.
+pub fn font_from_uifont(env: &mut Environment, obj: crate::objc::id) -> Option<Font> {
+    if !is_uifont(env, obj) {
+        return None;
+    }
+    let kind = env.objc.borrow::<UIFontHostObject>(obj).kind;
+    // Re-construct the Font from its kind (Font doesn't implement Clone).
+    Some(match kind {
+        FontKind::MonoRegular => Font::mono_regular(),
+        FontKind::MonoBold => Font::mono_bold(),
+        FontKind::MonoBoldItalic => Font::mono_bold_italic(),
+        FontKind::MonoItalic => Font::mono_italic(),
+        FontKind::SansRegular => Font::sans_regular(),
+        FontKind::SansBold => Font::sans_bold(),
+        FontKind::SansBoldItalic => Font::sans_bold_italic(),
+        FontKind::SansItalic => Font::sans_italic(),
+        FontKind::SerifRegular => Font::serif_regular(),
+        FontKind::SerifBold => Font::serif_bold(),
+        FontKind::SerifBoldItalic => Font::serif_bold_italic(),
+        FontKind::SerifItalic => Font::serif_italic(),
+    })
+}
+
 fn convert_line_break_mode(ui_mode: UILineBreakMode) -> WrapMode {
     match ui_mode {
         UILineBreakModeWordWrap => WrapMode::Word,

@@ -156,9 +156,16 @@ fn CGFontCreateWithDataProvider(
     // Per Apple's Core Graphics documentation, CGFontCreateWithDataProvider
     // returns NULL if a font can't be created from the provided data, rather
     // than crashing. Honour that contract instead of panicking on bad data.
-    let Some(font) = Font::from_vec(bytes) else {
-        log!("CGFontCreateWithDataProvider: could not parse font data; returning NULL");
-        return Ptr::null();
+    let font = match Font::from_vec(bytes) {
+        Some(f) => f,
+        None => {
+            // The font data could not be parsed — most likely a CFF/OTTO OpenType
+            // font, which rusttype does not support. Fall back to the bundled
+            // sans-serif font so text is at least visible rather than invisible.
+            log!("CGFontCreateWithDataProvider: could not parse font data (possibly CFF/OTTO); \
+                  falling back to Liberation Sans");
+            Font::sans_regular()
+        }
     };
     let host_obj = Box::new(CGFontHostObject { font });
     let class = env.objc.get_known_class("_touchHLE_CGFont", &mut env.mem);
