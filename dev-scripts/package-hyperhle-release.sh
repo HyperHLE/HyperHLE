@@ -102,7 +102,7 @@ mkdir -p release
 cd "$ROOT/dev-scripts"
 ./prepare-release.sh --prepare-files
 
-prefix="HyperHLE_${VERSION}"
+prefix="HyperHLE"
 
 ./prepare-release.sh --create-zip-macos "$ROOT/artifacts/macos/touchHLE.dmg" \
     -o "$ROOT/release/${prefix}_macOS_x86_64.zip"
