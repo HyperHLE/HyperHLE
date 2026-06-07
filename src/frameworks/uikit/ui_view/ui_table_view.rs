@@ -9,14 +9,29 @@ use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::frameworks::uikit::ui_view;
 use crate::frameworks::uikit::ui_view::ui_scroll_view::UIScrollViewHostObject;
+use crate::frameworks::uikit::ui_view_controller::UIViewControllerHostObject;
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes, release,
     retain, ClassExports, NSZonePtr,
 };
 
+#[derive(Default)]
+struct UITableViewControllerHostObject {
+    superclass: UIViewControllerHostObject,
+    /// `UITableViewStyle` passed to `-initWithStyle:` (0 = plain, 1 = grouped),
+    /// used by `-loadView` when it lazily creates the managed table view.
+    style: i32,
+}
+impl_HostObject_with_superclass!(UITableViewControllerHostObject);
+
 pub struct UITableViewCellHostObject {
     superclass: ui_view::UIViewHostObject, // <-- Убираем super::
     content_view: id,
+    /// Lazily-created default subviews (UIKit's built-in cell labels/image),
+    /// each retained while it lives here. `nil` until first requested.
+    text_label: id,
+    detail_text_label: id,
+    image_view: id,
 }
 impl_HostObject_with_superclass!(UITableViewCellHostObject);
 impl Default for UITableViewCellHostObject {
@@ -24,6 +39,9 @@ impl Default for UITableViewCellHostObject {
         UITableViewCellHostObject {
             superclass: Default::default(),
             content_view: nil,
+            text_label: nil,
+            detail_text_label: nil,
+            image_view: nil,
         }
     }
 }
@@ -50,6 +68,11 @@ pub struct UITableViewHostObject {
     separator_color: id,
     table_header_view: id,
     table_footer_view: id,
+    /// Whether we have performed the implicit first `reloadData`. UIKit
+    /// reloads a table the first time it lays out with a data source; touchHLE
+    /// has no automatic layout pass, so we trigger that reload ourselves the
+    /// first time the table has both a data source and a non-zero size.
+    auto_reloaded: bool,
 }
 impl Default for UITableViewHostObject {
     fn default() -> Self {
@@ -66,10 +89,30 @@ impl Default for UITableViewHostObject {
             separator_color: nil,
             table_header_view: nil,
             table_footer_view: nil,
+            auto_reloaded: false,
         }
     }
 }
 impl_HostObject_with_superclass!(UITableViewHostObject);
+
+/// Perform the implicit first `reloadData` that UIKit does during a table's
+/// first layout. Called whenever the data source or size changes; only fires
+/// once, and only once both a data source and a usable size are available.
+fn maybe_auto_reload(env: &mut crate::Environment, this: id) {
+    {
+        let host = env.objc.borrow::<UITableViewHostObject>(this);
+        if host.auto_reloaded || host.data_source == nil {
+            return;
+        }
+    }
+    let bounds: CGRect = msg![env; this bounds];
+    let (bw, bh) = (bounds.size.width, bounds.size.height);
+    if bw <= 0.0 || bh <= 0.0 {
+        return;
+    }
+    env.objc.borrow_mut::<UITableViewHostObject>(this).auto_reloaded = true;
+    () = msg![env; this reloadData];
+}
 
 /// Drop the cell list and (optionally) remove the cell views from the table.
 fn clear_cells(env: &mut crate::Environment, this: id, remove_subviews: bool) {
@@ -90,6 +133,73 @@ fn clear_cells(env: &mut crate::Environment, this: id, remove_subviews: bool) {
     for path in paths {
         release(env, path);
     }
+}
+
+fn make_rect(x: f32, y: f32, w: f32, h: f32) -> CGRect {
+    CGRect {
+        origin: CGPoint { x, y },
+        size: CGSize { width: w, height: h },
+    }
+}
+
+/// Position a `UITableViewCell`'s built-in content view, image view and text
+/// labels, mirroring UIKit's default cell layout closely enough to be
+/// recognisable: the optional image sits on the left and the text label fills
+/// the remaining width. touchHLE has no automatic layout pass, so this is
+/// invoked whenever the cell's frame changes or a default subview is created.
+fn layout_cell_contents(env: &mut crate::Environment, this: id) {
+    let bounds: CGRect = msg![env; this bounds];
+    let (w, h) = (bounds.size.width, bounds.size.height);
+    let (content_view, image_view, text_label, detail_label) = {
+        let host = env.objc.borrow::<UITableViewCellHostObject>(this);
+        (
+            host.content_view,
+            host.image_view,
+            host.text_label,
+            host.detail_text_label,
+        )
+    };
+
+    if content_view != nil {
+        () = msg![env; content_view setFrame:(make_rect(0.0, 0.0, w, h))];
+    }
+
+    let mut text_x = 10.0;
+    if image_view != nil {
+        let image: id = msg![env; image_view image];
+        if image != nil && h > 0.0 {
+            () = msg![env; image_view setFrame:(make_rect(0.0, 0.0, h, h))];
+            text_x = h + 10.0;
+        } else {
+            () = msg![env; image_view setFrame:(make_rect(0.0, 0.0, 0.0, 0.0))];
+        }
+    }
+
+    let text_w = (w - text_x - 10.0).max(0.0);
+    if text_label != nil && detail_label != nil {
+        // Two-line cell: stack the title over the detail text.
+        () = msg![env; text_label setFrame:(make_rect(text_x, 0.0, text_w, h * 0.6))];
+        () = msg![env; detail_label setFrame:(make_rect(text_x, h * 0.6, text_w, h * 0.4))];
+    } else if text_label != nil {
+        () = msg![env; text_label setFrame:(make_rect(text_x, 0.0, text_w, h))];
+    }
+}
+
+/// Lazily create one of the cell's default subviews (a `UILabel` or
+/// `UIImageView`) with a transparent background so the cell shows through,
+/// add it to the content view, and store it in `slot`.
+fn ensure_cell_subview(env: &mut crate::Environment, this: id, class_name: &str) -> id {
+    let content_view = env.objc.borrow::<UITableViewCellHostObject>(this).content_view;
+    let class = env.objc.get_known_class(class_name, &mut env.mem);
+    let view: id = msg![env; class alloc];
+    let view: id = msg![env; view init];
+    let clear: id = msg_class![env; UIColor clearColor];
+    () = msg![env; view setBackgroundColor:clear];
+    retain(env, view);
+    if content_view != nil {
+        () = msg![env; content_view addSubview:view];
+    }
+    view
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -167,15 +277,61 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())dealloc {
-    let content_view = env.objc.borrow::<UITableViewCellHostObject>(this).content_view;
+    let (content_view, text_label, detail_label, image_view) = {
+        let host = env.objc.borrow::<UITableViewCellHostObject>(this);
+        (host.content_view, host.text_label, host.detail_text_label, host.image_view)
+    };
     release(env, content_view);
+    if text_label != nil { release(env, text_label); }
+    if detail_label != nil { release(env, detail_label); }
+    if image_view != nil { release(env, image_view); }
     msg_super![env; this dealloc]
 }
 
 - (id)reuseIdentifier { nil }
-- (id)textLabel { nil }
-- (id)detailTextLabel { nil }
-- (id)imageView { nil }
+
+- (id)textLabel {
+    let existing = env.objc.borrow::<UITableViewCellHostObject>(this).text_label;
+    if existing != nil {
+        return existing;
+    }
+    let label = ensure_cell_subview(env, this, "UILabel");
+    env.objc.borrow_mut::<UITableViewCellHostObject>(this).text_label = label;
+    layout_cell_contents(env, this);
+    label
+}
+
+- (id)detailTextLabel {
+    let existing = env.objc.borrow::<UITableViewCellHostObject>(this).detail_text_label;
+    if existing != nil {
+        return existing;
+    }
+    let label = ensure_cell_subview(env, this, "UILabel");
+    env.objc.borrow_mut::<UITableViewCellHostObject>(this).detail_text_label = label;
+    layout_cell_contents(env, this);
+    label
+}
+
+- (id)imageView {
+    let existing = env.objc.borrow::<UITableViewCellHostObject>(this).image_view;
+    if existing != nil {
+        return existing;
+    }
+    let iv = ensure_cell_subview(env, this, "UIImageView");
+    env.objc.borrow_mut::<UITableViewCellHostObject>(this).image_view = iv;
+    layout_cell_contents(env, this);
+    iv
+}
+
+- (())setFrame:(CGRect)frame {
+    () = msg_super![env; this setFrame:frame];
+    layout_cell_contents(env, this);
+}
+
+- (())layoutSubviews {
+    () = msg_super![env; this layoutSubviews];
+    layout_cell_contents(env, this);
+}
 
 // Теперь возвращаем реальный contentView, а не this
 - (id)contentView {
@@ -278,6 +434,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setDataSource:(id)data_source {
     env.objc.borrow_mut::<UITableViewHostObject>(this).data_source = data_source;
+    maybe_auto_reload(env, this);
+}
+
+- (())setFrame:(CGRect)frame {
+    () = msg_super![env; this setFrame:frame];
+    maybe_auto_reload(env, this);
+}
+
+- (())setBounds:(CGRect)bounds {
+    () = msg_super![env; this setBounds:bounds];
+    maybe_auto_reload(env, this);
 }
 
 - (())reloadData {
@@ -496,18 +663,30 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation UITableViewController: UIViewController
 
-- (id)initWithStyle:(i32)_style {
-    msg_super![env; this init]
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = Box::<UITableViewControllerHostObject>::default();
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+- (id)initWithStyle:(i32)style {
+    let this: id = msg_super![env; this init];
+    env.objc.borrow_mut::<UITableViewControllerHostObject>(this).style = style;
+    this
 }
 
 // Честный iOS-подход: переопределяем создание вьюхи по умолчанию.
 // Если NIB'а нет, мы принудительно создаем UITableView, а не UIView.
 - (())loadView {
     let frame = <CGRect as Default>::default();
+    let style = env.objc.borrow::<UITableViewControllerHostObject>(this).style;
     let table_view: id = msg_class![env; UITableView alloc];
+    let table_view: id = msg![env; table_view initWithFrame:frame style:style];
 
-    // 0 = UITableViewStylePlain
-    let table_view: id = msg![env; table_view initWithFrame:frame style:0];
+    // UITableViewController owns its table view and, per UIKit, makes itself
+    // both the data source and the delegate. Without this the table never asks
+    // the controller for any rows and renders empty (a blank white screen).
+    () = msg![env; table_view setDataSource:this];
+    () = msg![env; table_view setDelegate:this];
 
     // Устанавливаем таблицу как главную view этого контроллера
     () = msg![env; this setView:table_view];

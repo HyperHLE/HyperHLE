@@ -409,6 +409,7 @@ fn substitute_classes(
         || name.starts_with("Tapjoy")
         || name.starts_with("UA")
         || name.starts_with("GAD")
+        || name.starts_with("RevMob")
         || name.starts_with("iSimulate"))
     // <-- ДОБАВЛЕНО ЗДЕСЬ
     {

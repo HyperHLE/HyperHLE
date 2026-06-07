@@ -5,6 +5,8 @@
  */
 //! `UINavigationController`.
 
+use crate::frameworks::core_graphics::CGRect;
+use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::{ns_array, NSUInteger};
 use crate::objc::{
     autorelease, id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes,
@@ -56,6 +58,40 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithRootViewController:(id)root_vc {
     let this: id = msg![env; this init];
     let _: () = msg![env; this pushViewController:root_vc animated:false];
+    this
+}
+
+- (id)initWithCoder:(id)coder {
+    let this: id = msg_super![env; this initWithCoder:coder];
+
+    // A UINavigationController archived in a nib stores its view-controller
+    // stack under "UIViewControllers" (and, for older archives, its already
+    // built navigation bar under "UINavigationBar"). UIViewController's
+    // -initWithCoder: doesn't know about these keys, so without decoding them
+    // here the navigation stack stays empty: -topViewController is nil, the
+    // root view controller's view is never added, and the app shows an empty
+    // (white) navigation controller view. Decode them so the initial view
+    // controller actually appears.
+    let bar_key = get_static_str(env, "UINavigationBar");
+    let bar: id = msg![env; coder decodeObjectForKey:bar_key];
+    if bar != nil {
+        retain(env, bar);
+        let old = std::mem::replace(
+            &mut env.objc.borrow_mut::<UINavigationControllerHostObject>(this).navigation_bar,
+            bar,
+        );
+        if old != nil { release(env, old); }
+    }
+
+    let vcs_key = get_static_str(env, "UIViewControllers");
+    let view_controllers: id = msg![env; coder decodeObjectForKey:vcs_key];
+    if view_controllers != nil {
+        let count: NSUInteger = msg![env; view_controllers count];
+        if count != 0 {
+            let _: () = msg![env; this setViewControllers:view_controllers];
+        }
+    }
+
     this
 }
 
@@ -117,9 +153,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
-    // Add view.
+    // Add view. The navigation controller is responsible for sizing the
+    // pushed view controller's view to fill its content area; views loaded
+    // from a nib often arrive with a zero (or stale) frame, which would
+    // otherwise leave the screen blank.
     let self_view: id = msg![env; this view];
     let vc_view:   id = msg![env; view_controller view];
+    let bounds: CGRect = msg![env; self_view bounds];
+    let _: () = msg![env; vc_view setFrame:bounds];
     let _: () = msg![env; view_controller viewWillAppear:false];
     let _: () = msg![env; self_view addSubview:vc_view];
     let _: () = msg![env; view_controller viewDidAppear:false];
