@@ -89,6 +89,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     crate::objc::autorelease(env, new)
 }
 
+// predicateWithBlock: — block evaluation is not supported; the predicate
+// always evaluates to false (and logs when evaluated).
++ (id)predicateWithBlock:(id)_block {
+    let new: id = msg![env; this alloc];
+    env.objc.borrow_mut::<NSPredicateHostObject>(new).kind = PredicateKind::Block;
+    crate::objc::autorelease(env, new)
+}
+
 // notPredicateWithSubpredicate:
 + (id)notPredicateWithSubpredicate:(id)predicate {
     let new: id = msg![env; this alloc];
@@ -151,13 +159,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.objc.borrow_mut::<NSPredicateHostObject>(this).kind =
             PredicateKind::Constant(true); // vacuously true
     } else if count == 1 {
+        // A single-element AND evaluates the same as its only subpredicate.
+        // Store it as And(p, p): p && p == p, and dealloc releases both
+        // retains.
         let p: id = msg![env; subpredicates objectAtIndex:0u32];
         retain(env, p);
+        retain(env, p);
         env.objc.borrow_mut::<NSPredicateHostObject>(this).kind =
-            PredicateKind::Not(p); // NOT NOT p == p — we store NOT as a proxy
-        // Actually just store as Format so evaluation returns false safely.
-        env.objc.borrow_mut::<NSPredicateHostObject>(this).kind =
-            PredicateKind::Format("(AND single)".to_string());
+            PredicateKind::And(p, p);
     } else {
         let p0: id = msg![env; subpredicates objectAtIndex:0u32];
         let p1: id = msg![env; subpredicates objectAtIndex:1u32];
@@ -176,10 +185,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.objc.borrow_mut::<NSPredicateHostObject>(this).kind =
             PredicateKind::Constant(false); // vacuously false
     } else if count == 1 {
+        // A single-element OR evaluates the same as its only subpredicate.
         let p: id = msg![env; subpredicates objectAtIndex:0u32];
         retain(env, p);
+        retain(env, p);
         env.objc.borrow_mut::<NSPredicateHostObject>(this).kind =
-            PredicateKind::Format("(OR single)".to_string());
+            PredicateKind::Or(p, p);
     } else {
         let p0: id = msg![env; subpredicates objectAtIndex:0u32];
         let p1: id = msg![env; subpredicates objectAtIndex:1u32];
@@ -253,8 +264,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             PredicateKind::Block     => "BLOCK".to_string(),
         }
     };
-    let cstr = env.mem.alloc_and_write_cstr(fmt.as_bytes());
-    let s: id = msg_class![env; NSString stringWithUTF8String:cstr];
+    let s: id = ns_string::from_rust_string(env, fmt);
     crate::objc::autorelease(env, s)
 }
 
