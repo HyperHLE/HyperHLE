@@ -29,8 +29,10 @@ pub enum AudioFormat {
         is_float: bool,
         is_little_endian: bool,
     },
+    /// MPEG-4 AAC. The packets exposed by [AudioFile::read_bytes] are ADTS
+    /// frames (each packet carries its own 7-byte ADTS header), which is what
+    /// `audio_queue::decode_buffer` knows how to decode.
     Mpeg4Aac,
-    AppleIma4, // Added to fix E0599 in ext_audio_file.rs
 }
 
 #[derive(Debug)]
@@ -68,6 +70,18 @@ impl AacPackets {
             .unwrap_or(0)
     }
 
+    /// Byte offset and size of the packet with the given index, or [None] if
+    /// the index is out of range.
+    pub fn packet_info(&self, index: u64) -> Option<(u64, u32)> {
+        let index: usize = index.try_into().ok()?;
+        if index + 1 >= self.packet_offsets.len() {
+            return None;
+        }
+        let start = self.packet_offsets[index];
+        let end = self.packet_offsets[index + 1];
+        Some((start as u64, (end - start) as u32))
+    }
+
     pub fn read_bytes(&self, offset: u64, buffer: &mut [u8]) -> Result<usize, ()> {
         let start = offset as usize;
         let src = self.packet_bytes.get(start..).ok_or(())?;
@@ -94,7 +108,6 @@ impl Clone for AudioFile {
 
 enum AudioFileInner {
     Wave(hound::WavReader<Cursor<Vec<u8>>>),
-    Caf(caf::CafPacketReader<Cursor<Vec<u8>>>),
     Symphonia(symphonia_formats::SymphoniaDecodedToPcm),
     Aac(AacPackets),
 }
@@ -168,30 +181,38 @@ impl AudioFile {
             }
         }
 
-        // CAF (Apple Core Audio Format) handling is split between two paths:
+        // CAF (Apple Core Audio Format) handling is split between three
+        // paths:
         //
-        // 1. For uncompressed LPCM and IMA4 ADPCM CAF files — which is what
-        //    PvZ (`com.popcap.PvZ`) and most other iOS games ship for short
-        //    sound effects — we decode them ourselves in
-        //    `caf_decoder::decode_caf_to_pcm`. The CAF demuxer in
-        //    `symphonia-format-caf 0.6.0-alpha.1` does not handle the legal
-        //    CAF layout where the Audio Data chunk's `mChunkSize` is `-1`
-        //    (Apple's spec explicitly allows `-1` to mean "extends to the end
-        //    of the file"); on those files Symphonia walks past the audio
-        //    data trying to read a chunk header and fails with
-        //    `IoError(UnexpectedEof)`, which is what was leaving PvZ silent.
-        //    See the CAF spec, "The Audio Data Chunk":
+        // 1. AAC inside CAF is exposed as AAC packets, like ADTS `.aac`
+        //    files. `try_parse_caf_aac` extracts the packets with the `caf`
+        //    crate (which, unlike `symphonia-format-caf 0.6.0-alpha.1`,
+        //    handles the legal CAF layout where the Audio Data chunk's
+        //    `mChunkSize` is `-1` — Apple's spec explicitly allows `-1` to
+        //    mean "extends to the end of the file") and wraps each packet
+        //    in an ADTS header so `audio_queue::decode_buffer` can decode
+        //    the resulting stream. See the CAF spec, "The Audio Data Chunk":
         //    https://developer.apple.com/library/archive/documentation/MusicAudio/Reference/CAFSpec/CAF_chunks/CAF_chunks.html
         //
-        // 2. Anything else inside a CAF container (AAC, MP3, ALAC, …) and
-        //    every other supported container falls through to Symphonia,
-        //    which is already wired up with the right format / codec
-        //    features in `Cargo.toml`. Both paths return the same
+        // 2. For uncompressed LPCM and IMA4 ADPCM CAF files — which is what
+        //    PvZ (`com.popcap.PvZ`) and most other iOS games ship for short
+        //    sound effects — we decode them ourselves in
+        //    `caf_decoder::decode_caf_to_pcm` (Symphonia's CAF demuxer fails
+        //    on the `mChunkSize == -1` layout described above, which is what
+        //    was leaving PvZ silent).
+        //
+        // 3. Anything else inside a CAF container (MP3, ALAC, …) and every
+        //    other supported container falls through to Symphonia, which is
+        //    already wired up with the right format / codec features in
+        //    `Cargo.toml`. Paths 2 and 3 return the same
         //    `SymphoniaDecodedToPcm` shape (16-bit little-endian interleaved
         //    PCM) so the rest of the audio pipeline (AudioFile /
         //    ExtAudioFile / AudioServices / AudioQueue `decode_buffer`'s
         //    LPCM branch) handles them uniformly.
         if bytes.len() >= 4 && &bytes[..4] == b"caff" {
+            if let Some(aac) = try_parse_caf_aac(&bytes) {
+                return Ok(AudioFileInner::Aac(aac));
+            }
             if let Ok(pcm) = caf_decoder::decode_caf_to_pcm(Cursor::new(bytes.clone())) {
                 return Ok(AudioFileInner::Symphonia(pcm));
             }
@@ -257,17 +278,14 @@ impl AudioFile {
                 channels_per_frame: aac.channels_per_frame,
                 bits_per_channel: 0,
             },
-            AudioFileInner::Caf(ref reader) => AudioDescription {
-                sample_rate: reader.audio_desc.sample_rate,
-                format: AudioFormat::LinearPcm {
-                    is_float: false,
-                    is_little_endian: true,
-                }, // Note: update format appropriately if you process CAF AAC
-                bytes_per_packet: reader.audio_desc.bytes_per_packet,
-                frames_per_packet: reader.audio_desc.frames_per_packet,
-                channels_per_frame: reader.audio_desc.channels_per_frame,
-                bits_per_channel: reader.audio_desc.bits_per_channel,
-            },
+        }
+    }
+
+    /// The AAC packets of this file, if it is an AAC file.
+    pub fn aac_packets(&self) -> Option<&AacPackets> {
+        match self.inner {
+            AudioFileInner::Aac(ref aac) => Some(aac),
+            _ => None,
         }
     }
 
@@ -314,10 +332,6 @@ impl AudioFile {
                 ..
             }) => bytes.len() as u64,
             AudioFileInner::Aac(ref aac) => aac.byte_count(),
-            AudioFileInner::Caf(ref reader) => {
-                reader.audio_desc.bytes_per_packet as u64
-                    * reader.get_packet_count().unwrap_or(0) as u64
-            }
         }
     }
 
@@ -328,7 +342,6 @@ impl AudioFile {
                 self.byte_count() / u64::from(self.packet_size_fixed())
             }
             AudioFileInner::Aac(ref aac) => aac.packet_count(),
-            AudioFileInner::Caf(ref reader) => reader.get_packet_count().unwrap_or(0) as u64,
         }
     }
 
@@ -340,7 +353,11 @@ impl AudioFile {
     }
 
     pub fn packet_size_upper_bound(&self) -> u32 {
-        self.packet_size_fixed()
+        match self.inner {
+            // Variable packet size: report the largest actual packet.
+            AudioFileInner::Aac(ref aac) => aac.packet_size_upper_bound(),
+            _ => self.packet_size_fixed(),
+        }
     }
 
     pub fn magic_cookie(&self) -> &[u8] {
@@ -400,58 +417,36 @@ impl AudioFile {
                 Ok(bytes_to_read)
             }
             AudioFileInner::Aac(ref aac) => aac.read_bytes(offset, buffer),
-            AudioFileInner::Caf(ref mut reader) => {
-                let bytes_per_packet = reader.audio_desc.bytes_per_packet as u64;
-                if bytes_per_packet == 0 {
-                    return Err(());
-                }
-
-                let start_packet = (offset / bytes_per_packet) as usize;
-                let offset_in_first_packet = (offset % bytes_per_packet) as usize;
-
-                if reader.seek_to_packet(start_packet).is_err() {
-                    return Err(());
-                }
-
-                let mut bytes_read = 0;
-                while bytes_read < buffer.len() {
-                    let pkt_size = match reader.next_packet_size() {
-                        Some(size) => size,
-                        None => break, // Достигнут конец файла
-                    };
-
-                    let mut packet_data = vec![0u8; pkt_size];
-                    if reader.read_packet_into(&mut packet_data).is_err() {
-                        break;
-                    }
-
-                    let start_idx = if bytes_read == 0 {
-                        offset_in_first_packet
-                    } else {
-                        0
-                    };
-
-                    if start_idx >= packet_data.len() {
-                        continue;
-                    }
-
-                    let bytes_to_copy =
-                        (packet_data.len() - start_idx).min(buffer.len() - bytes_read);
-
-                    buffer[bytes_read..bytes_read + bytes_to_copy]
-                        .copy_from_slice(&packet_data[start_idx..start_idx + bytes_to_copy]);
-
-                    bytes_read += bytes_to_copy;
-                }
-
-                Ok(bytes_read)
-            }
         }
     }
 }
 
 const CAF_FORMAT_AAC_LC: &[u8; 4] = b"aac ";
 
+/// ADTS header sampling-frequency-index table (ISO/IEC 14496-3).
+const ADTS_SAMPLE_RATES: [u32; 13] = [
+    96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
+];
+
+/// Builds the 7-byte ADTS header (protection absent) for an AAC-LC packet of
+/// `payload_len` bytes.
+fn adts_header(sample_rate_index: u8, channel_config: u8, payload_len: usize) -> [u8; 7] {
+    let frame_len = payload_len + 7;
+    [
+        0xFF,
+        0xF1, // MPEG-4, layer 0, no CRC
+        // profile = AAC LC (Audio Object Type 2, encoded as 2 - 1 = 1)
+        (0b01 << 6) | (sample_rate_index << 2) | (channel_config >> 2),
+        ((channel_config & 0x3) << 6) | (((frame_len >> 11) & 0x3) as u8),
+        ((frame_len >> 3) & 0xFF) as u8,
+        (((frame_len & 0x7) << 5) as u8) | 0x1F, // buffer fullness (VBR)
+        0xFC, // buffer fullness (cont.), 1 AAC frame per ADTS frame
+    ]
+}
+
+/// Extracts the AAC packets of a CAF file, wrapping each one in an ADTS
+/// header so that the result can be decoded as a plain ADTS stream
+/// (which is what `audio_queue::decode_buffer` expects for AAC buffers).
 fn try_parse_caf_aac(bytes: &[u8]) -> Option<AacPackets> {
     let format_id = caf_read_format_id(bytes)?;
     if &format_id != CAF_FORMAT_AAC_LC {
@@ -462,6 +457,15 @@ fn try_parse_caf_aac(bytes: &[u8]) -> Option<AacPackets> {
 
     let sample_rate = reader.audio_desc.sample_rate;
     let channels_per_frame = reader.audio_desc.channels_per_frame;
+
+    let sample_rate_index = ADTS_SAMPLE_RATES
+        .iter()
+        .position(|&rate| f64::from(rate) == sample_rate)? as u8;
+    if !(1..=7).contains(&channels_per_frame) {
+        return None;
+    }
+    let channel_config = channels_per_frame as u8;
+
     let magic_cookie: Vec<u8> = reader
         .chunks
         .iter()
@@ -480,7 +484,12 @@ fn try_parse_caf_aac(bytes: &[u8]) -> Option<AacPackets> {
     reader.seek_to_packet(0).ok()?;
     for _ in 0..packet_count {
         let pkt_size = reader.next_packet_size()?;
+        // The ADTS frame length field is 13 bits.
+        if pkt_size + 7 > 0x1FFF {
+            return None;
+        }
         packet_offsets.push(packet_bytes.len());
+        packet_bytes.extend_from_slice(&adts_header(sample_rate_index, channel_config, pkt_size));
         let start = packet_bytes.len();
         packet_bytes.resize(start + pkt_size, 0u8);
         reader.read_packet_into(&mut packet_bytes[start..]).ok()?;

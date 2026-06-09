@@ -1267,7 +1267,7 @@ fn mbtowc_l(
         return 1;
     }
 
-    let mut codepoint = 0u32;
+    let mut codepoint: u32;
     let bytes_to_read: u32;
 
     if (first_byte & 0xE0) == 0xC0 {

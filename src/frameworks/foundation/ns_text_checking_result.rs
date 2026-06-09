@@ -14,7 +14,7 @@
 
 use super::{NSRange, NSUInteger};
 use crate::objc::{
-    autorelease, id, msg_class, nil, objc_classes, ClassExports, HostObject, NSZonePtr,
+    autorelease, id, objc_classes, ClassExports, HostObject, NSZonePtr,
 };
 
 /// The NSNotFound sentinel value used in NSRange when a capture group didn't

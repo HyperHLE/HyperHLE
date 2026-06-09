@@ -13,7 +13,7 @@
 use crate::frameworks::foundation::ns_string::from_rust_string;
 use crate::frameworks::foundation::NSInteger;
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
+    id, msg, nil, objc_classes, release, retain, ClassExports, HostObject,
     NSZonePtr,
 };
 

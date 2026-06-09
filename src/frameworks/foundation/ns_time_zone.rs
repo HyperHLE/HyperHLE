@@ -222,7 +222,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // Returns the same abbreviation as -abbreviation, ignoring the date argument
 // (DST not modelled).
-- (id)abbreviationForDate:(id)date {
+- (id)abbreviationForDate:(id)_date {
     msg![env; this abbreviation]
 }
 
@@ -315,7 +315,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // Returns the same offset as -secondsFromGMT, ignoring the date argument
 // (DST not modelled).
-- (NSInteger)secondsFromGMTForDate:(id)date {
+- (NSInteger)secondsFromGMTForDate:(id)_date {
     msg![env; this secondsFromGMT]
 }
 
@@ -325,7 +325,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // DST is not modelled; always returns false for any date.
-- (bool)isDaylightSavingTimeForDate:(id)date {
+- (bool)isDaylightSavingTimeForDate:(id)_date {
     false
 }
 
@@ -335,7 +335,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // DST is not modelled; returns nil for any date.
-- (id)nextDaylightSavingTimeTransitionAfterDate:(id)date {
+- (id)nextDaylightSavingTimeTransitionAfterDate:(id)_date {
     nil
 }
 

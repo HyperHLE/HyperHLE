@@ -120,7 +120,7 @@ pub const CONSTANTS: ConstantExports = &[
 
 // MARK: - Helpers
 
-fn is_known_mode(env: &mut Environment, mode: CFRunLoopMode) -> bool {
+fn is_known_mode(_env: &mut Environment, mode: CFRunLoopMode) -> bool {
     // Accept ALL non-nil modes. iOS apps frequently use custom run loop modes
     // (UITrackingRunLoopMode, GSEventReceiveRunLoopMode, etc.) which are all
     // valid. Since our run loop implementation doesn't actually partition

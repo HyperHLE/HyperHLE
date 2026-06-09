@@ -142,7 +142,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("MPMediaPickerController: viewDidLoad — no media library available");
 }
 
-- (())viewWillAppear:(bool)animated {
+- (())viewWillAppear:(bool)_animated {
     // No super call needed — UIViewController's default is a no-op.
 
     let delegate = env.objc.borrow::<MPMediaPickerControllerHostObject>(this).delegate;

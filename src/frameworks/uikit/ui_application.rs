@@ -333,7 +333,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)sendAction:(SEL)action
                 to:(id)target
               from:(id)sender
-          forEvent:(id)event { // UIEvent*
+          forEvent:(id)_event { // UIEvent*
     if target != nil {
         let responds: bool = msg![env; target respondsToSelector:action];
         if responds {

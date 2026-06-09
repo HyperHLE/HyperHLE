@@ -4,6 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use super::ns_string::get_static_str;
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
     NSZonePtr, SEL,
@@ -38,6 +39,7 @@ struct NSOperationHostObject {
     target: id,
     selector: Option<SEL>,
     arg: id,
+    invocation: id,
 }
 
 
@@ -71,7 +73,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())dealloc {
     // Extract all properties to temporary variables to avoid borrow checker
     // conflicts
-    let (deps, completion, name, target, arg) = {
+    let (deps, completion, name, target, arg, invocation) = {
         let host_object = env.objc.borrow::<NSOperationHostObject>(this);
         (
             host_object.dependencies,
@@ -79,6 +81,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             host_object.name,
             host_object.target,
             host_object.arg,
+            host_object.invocation,
         )
     };
 
@@ -87,6 +90,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, name);
     release(env, target);
     release(env, arg);
+    release(env, invocation);
 
     env.objc.dealloc_object(this, &mut env.mem)
 }
@@ -103,9 +107,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Check if cancelled before starting
     let cancelled = env.objc.borrow::<NSOperationHostObject>(this).cancelled;
     if cancelled {
-        let is_finished_key = "isFinished\0".as_ptr() as u32;
-        // Извлекаем в переменную с явным указанием типа
-        let finished_str: id = msg_class![env; NSString stringWithUTF8String:is_finished_key];
+        let finished_str: id = get_static_str(env, "isFinished");
 
         () = msg![env; this willChangeValueForKey:finished_str];
         env.objc.borrow_mut::<NSOperationHostObject>(this).state = OperationState::Finished;
@@ -129,8 +131,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     // Transition to executing
-    let is_executing_key = "isExecuting\0".as_ptr() as u32;
-    let executing_str: id = msg_class![env; NSString stringWithUTF8String:is_executing_key];
+    let executing_str: id = get_static_str(env, "isExecuting");
 
     () = msg![env; this willChangeValueForKey:executing_str];
     env.objc.borrow_mut::<NSOperationHostObject>(this).state = OperationState::Executing;
@@ -140,12 +141,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this main];
 
     // Transition to finished
-    let is_finished_key = "isFinished\0".as_ptr() as u32;
-    let finished_str: id = msg_class![env; NSString stringWithUTF8String:is_finished_key];
-
-    // Re-create the executing string for the finished transition
-    let is_executing_key_2 = "isExecuting\0".as_ptr() as u32;
-    let executing_str_2: id = msg_class![env; NSString stringWithUTF8String:is_executing_key_2];
+    let finished_str: id = get_static_str(env, "isFinished");
+    let executing_str_2: id = get_static_str(env, "isExecuting");
 
     () = msg![env; this willChangeValueForKey:executing_str_2];
     () = msg![env; this willChangeValueForKey:finished_str];
@@ -170,8 +167,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())cancel {
     let was_cancelled = env.objc.borrow::<NSOperationHostObject>(this).cancelled;
     if !was_cancelled {
-        let is_cancelled_key = "isCancelled\0".as_ptr() as u32;
-        let cancelled_str: id = msg_class![env; NSString stringWithUTF8String:is_cancelled_key];
+        let cancelled_str: id = get_static_str(env, "isCancelled");
 
         () = msg![env; this willChangeValueForKey:cancelled_str];
         env.objc.borrow_mut::<NSOperationHostObject>(this).cancelled = true;
@@ -349,9 +345,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithInvocation:(id)invocation {
     let this: id = msg![env; this init];
-    if this != nil {
-        log!("Warning: NSInvocationOperation initWithInvocation: not fully implemented");
-        // Would need to retain invocation and call it in main
+    if this != nil && invocation != nil {
+        retain(env, invocation);
+        env.objc.borrow_mut::<NSOperationHostObject>(this).invocation = invocation;
     }
     this
 }
@@ -363,10 +359,20 @@ pub const CLASSES: ClassExports = objc_classes! {
         return;
     }
 
-    let (target, sel_opt, arg) = {
+    let (target, sel_opt, arg, invocation) = {
         let host_object = env.objc.borrow::<NSOperationHostObject>(this);
-        (host_object.target, host_object.selector, host_object.arg)
+        (
+            host_object.target,
+            host_object.selector,
+            host_object.arg,
+            host_object.invocation,
+        )
     };
+
+    if invocation != nil {
+        () = msg![env; invocation invoke];
+        return;
+    }
 
     if target != nil {
         if let Some(sel) = sel_opt {
@@ -405,8 +411,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     // In a real implementation, this would be a true singleton
     let queue: id = msg_class![env; NSOperationQueue alloc];
     let queue: id = msg![env; queue init];
-    let name_ptr = "NSOperationQueue Main Queue\0".as_ptr() as u32;
-    let name: id = msg_class![env; NSString stringWithUTF8String:name_ptr];
+    let name: id = get_static_str(env, "NSOperationQueue Main Queue");
     () = msg![env; queue setName:name];
     autorelease(env, queue)
 }

@@ -47,7 +47,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
-- (id)initWithCoder:(id)coder {
+- (id)initWithCoder:(id)_coder {
     nil
 }
 

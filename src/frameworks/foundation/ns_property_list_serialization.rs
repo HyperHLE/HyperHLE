@@ -44,8 +44,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSPropertyListSerialization: NSObject
 
 + (id)dataFromPropertyList:(id)plist
-                    format:(NSPropertyListFormat)format
-                errorDescription:(MutPtr<id>)error_string { // NSString **
+                    format:(NSPropertyListFormat)_format
+                errorDescription:(MutPtr<id>)_error_string { // NSString **
     // assert_eq!(format, NSPropertyListBinaryFormat_v1_0); // TODO
     // assert!(error_string.is_null()); // TODO
 

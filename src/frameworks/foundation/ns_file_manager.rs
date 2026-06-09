@@ -1069,7 +1069,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, dict_imm)
 }
 
-- (bool)setAttributes:(id)attributes
+- (bool)setAttributes:(id)_attributes
          ofItemAtPath:(id)path
                 error:(MutPtr<id>)error {
     // Setting attributes is not fully supported, but we claim success if file

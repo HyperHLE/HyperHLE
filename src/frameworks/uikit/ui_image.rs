@@ -14,7 +14,7 @@ use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
 use crate::fs::GuestPath;
 use crate::image::Image;
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports,
+    autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain, ClassExports,
     HostObject, NSZonePtr, SEL,
 };
 use crate::mem::MutVoidPtr;
@@ -388,16 +388,12 @@ fn UIImageWriteToSavedPhotosAlbum(
     image: id,
     completion_target: id,
     completion_selector: SEL,
-    _context_info: MutVoidPtr,
+    context_info: MutVoidPtr,
 ) {
     if image == nil {
         log!("UIImageWriteToSavedPhotosAlbum: nil image, ignoring.");
         // Still invoke callback if requested, with nil error
-        if completion_target != nil && !completion_selector.is_null() {
-            let _: () = msg![env; completion_target performSelector:completion_selector
-                                                        withObject:image
-                                                        withObject:nil];
-        }
+        invoke_save_completion(env, completion_target, completion_selector, image, nil, context_info);
         return;
     }
 
@@ -453,18 +449,36 @@ fn UIImageWriteToSavedPhotosAlbum(
     };
 
     // Invoke the completion callback if provided.
-    // Per Apple docs the selector is:
-    //   - (void)image:(UIImage*)image didFinishSavingWithError:(NSError*)error
-    //                contextInfo:(void*)contextInfo
-    // We pass nil for the error on success. On failure we also pass nil since
-    // constructing a full NSError is overkill for this emulation scenario and
-    // most apps only check whether error is nil.
-    if completion_target != nil && !completion_selector.is_null() {
-        let error: id = nil;
-        let _: () = msg![env; completion_target performSelector:completion_selector
-                                                    withObject:image
-                                                    withObject:error];
+    // We pass nil for the error on success and a generic NSError on failure
+    // (most apps only check whether the error is nil).
+    let error: id = if save_success {
+        nil
+    } else {
+        let domain = ns_string::get_static_str(env, "UIImageWriteToSavedPhotosAlbumErrorDomain");
+        let error: id = msg_class![env; NSError errorWithDomain:domain
+                                                           code:(-1 as NSInteger)
+                                                       userInfo:nil];
+        error
+    };
+    invoke_save_completion(env, completion_target, completion_selector, image, error, context_info);
+}
+
+/// Invokes the `UIImageWriteToSavedPhotosAlbum` completion callback. Per
+/// Apple's documentation the selector must have this signature:
+/// `- (void)image:(UIImage *)image didFinishSavingWithError:(NSError *)error
+///               contextInfo:(void *)contextInfo;`
+fn invoke_save_completion(
+    env: &mut Environment,
+    target: id,
+    selector: SEL,
+    image: id,
+    error: id,
+    context_info: MutVoidPtr,
+) {
+    if target == nil || selector.is_null() {
+        return;
     }
+    let _: () = msg_send(env, (target, selector, image, error, context_info));
 }
 
 fn UIImagePNGRepresentation(env: &mut Environment, image: id) -> id {

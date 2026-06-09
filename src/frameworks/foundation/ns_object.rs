@@ -18,17 +18,22 @@ use crate::libc::semaphore::{host_create_semaphore, host_destroy_semaphore, sem_
 use crate::mem::MutVoidPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, msg_send_no_type_checking, nil, objc_classes,
-    retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL,
+    release, retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL,
 };
 use crate::Environment;
+use std::sync::Mutex;
 
 // Хранилище для отмененных таймеров (target, имя селектора в виде строки)
-pub static mut CANCELLED_PERFORMS: std::vec::Vec<(u32, std::option::Option<std::string::String>)> =
-    std::vec::Vec::new();
+//
+// These side-channel stores are guarded by mutexes rather than being
+// `static mut`: re-entrant access (e.g. a `release` triggering `dealloc`
+// while iterating) was previously undefined behaviour. Locks must never be
+// held across a `msg!`/`msg_send` call, since guest code can re-enter these
+// same accessors.
+pub static CANCELLED_PERFORMS: Mutex<Vec<(u32, Option<String>)>> = Mutex::new(Vec::new());
 
 // Хранилище для динамических свойств KVC (когда NIB устанавливает кастомные IBOutlet на базовые классы)
-pub static mut DYNAMIC_KVC_STORAGE: std::vec::Vec<(u32, std::string::String, u32)> =
-    std::vec::Vec::new();
+pub static DYNAMIC_KVC_STORAGE: Mutex<Vec<(u32, String, u32)>> = Mutex::new(Vec::new());
 
 // Side-channel storage for `performSelectorOnMainThread:withObject:waitUntilDone:YES` requests
 // scheduled from background threads. Each entry maps a pending NSTimer's id to the host semaphore
@@ -38,12 +43,27 @@ pub static mut DYNAMIC_KVC_STORAGE: std::vec::Vec<(u32, std::string::String, u32
 // scheduled selector — this manifests, for example, as Call of Duty: Zombies' Marmalade-based
 // `RunOnMainThread` helper clobbering `s3eAppDelegate.m_Func` repeatedly before the main thread's
 // `-[s3eAppDelegate Functor]` fires, eventually loading a NULL function pointer and crashing.
-pub static mut SYNC_PERFORM_SEMAPHORES: std::vec::Vec<(u32, u32)> = std::vec::Vec::new();
+pub static SYNC_PERFORM_SEMAPHORES: Mutex<Vec<(u32, u32)>> = Mutex::new(Vec::new());
 
 // KVO (Key-Value Observing) storage.
 // Each entry: (observed_object_bits, observer_bits, keyPath string, options, context_bits)
-pub static mut KVO_OBSERVERS: std::vec::Vec<(u32, u32, std::string::String, u32, u32)> =
-    std::vec::Vec::new();
+pub static KVO_OBSERVERS: Mutex<Vec<(u32, u32, String, u32, u32)>> = Mutex::new(Vec::new());
+
+// Old values snapshotted by willChangeValueForKey: so that
+// didChangeValueForKey: can include them in the change dictionary when an
+// observer registered with NSKeyValueObservingOptionOld.
+// Each entry: (observed_object_bits, key string, retained old value bits)
+pub static PENDING_KVO_OLD_VALUES: Mutex<Vec<(u32, String, u32)>> = Mutex::new(Vec::new());
+
+// Values for the NSKeyValueObservingOptions bitmask, per Apple's
+// Key-Value Observing documentation.
+const NSKeyValueObservingOptionNew: NSUInteger = 0x01;
+const NSKeyValueObservingOptionOld: NSUInteger = 0x02;
+const NSKeyValueObservingOptionInitial: NSUInteger = 0x04;
+
+/// Kind of change for `NSKeyValueChangeKindKey`: a simple set of the value
+/// (`NSKeyValueChangeSetting`).
+const NSKeyValueChangeSetting: i32 = 1;
 
 // ДОБАВЛЕНА РЕАЛИЗАЦИЯ NSAllocateObject
 fn NSAllocateObject(
@@ -66,6 +86,62 @@ fn NSAllocateObject(
 // ДОБАВЛЕН ЭКСПОРТ ФУНКЦИЙ ДЛЯ ДИНАМИЧЕСКОГО ЛИНКЕРА
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSAllocateObject(_, _, _))];
 
+/// Builds a KVO change dictionary and sends
+/// `observeValueForKeyPath:ofObject:change:context:` to one observer.
+///
+/// Per Apple's Key-Value Observing documentation, the change dictionary
+/// always contains `NSKeyValueChangeKindKey` (the string `"kind"`), and
+/// contains the new/old values (under `"new"`/`"old"`) only when the
+/// corresponding `NSKeyValueObservingOptions` bits were requested; a nil
+/// value is represented by `NSNull`.
+fn deliver_kvo_notification(
+    env: &mut Environment,
+    object: id,
+    observer_bits: u32,
+    key_path: id,
+    options: NSUInteger,
+    context_bits: u32,
+    old_value: id,
+    new_value: id,
+) {
+    let observer: id = crate::mem::Ptr::from_bits(observer_bits);
+    let context: id = crate::mem::Ptr::from_bits(context_bits);
+
+    let Some(sel) = env
+        .objc
+        .lookup_selector("observeValueForKeyPath:ofObject:change:context:")
+    else {
+        return;
+    };
+
+    let kind_key: id = get_static_str(env, "kind");
+    let kind_value: id = msg_class![env; NSNumber numberWithInt:NSKeyValueChangeSetting];
+    let mut pairs: Vec<(id, id)> = vec![(kind_key, kind_value)];
+
+    if options & NSKeyValueObservingOptionNew != 0 {
+        let new_key: id = get_static_str(env, "new");
+        let value: id = if new_value == nil {
+            msg_class![env; NSNull null]
+        } else {
+            new_value
+        };
+        pairs.push((new_key, value));
+    }
+    if options & NSKeyValueObservingOptionOld != 0 {
+        let old_key: id = get_static_str(env, "old");
+        let value: id = if old_value == nil {
+            msg_class![env; NSNull null]
+        } else {
+            old_value
+        };
+        pairs.push((old_key, value));
+    }
+
+    let change_dict = dict_from_keys_and_objects(env, &pairs);
+    let _: () = msg_send(env, (observer, sel, key_path, object, change_dict, context));
+    release(env, change_dict);
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -87,6 +163,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (Class)class {
     this
+}
+// Per Apple's NSObject documentation, +superclass returns the class object
+// for the receiver's superclass (nil only for a root class).
++ (Class)superclass {
+    env.objc.get_superclass(this)
 }
 + (bool)isSubclassOfClass:(Class)class {
     env.objc.class_is_subclass_of(this, class)
@@ -121,7 +202,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // ИЗМЕНЕНО: Ищем _objc_msgSend через create_proc_address (без логов)
-+ (u32)instanceMethodForSelector:(SEL)selector {
++ (u32)instanceMethodForSelector:(SEL)_selector {
     let dyld = &mut env.dyld;
     let mem = &mut env.mem;
     let cpu = &mut env.cpu;
@@ -162,17 +243,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())cancelPreviousPerformRequestsWithTarget:(id)target
                                      selector:(SEL)selector
-                                       object:(id)object {
+                                       object:(id)_object {
     let sel_str = selector.as_str(&env.mem).to_string();
-    unsafe {
-        crate::frameworks::foundation::ns_object::CANCELLED_PERFORMS.push((target.to_bits(), Some(sel_str)));
-    }
+    CANCELLED_PERFORMS
+        .lock()
+        .unwrap()
+        .push((target.to_bits(), Some(sel_str)));
 }
 
 + (())cancelPreviousPerformRequestsWithTarget:(id)target {
-    unsafe {
-        crate::frameworks::foundation::ns_object::CANCELLED_PERFORMS.push((target.to_bits(), None));
-    }
+    CANCELLED_PERFORMS
+        .lock()
+        .unwrap()
+        .push((target.to_bits(), None));
 }
 
 - (id)init {
@@ -218,9 +301,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Очищаем и высвобождаем динамические свойства KVC
     let mut to_release = Vec::new();
-    unsafe {
+    {
         let target_bits = this.to_bits();
-        DYNAMIC_KVC_STORAGE.retain(|entry| {
+        DYNAMIC_KVC_STORAGE.lock().unwrap().retain(|entry| {
             if entry.0 == target_bits {
                 if entry.2 != 0 {
                     to_release.push(entry.2);
@@ -232,9 +315,11 @@ pub const CLASSES: ClassExports = objc_classes! {
         });
     }
 
+    // The lock is released before sending any `release` message: releasing a
+    // stored value can trigger its `dealloc`, which re-enters this storage.
     for val_bits in to_release {
-        let val: id = unsafe { std::mem::transmute(val_bits) };
-        let _: () = msg![env; val release];
+        let val: id = crate::mem::Ptr::from_bits(val_bits);
+        release(env, val);
     }
 
     env.objc.dealloc_object(this, &mut env.mem)
@@ -372,23 +457,25 @@ pub const CLASSES: ClassExports = objc_classes! {
         retain(env, value);
     }
 
-    unsafe {
+    // Swap the stored value while holding the lock, but defer releasing the
+    // old value until after the lock is dropped: `release` can trigger
+    // `dealloc`, which re-enters this storage.
+    let old_val_bits = {
         let target_bits = this.to_bits();
-        let mut found = false;
-        for entry in DYNAMIC_KVC_STORAGE.iter_mut() {
-            if entry.0 == target_bits && entry.1 == key_string {
-                if entry.2 != 0 {
-                    let old_val: id = std::mem::transmute(entry.2);
-                    let _: () = msg![env; old_val release];
-                }
-                entry.2 = value.to_bits();
-                found = true;
-                break;
-            }
+        let mut storage = DYNAMIC_KVC_STORAGE.lock().unwrap();
+        if let Some(entry) = storage
+            .iter_mut()
+            .find(|entry| entry.0 == target_bits && entry.1 == key_string)
+        {
+            std::mem::replace(&mut entry.2, value.to_bits())
+        } else {
+            storage.push((target_bits, key_string.to_string(), value.to_bits()));
+            0
         }
-        if !found {
-            DYNAMIC_KVC_STORAGE.push((target_bits, key_string.to_string(), value.to_bits()));
-        }
+    };
+    if old_val_bits != 0 {
+        let old_val: id = crate::mem::Ptr::from_bits(old_val_bits);
+        release(env, old_val);
     }
 }
 
@@ -573,9 +660,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         ];
 
         let sem = host_create_semaphore(env, 0);
-        unsafe {
-            SYNC_PERFORM_SEMAPHORES.push((timer.to_bits(), sem.to_bits()));
-        }
+        SYNC_PERFORM_SEMAPHORES
+            .lock()
+            .unwrap()
+            .push((timer.to_bits(), sem.to_bits()));
 
         let run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
         let mode: id = get_static_str(env, NSDefaultRunLoopMode);
@@ -598,11 +686,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     // always post it before returning, regardless of how this method exits.
     // (If we returned early without posting, a thread blocked in
     // performSelectorOnMainThread:waitUntilDone:YES would hang forever.)
-    let sem_to_post = unsafe {
+    let sem_to_post = {
         let timer_bits = which.to_bits();
-        SYNC_PERFORM_SEMAPHORES
+        let mut semaphores = SYNC_PERFORM_SEMAPHORES.lock().unwrap();
+        semaphores
             .iter()
-            .position(|x| x.0 == timer_bits).map(|pos| SYNC_PERFORM_SEMAPHORES.remove(pos).1)
+            .position(|x| x.0 == timer_bits)
+            .map(|pos| semaphores.remove(pos).1)
     };
 
     let dict: id = msg![env; which userInfo];
@@ -639,11 +729,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     let target_bits = this.to_bits();
     let mut cancelled = false;
 
-    unsafe {
-        if let Some(pos) = crate::frameworks::foundation::ns_object::CANCELLED_PERFORMS.iter().position(|x| x.0 == target_bits && x.1.as_deref() == Some(sel_str.as_str())) {
-            crate::frameworks::foundation::ns_object::CANCELLED_PERFORMS.remove(pos);
+    {
+        let mut cancelled_performs = CANCELLED_PERFORMS.lock().unwrap();
+        if let Some(pos) = cancelled_performs
+            .iter()
+            .position(|x| x.0 == target_bits && x.1.as_deref() == Some(sel_str.as_str()))
+        {
+            cancelled_performs.remove(pos);
             cancelled = true;
-        } else if crate::frameworks::foundation::ns_object::CANCELLED_PERFORMS.iter().any(|x| x.0 == target_bits && x.1.is_none()) {
+        } else if cancelled_performs
+            .iter()
+            .any(|x| x.0 == target_bits && x.1.is_none())
+        {
             cancelled = true;
         }
     }
@@ -725,11 +822,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     // 3. Чтение нашего динамического хранилища
-    unsafe {
+    {
         let target_bits = this.to_bits();
-        for entry in DYNAMIC_KVC_STORAGE.iter() {
+        let storage = DYNAMIC_KVC_STORAGE.lock().unwrap();
+        for entry in storage.iter() {
             if entry.0 == target_bits && entry.1 == key_str {
-                let val: id = std::mem::transmute(entry.2);
+                let val: id = crate::mem::Ptr::from_bits(entry.2);
                 return val;
             }
         }
@@ -769,12 +867,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     0
 }
 
-- (())zone {
-
+// - (NSZone *)zone — zones are obsolete; Apple documents that this method
+// returns an undefined value on modern runtimes. Return NULL, which is what
+// apps treating it as "the default zone" expect.
+- (NSZonePtr)zone {
+    MutVoidPtr::null()
 }
 
+// Per Apple's NSObject documentation, -superclass returns the class object
+// for the receiver's class's superclass (nil only for a root class).
 - (Class)superclass {
-    nil
+    let class = ObjC::read_isa(this, &env.mem);
+    env.objc.get_superclass(class)
 }
 
 - (())addObserver:(id)observer forKeyPath:(id)keyPath options:(NSUInteger)options context:(id)context {
@@ -790,24 +894,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Store the observer registration in our global KVO storage.
     // Format: (observed_object, observer, keyPath string, options, context)
-    unsafe {
-        KVO_OBSERVERS.push((
-            this.to_bits(),
-            observer.to_bits(),
-            key_str.into_owned(),
-            options,
-            context.to_bits(),
-        ));
-    }
+    KVO_OBSERVERS.lock().unwrap().push((
+        this.to_bits(),
+        observer.to_bits(),
+        key_str.into_owned(),
+        options,
+        context.to_bits(),
+    ));
 
-    // If NSKeyValueObservingOptionInitial (0x04) is set, deliver an
-    // initial notification immediately
-    if options & 0x04 != 0 {
-        let change_dict: id = msg_class![env; NSDictionary dictionary];
-        let observe_sel = env.objc.lookup_selector("observeValueForKeyPath:ofObject:change:context:");
-        if let Some(sel) = observe_sel {
-            let _: () = msg_send(env, (observer, sel, keyPath, this, change_dict, context));
-        }
+    // If NSKeyValueObservingOptionInitial is set, deliver an initial
+    // notification immediately. Per Apple's KVO documentation, the change
+    // dictionary of an initial notification contains the current value
+    // under NSKeyValueChangeNewKey if NSKeyValueObservingOptionNew was also
+    // requested (and never an old value).
+    if options & NSKeyValueObservingOptionInitial != 0 {
+        let new_value: id = if options & NSKeyValueObservingOptionNew != 0 {
+            msg![env; this valueForKey:keyPath]
+        } else {
+            nil
+        };
+        deliver_kvo_notification(env, this, observer.to_bits(), keyPath, options & !NSKeyValueObservingOptionOld, context.to_bits(), nil, new_value);
     }
 }
 
@@ -820,45 +926,82 @@ pub const CLASSES: ClassExports = objc_classes! {
         "removeObserver:{:?} forKeyPath:{:?}",
         observer, key_str
     );
-    unsafe {
-        KVO_OBSERVERS.retain(|entry| {
-            !(entry.0 == this.to_bits()
-                && entry.1 == observer.to_bits()
-                && entry.2 == key_str.as_ref())
-        });
-    }
+    KVO_OBSERVERS.lock().unwrap().retain(|entry| {
+        !(entry.0 == this.to_bits()
+            && entry.1 == observer.to_bits()
+            && entry.2 == key_str.as_ref())
+    });
 }
 
 - (())removeObserver:(id)observer forKeyPath:(id)keyPath context:(id)_context {
     () = msg![env; this removeObserver:observer forKeyPath:keyPath];
 }
 
-- (())willChangeValueForKey:(id)_key {
-    // KVO pre-change notification — currently a no-op.
-    // A full implementation would snapshot the old value here.
+- (())willChangeValueForKey:(id)key {
+    if key == nil { return; }
+    let key_str = to_rust_string(env, key).into_owned();
+
+    // Snapshot the old value, but only if some observer asked for it
+    // (NSKeyValueObservingOptionOld) — valueForKey: can be expensive.
+    let wants_old = KVO_OBSERVERS.lock().unwrap().iter().any(|entry| {
+        entry.0 == this.to_bits()
+            && entry.2 == key_str
+            && (entry.3 & NSKeyValueObservingOptionOld) != 0
+    });
+    if !wants_old {
+        return;
+    }
+
+    let old_value: id = msg![env; this valueForKey:key];
+    if old_value != nil {
+        retain(env, old_value);
+    }
+    PENDING_KVO_OLD_VALUES
+        .lock()
+        .unwrap()
+        .push((this.to_bits(), key_str, old_value.to_bits()));
 }
 
 - (())didChangeValueForKey:(id)key {
     if key == nil { return; }
-    let key_str = to_rust_string(env, key);
+    let key_str = to_rust_string(env, key).into_owned();
 
     // Collect matching observers
-    let observers: Vec<(u32, u32, u32)> = unsafe {
-        KVO_OBSERVERS.iter()
-            .filter(|entry| entry.0 == this.to_bits() && entry.2 == key_str.as_ref())
+    let observers: Vec<(u32, u32, u32)> = {
+        KVO_OBSERVERS.lock().unwrap().iter()
+            .filter(|entry| entry.0 == this.to_bits() && entry.2 == key_str)
             .map(|entry| (entry.1, entry.3, entry.4))
             .collect()
     };
 
-    for (observer_bits, _options, context_bits) in observers {
-        use crate::objc::id;
-        let observer: id = crate::mem::Ptr::from_bits(observer_bits);
-        let context: id = crate::mem::Ptr::from_bits(context_bits);
-        let change_dict: id = msg_class![env; NSDictionary dictionary];
-        let observe_sel = env.objc.lookup_selector("observeValueForKeyPath:ofObject:change:context:");
-        if let Some(sel) = observe_sel {
-            let _: () = msg_send(env, (observer, sel, key, this, change_dict, context));
+    // Pop the old-value snapshot (if any) taken by willChangeValueForKey:.
+    let old_value: id = {
+        let mut pending = PENDING_KVO_OLD_VALUES.lock().unwrap();
+        pending
+            .iter()
+            .rposition(|entry| entry.0 == this.to_bits() && entry.1 == key_str)
+            .map(|pos| crate::mem::Ptr::from_bits(pending.remove(pos).2))
+            .unwrap_or(nil)
+    };
+
+    if !observers.is_empty() {
+        let needs_new = observers
+            .iter()
+            .any(|&(_, options, _)| options & NSKeyValueObservingOptionNew != 0);
+        let new_value: id = if needs_new {
+            msg![env; this valueForKey:key]
+        } else {
+            nil
+        };
+
+        for (observer_bits, options, context_bits) in observers {
+            deliver_kvo_notification(env, this, observer_bits, key, options, context_bits, old_value, new_value);
         }
+    }
+
+    // Balance the retain made in willChangeValueForKey:.
+    if old_value != nil {
+        release(env, old_value);
     }
 }
 

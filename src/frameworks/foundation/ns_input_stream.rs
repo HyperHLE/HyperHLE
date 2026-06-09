@@ -346,7 +346,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (bool)getBuffer:(MutPtr<MutPtr<u8>>)buffer length:(MutPtr<NSUInteger>)len {
+- (bool)getBuffer:(MutPtr<MutPtr<u8>>)_buffer length:(MutPtr<NSUInteger>)_len {
     // Optional optimisation — we don't support it.
     false
 }

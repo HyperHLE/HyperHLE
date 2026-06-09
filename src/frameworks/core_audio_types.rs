@@ -114,20 +114,6 @@ impl AudioStreamBasicDescription {
                     _reserved: 0,
                 }
             }
-            AudioFormat::AppleIma4 => {
-                // IMA4 ADPCM: сжатый формат, bytes_per_frame не имеет смысла
-                AudioStreamBasicDescription {
-                    sample_rate,
-                    format_id: kAudioFormatAppleIMA4,
-                    format_flags: 0,
-                    bytes_per_packet,
-                    frames_per_packet,
-                    bytes_per_frame: 0,
-                    channels_per_frame,
-                    bits_per_channel,
-                    _reserved: 0,
-                }
-            }
             AudioFormat::Mpeg4Aac => {
                 // AAC: сжатый формат, bytes_per_frame не имеет смысла
                 AudioStreamBasicDescription {

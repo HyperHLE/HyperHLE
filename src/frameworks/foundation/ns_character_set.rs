@@ -29,25 +29,17 @@ const NEWLINE_CHARACTERS: [char; 7] = [
 // =========================================================================
 
 fn ascii_range_set(ranges: &[(u32, u32)]) -> HashSet<unichar> {
-    let mut set = HashSet::new();
-    for &(lo, hi) in ranges {
-        for cp in lo..=hi {
-            if let Ok(uc) = unichar::try_from(cp as u16) {
-                set.insert(uc);
-            }
-        }
-    }
-    set
+    unicode_range_set(ranges)
 }
 
 fn unicode_range_set(ranges: &[(u32, u32)]) -> HashSet<unichar> {
     let mut set = HashSet::new();
     for &(lo, hi) in ranges {
         for cp in lo..=hi {
-            if cp <= 0xFFFF {
-                if let Ok(uc) = unichar::try_from(cp as u16) {
-                    set.insert(uc);
-                }
+            // Only BMP (plane 0) code points can be represented as a single
+            // UTF-16 code unit; ignore anything else.
+            if let Ok(uc) = unichar::try_from(cp) {
+                set.insert(uc);
             }
         }
     }
@@ -92,14 +84,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)characterSetWithRange:(NSRange)range {
     // NSRange here is { location: first_codepoint, length: count }
-    let mut set = HashSet::new();
-    for cp in range.location..range.location + range.length {
-        if cp <= 0xFFFF {
-            if let Ok(uc) = unichar::try_from(cp as u16) {
-                set.insert(uc);
-            }
-        }
-    }
+    let set = if range.length == 0 {
+        HashSet::new()
+    } else {
+        let end = range.location.saturating_add(range.length);
+        unicode_range_set(&[(range.location, end - 1)])
+    };
     let new: id = msg![env; this alloc];
     env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
     autorelease(env, new)
@@ -256,8 +246,70 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)decomposableCharacterSet {
-    log!("TODO: [NSCharacterSet decomposableCharacterSet] — returning empty set");
+    // Per Apple's documentation, this set contains individual Unicode
+    // characters that can also be represented as composed character
+    // sequences (e.g. letters with accents), by the definition of
+    // "standard decomposition" in the Unicode standard.
+    // This is an approximation covering the most common precomposed
+    // ranges in the BMP.
+    let mut set = unicode_range_set(&[
+        (0x1E00, 0x1EFF), // Latin Extended Additional (all precomposed)
+        (0x1F00, 0x1FFE), // Greek Extended (virtually all precomposed)
+        (0xAC00, 0xD7A3), // Hangul Syllables (all canonically decomposable)
+    ]);
+    // Kana with (semi-)voiced sound marks (が, ぱ, ヴ, …): the precomposed
+    // forms alternate with the base forms in the Hiragana/Katakana blocks.
+    for &cp in &[
+        0x304Cu32, 0x304E, 0x3050, 0x3052, 0x3054, 0x3056, 0x3058, 0x305A,
+        0x305C, 0x305E, 0x3060, 0x3062, 0x3065, 0x3067, 0x3069, 0x3070,
+        0x3071, 0x3073, 0x3074, 0x3076, 0x3077, 0x3079, 0x307A, 0x307C,
+        0x307D, 0x3094, 0x30AC, 0x30AE, 0x30B0, 0x30B2, 0x30B4, 0x30B6,
+        0x30B8, 0x30BA, 0x30BC, 0x30BE, 0x30C0, 0x30C2, 0x30C5, 0x30C7,
+        0x30C9, 0x30D0, 0x30D1, 0x30D3, 0x30D4, 0x30D6, 0x30D7, 0x30D9,
+        0x30DA, 0x30DC, 0x30DD, 0x30F4, 0x30F7, 0x30F8, 0x30F9, 0x30FA,
+    ] {
+        set.insert(cp as unichar);
+    }
+    // Latin-1 letters with diacritics (excluding Æ, Ð, ×, Ø, Þ, ß, æ, ð,
+    // ÷, ø, þ, ÿ has a decomposition so it *is* included).
+    for cp in 0x00C0u32..=0x00FF {
+        if matches!(cp, 0x00C6 | 0x00D0 | 0x00D7 | 0x00D8 | 0x00DE | 0x00DF
+                      | 0x00E6 | 0x00F0 | 0x00F7 | 0x00F8 | 0x00FE) {
+            continue;
+        }
+        set.insert(cp as unichar);
+    }
+    // Latin Extended-A, excluding the letters with no canonical
+    // decomposition (Đđ, Ħħ, ı, ĸ, Łł, ŋŊ, Œœ, Ŧŧ, ſ).
+    for cp in 0x0100u32..=0x017F {
+        if matches!(cp, 0x0110 | 0x0111 | 0x0126 | 0x0127 | 0x0131 | 0x0138
+                      | 0x0141 | 0x0142 | 0x014A | 0x014B | 0x0152 | 0x0153
+                      | 0x0166 | 0x0167 | 0x017F) {
+            continue;
+        }
+        set.insert(cp as unichar);
+    }
+    // Greek letters with diacritics.
+    for &cp in &[0x0386u32, 0x0388, 0x0389, 0x038A, 0x038C, 0x038E, 0x038F, 0x0390] {
+        set.insert(cp as unichar);
+    }
+    for cp in 0x03AAu32..=0x03B0 {
+        set.insert(cp as unichar);
+    }
+    for cp in 0x03CAu32..=0x03CE {
+        set.insert(cp as unichar);
+    }
+    // Cyrillic letters with diacritics (Ѐ, Ё, Ѓ, Ї, Ќ, Ѝ, Ў, Й and the
+    // corresponding lowercase letters).
+    for &cp in &[
+        0x0400u32, 0x0401, 0x0403, 0x0407, 0x040C, 0x040D, 0x040E, 0x0419,
+        0x0439, 0x0450, 0x0451, 0x0453, 0x0457, 0x045C, 0x045D, 0x045E,
+    ] {
+        set.insert(cp as unichar);
+    }
+
     let new: id = msg![env; this alloc];
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
     autorelease(env, new)
 }
 
@@ -535,22 +587,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())addCharactersInRange:(NSRange)range {
     let host = env.objc.borrow_mut::<CharacterSetHostObject>(this);
-    for cp in range.location..range.location + range.length {
-        if cp <= 0xFFFF {
-            if let Ok(uc) = unichar::try_from(cp as u16) {
-                host.set.insert(uc);
-            }
+    for cp in range.location..range.location.saturating_add(range.length) {
+        if let Ok(uc) = unichar::try_from(cp) {
+            host.set.insert(uc);
         }
     }
 }
 
 - (())removeCharactersInRange:(NSRange)range {
     let host = env.objc.borrow_mut::<CharacterSetHostObject>(this);
-    for cp in range.location..range.location + range.length {
-        if cp <= 0xFFFF {
-            if let Ok(uc) = unichar::try_from(cp as u16) {
-                host.set.remove(&uc);
-            }
+    for cp in range.location..range.location.saturating_add(range.length) {
+        if let Ok(uc) = unichar::try_from(cp) {
+            host.set.remove(&uc);
         }
     }
 }

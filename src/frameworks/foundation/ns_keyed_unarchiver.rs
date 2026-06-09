@@ -423,7 +423,9 @@ fn unarchive_key(env: &mut Environment, unarchiver: id, key: Uid) -> id {
                     // while holding a reference to the class name, since it
                     // is ultimately owned by ObjC via the host object
                     let class_name = class_name.to_string();
-                    if class_name.is_empty() { eprintln!("DIAG_CALLER: ns_keyed_unarchiver classname empty"); }
+                    if class_name.is_empty() {
+                        log!("Warning: unarchive_key: empty $classname for class uid {}.", class_key.get());
+                    }
                     env.objc.get_known_class(&class_name, &mut env.mem)
                 };
                 let host_obj = borrow_host_obj(env, unarchiver); // reborrow
@@ -494,7 +496,8 @@ fn unarchive_key(env: &mut Environment, unarchiver: id, key: Uid) -> id {
             env.mem.free(bytes_ptr);
             result
         }
-        Value::Date(_) | Value::Array(_) | Value::Uid(_) | Value::Dictionary(_) => {
+        // (Value::Dictionary is handled above)
+        Value::Date(_) | Value::Array(_) | Value::Uid(_) => {
             log!(
                 "Warning: unarchive_key: unhandled plist variant for uid {}; returning nil.",
                 key.get()

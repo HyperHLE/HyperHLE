@@ -423,7 +423,7 @@ unsafe impl SafeRead for AudioBuffer {}
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct AudioBufferList {
+pub struct AudioBufferList {
     number_buffers: u32,
     first_buffer: AudioBuffer,
 }
@@ -598,8 +598,8 @@ pub fn ExtAudioFileTell(
 
 fn build_asbd(audio_file: &AudioFileHostObject) -> AudioStreamBasicDescription {
     use crate::frameworks::core_audio_types::{
-        kAudioFormatAppleIMA4, kAudioFormatFlagIsBigEndian, kAudioFormatFlagIsFloat,
-        kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM,
+        kAudioFormatFlagIsBigEndian, kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked,
+        kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM,
     };
 
     match audio_file {
@@ -637,17 +637,6 @@ fn build_asbd(audio_file: &AudioFileHostObject) -> AudioStreamBasicDescription {
                         _reserved: 0,
                     }
                 }
-                audio::AudioFormat::AppleIma4 => AudioStreamBasicDescription {
-                    sample_rate,
-                    format_id: kAudioFormatAppleIMA4,
-                    format_flags: 0,
-                    bytes_per_packet,
-                    frames_per_packet,
-                    bytes_per_frame: 0,
-                    channels_per_frame,
-                    bits_per_channel,
-                    _reserved: 0,
-                },
                 audio::AudioFormat::Mpeg4Aac => AudioStreamBasicDescription {
                     sample_rate,
                     format_id: fourcc(b"aac "), // Формат AAC

@@ -541,7 +541,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIButtonHostObject>(this).tint_color = color;
 }
 
-- (())setTitleShadowOffset:(CGSize)offset {
+- (())setTitleShadowOffset:(CGSize)_offset {
     // Per Apple docs this is a deprecated visual property (UIButton.titleShadowOffset).
     // We accept and ignore it since touchHLE does not render title shadows.
 }

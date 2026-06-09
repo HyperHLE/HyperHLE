@@ -126,7 +126,8 @@ pub fn CFStringConvertEncodingToNSStringEncoding(
         kCFStringEncodingMacRoman => ns_string::NSMacOSRomanStringEncoding,
         kCFStringEncodingASCII => ns_string::NSASCIIStringEncoding,
         kCFStringEncodingUTF8 => ns_string::NSUTF8StringEncoding,
-        kCFStringEncodingUTF16 | kCFStringEncodingUnicode => ns_string::NSUTF16StringEncoding,
+        // (kCFStringEncodingUnicode == kCFStringEncodingUTF16)
+        kCFStringEncodingUTF16 => ns_string::NSUTF16StringEncoding,
         kCFStringEncodingUTF16BE => ns_string::NSUTF16BigEndianStringEncoding,
         kCFStringEncodingUTF16LE => ns_string::NSUTF16LittleEndianStringEncoding,
         kCFStringEncodingISOLatin1 => ns_string::NSISOLatin1StringEncoding,
@@ -289,7 +290,8 @@ fn CFStringCreateWithBytes(
         let raw = env.mem.bytes_at(bytes, len);
 
         match encoding {
-            kCFStringEncodingUTF16 | kCFStringEncodingUnicode => {
+            // (kCFStringEncodingUnicode == kCFStringEncodingUTF16)
+            kCFStringEncodingUTF16 => {
                 // Check for UTF-16 BOM
                 if len >= 2 && raw[0] == 0xFF && raw[1] == 0xFE {
                     // Little-endian BOM — skip 2 bytes
@@ -896,9 +898,9 @@ fn cf_string_bytes_for_encoding(
         ns_string::NSUTF8StringEncoding | ns_string::NSWindowsCP1252StringEncoding => {
             rust_string.as_bytes().to_vec()
         }
+        // (NSUnicodeStringEncoding == NSUTF16StringEncoding)
         ns_string::NSUTF16LittleEndianStringEncoding
-        | ns_string::NSUTF16StringEncoding
-        | ns_string::NSUnicodeStringEncoding => rust_string
+        | ns_string::NSUTF16StringEncoding => rust_string
             .encode_utf16()
             .flat_map(u16::to_le_bytes)
             .collect(),

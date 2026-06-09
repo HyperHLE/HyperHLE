@@ -404,7 +404,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; store URL]
 }
 
-- (bool)setURL:(id)url                    // NSURL*
+- (bool)setURL:(id)_url                   // NSURL*
     forPersistentStore:(id)_store {       // NSPersistentStore*
     log!("NSPersistentStoreCoordinator setURL:forPersistentStore: stubbed -> false");
     false
@@ -872,7 +872,7 @@ insertIntoManagedObjectContext:(id)context {           // NSManagedObjectContext
 - (bool)isFault      { false }
 - (bool)hasChanges   { false }
 
-- (id)valueForKey:(id)key {
+- (id)valueForKey:(id)_key {
     log_dbg!("NSManagedObject valueForKey: stubbed -> nil");
     nil
 }
@@ -922,14 +922,14 @@ insertIntoManagedObjectContext:(id)context {           // NSManagedObjectContext
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
-+ (id)entityForName:(id)name                        // NSString*
++ (id)entityForName:(id)_name                       // NSString*
     inManagedObjectContext:(id)_context {            // NSManagedObjectContext*
     log!("NSEntityDescription entityForName: stubbed -> nil");
     nil
 }
 
-+ (id)insertNewObjectForEntityForName:(id)name      // NSString*
-             inManagedObjectContext:(id)context {   // NSManagedObjectContext*
++ (id)insertNewObjectForEntityForName:(id)_name     // NSString*
+             inManagedObjectContext:(id)_context {  // NSManagedObjectContext*
     log!("NSEntityDescription insertNewObjectForEntityForName: stubbed -> nil");
     nil
 }

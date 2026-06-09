@@ -706,7 +706,7 @@ pub fn apply_format(
                 "ZZZZZ" => "+00:00".into(),
                 "O" | "OO" | "OOO" => "GMT".into(),
                 "OOOO" => "GMT+00:00".into(),
-                "v" | "vv" | "vv" | "vvvv" => "GMT".into(),
+                "v" | "vv" | "vvv" | "vvvv" => "GMT".into(),
                 "V" | "VV" => "UTC".into(),
                 "VVV" => "Unknown City".into(),
                 "VVVV" => "Coordinated Universal Time".into(),

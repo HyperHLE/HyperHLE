@@ -16,6 +16,7 @@ use crate::frameworks::core_audio_types::{
     kAudioFormatFlagIsPacked, kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM,
     AudioStreamBasicDescription,
 };
+use super::audio_converter::AudioStreamPacketDescription;
 use crate::frameworks::core_foundation::cf_url::CFURLRef;
 use crate::frameworks::foundation::ns_url::to_rust_path;
 use crate::mem::{guest_size_of, ConstPtr, ConstVoidPtr, GuestUSize, MutPtr, MutVoidPtr, SafeRead};
@@ -602,13 +603,6 @@ pub fn AudioFileReadPackets(
         return paramErr;
     }
 
-    if !out_packet_descriptions.is_null() {
-        log!(
-            "Внимание: игнорирование не-null out_packet_descriptions \
-             в AudioFileReadPackets()"
-        );
-    }
-
     let host_object = match State::get(&mut env.framework_state)
         .audio_files
         .get_mut(&in_audio_file)
@@ -624,7 +618,7 @@ pub fn AudioFileReadPackets(
     };
 
     let packets_to_read = env.mem.read(io_num_packets);
-    if packet_size == 0 || packets_to_read == 0 {
+    if packets_to_read == 0 {
         env.mem.write(io_num_packets, 0);
         if !out_num_bytes.is_null() {
             env.mem.write(out_num_bytes, 0);
@@ -638,6 +632,86 @@ pub fn AudioFileReadPackets(
             env.mem.write(out_num_bytes, 0);
         }
         return eofErr;
+    }
+
+    if packet_size == 0 {
+        // Variable packet size (VBR), e.g. AAC: serve whole packets, packed
+        // contiguously into the output buffer, and fill in the
+        // AudioStreamPacketDescription array if the caller asked for it
+        // (per Apple's Audio File Services documentation, descriptions are
+        // required to make sense of VBR data).
+        let aac_packet_infos = match host_object {
+            AudioFileHostObject::Real(ref audio_file) => {
+                audio_file.aac_packets().map(|aac| {
+                    (0..packets_to_read)
+                        .map_while(|i| aac.packet_info(in_starting_packet as u64 + u64::from(i)))
+                        .collect::<Vec<(u64, u32)>>()
+                })
+            }
+            _ => None,
+        };
+        let Some(packet_infos) = aac_packet_infos else {
+            // VBR format we don't have packet data for.
+            env.mem.write(io_num_packets, 0);
+            if !out_num_bytes.is_null() {
+                env.mem.write(out_num_bytes, 0);
+            }
+            return kAudioFileSuccess;
+        };
+
+        let total_bytes: u32 = packet_infos.iter().map(|&(_, size)| size).sum();
+        let mut written: usize = 0;
+        let mut packets_read: u32 = 0;
+
+        if !out_buffer.is_null() && total_bytes > 0 {
+            let AudioFileHostObject::Real(ref mut audio_file) = host_object else {
+                unreachable!();
+            };
+            let buffer_slice = env.mem.bytes_at_mut(out_buffer.cast(), total_bytes);
+            for &(offset, size) in &packet_infos {
+                let dest = &mut buffer_slice[written..written + size as usize];
+                let n = audio_file.read_bytes(offset, dest).unwrap_or(0);
+                if n < size as usize {
+                    break;
+                }
+                written += n;
+                packets_read += 1;
+            }
+        }
+
+        if !out_packet_descriptions.is_null() {
+            let descriptions: MutPtr<AudioStreamPacketDescription> =
+                out_packet_descriptions.cast();
+            let mut start_offset: i64 = 0;
+            for (i, &(_, size)) in packet_infos[..packets_read as usize].iter().enumerate() {
+                env.mem.write(
+                    descriptions + i as GuestUSize,
+                    AudioStreamPacketDescription {
+                        mStartOffset: start_offset,
+                        mVariableFramesInPacket: 0,
+                        mDataByteSize: size,
+                    },
+                );
+                start_offset += i64::from(size);
+            }
+        }
+
+        env.mem.write(io_num_packets, packets_read);
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, written.try_into().unwrap_or(0));
+        }
+        return if packets_read < packets_to_read {
+            eofErr
+        } else {
+            kAudioFileSuccess
+        };
+    }
+
+    if !out_packet_descriptions.is_null() {
+        log!(
+            "Внимание: игнорирование не-null out_packet_descriptions \
+             в AudioFileReadPackets()"
+        );
     }
 
     let starting_byte = match i64::from(packet_size).checked_mul(in_starting_packet) {
@@ -910,28 +984,6 @@ pub fn AudioFileGetProperty(
                         audio::AudioFormat::Mpeg4Aac => AudioStreamBasicDescription {
                             sample_rate,
                             format_id: fourcc(b"aac "),
-                            format_flags: 0,
-                            bytes_per_packet,
-                            frames_per_packet,
-                            bytes_per_frame: 0,
-                            channels_per_frame,
-                            bits_per_channel,
-                            _reserved: 0,
-                        },
-                        audio::AudioFormat::AppleIma4 => AudioStreamBasicDescription {
-                            sample_rate,
-                            format_id: fourcc(b"ima4"),
-                            format_flags: 0,
-                            bytes_per_packet,
-                            frames_per_packet,
-                            bytes_per_frame: 0,
-                            channels_per_frame,
-                            bits_per_channel,
-                            _reserved: 0,
-                        },
-                        _ => AudioStreamBasicDescription {
-                            sample_rate,
-                            format_id: fourcc(b"fmt?"),
                             format_flags: 0,
                             bytes_per_packet,
                             frames_per_packet,
@@ -1376,7 +1428,7 @@ pub fn AudioFileSetUserData(
             };
 
             // Find and replace existing entry at index, or append
-            let mut matching_indices: Vec<usize> = user_data
+            let matching_indices: Vec<usize> = user_data
                 .iter()
                 .enumerate()
                 .filter(|(_, (id, _))| *id == in_user_data_id)

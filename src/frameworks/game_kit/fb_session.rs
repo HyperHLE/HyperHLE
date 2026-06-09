@@ -24,7 +24,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // Тот самый метод инициализации из твоего лога
-+ (id)sessionForApplication:(id)app_key getSessionProxy:(bool)proxy delegate:(id)delegate {
++ (id)sessionForApplication:(id)_app_key getSessionProxy:(bool)_proxy delegate:(id)delegate {
     log!("FBSession sessionForApplication:getSessionProxy:delegate: stubbed");
 
     let session: id = msg![env; this alloc];
