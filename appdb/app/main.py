@@ -834,7 +834,10 @@ def _require_triage_token(authorization: str | None) -> None:
         )
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token.")
-    presented = authorization.split(None, 1)[1].strip()
+    parts = authorization.split(None, 1)
+    presented = parts[1].strip() if len(parts) > 1 else ""
+    if not presented:
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
     if not py_secrets.compare_digest(presented, expected):
         raise HTTPException(status_code=403, detail="Invalid bearer token.")
 
