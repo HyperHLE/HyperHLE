@@ -267,25 +267,7 @@ fn NSSearchPathForDirectoriesInDomains(
         NSAutosavedInformationDirectory => {
             env.fs.home_directory().join("Library/Autosave Information")
         }
-        // The "application" family all resolve to the iOS Applications
-        // container on a real device.
-        NSDemoApplicationDirectory
-        | NSDeveloperApplicationDirectory
-        | NSAdminApplicationDirectory
-        | NSAllApplicationsDirectory => GuestPath::new(crate::fs::APPLICATIONS).to_owned(),
-        // The "library" family resolves under ~/Library.
-        NSAllLibrariesDirectory | NSDeveloperDirectory => env.fs.home_directory().join("Library"),
-        NSDocumentationDirectory => env.fs.home_directory().join("Library/Documentation"),
-        NSCoreServiceDirectory => env.fs.home_directory().join("Library/CoreServices"),
-        NSInputMethodsDirectory => env.fs.home_directory().join("Library/Input Methods"),
-        NSPrinterDescriptionDirectory => {
-            env.fs.home_directory().join("Library/Printers/PPDs")
-        }
-        // Shared/public content has no dedicated location on iOS; use home.
-        NSSharedPublicDirectory => env.fs.home_directory().to_owned(),
-        // Temporary "item replacement" scratch area for safe-save; back it
-        // by the caches directory.
-        NSItemReplacementDirectory => env.fs.home_directory().join("Library/Caches"),
+        NSAllApplicationsDirectory => GuestPath::new(crate::fs::APPLICATIONS).to_owned(),
         _ => {
             log!(
                 "Warning: Unimplemented NSSearchPathDirectory {}, returning home directory",

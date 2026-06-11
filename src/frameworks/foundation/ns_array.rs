@@ -1316,6 +1316,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
+// `- (NSArray *)sortedArrayUsingComparator:(NSComparator)cmptr` —
+// per Apple's [NSArray Reference](https://developer.apple.com/documentation/foundation/nsarray/1411124-sortedarrayusingcomparator):
+// returns a new sorted array using the given NSComparator block. As with the
+// other `sortedArray…` variants on NSMutableArray, this is inherited
+// behaviour from NSArray; because `_touchHLE_NSMutableArray` descends from
+// `NSMutableArray` (not the concrete `_touchHLE_NSArray`), the method must be
+// provided here too, otherwise the receiver does not respond to the selector.
+- (id)sortedArrayUsingComparator:(id)comparator {
+    let new = msg![env; this mutableCopy];
+    () = msg![env; new sortUsingComparator:comparator];
+    autorelease(env, new)
+}
+
 @end
 
 // Special variant for use by CFArray with NULL callbacks: objects aren't

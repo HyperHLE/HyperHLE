@@ -42,90 +42,8 @@ struct NSUserDefaultsHostObject {
     /// Used if not found in other dictionaries.
     /// `NSMutableDictionary *`
     registration_domain_dict: id,
-    /// Suite (domain) name from `-initWithSuiteName:`, used to pick the
-    /// on-disk plist. `None` means the app's own domain (bundle id).
-    suite_name: Option<String>,
 }
 impl HostObject for NSUserDefaultsHostObject {}
-
-/// Name of the on-disk plist backing this defaults object's persistent
-/// domain: the suite name if one was given, the bundle id otherwise.
-fn persistent_domain_name(env: &mut Environment, this: id) -> String {
-    let host = env.objc.borrow::<NSUserDefaultsHostObject>(this);
-    match &host.suite_name {
-        Some(suite) => suite.clone(),
-        None => env.bundle.bundle_identifier().to_string(),
-    }
-}
-
-/// Shared initialisation for `-init` and `-initWithSuiteName:`:
-/// sets up the global (NSGlobalDomain) defaults and loads the persistent
-/// domain from `<home>/Library/Preferences/<domain>.plist`.
-fn init_common(env: &mut Environment, this: id, suite_name: Option<String>) {
-    env.objc.borrow_mut::<NSUserDefaultsHostObject>(this).suite_name = suite_name;
-
-    // First, init globals
-    // TODO: init globals once per app run
-    // TODO: Are there other default keys we need to set?
-    let langs_value: id = msg_class![env; NSLocale preferredLanguages];
-    let langs_key: id = ns_string::get_static_str(env, "AppleLanguages");
-
-    let dict = msg_class![env; NSMutableDictionary new];
-    () = msg![env; dict setObject:langs_value forKey:langs_key];
-
-    env.objc.borrow_mut::<NSUserDefaultsHostObject>(this).global_domain_dict = dict;
-
-    // Now, load from disk and init the persistent domain.
-    let domain = persistent_domain_name(env, this);
-    let plist_file_name = format!("{}.plist", domain);
-    let plist_file_path_buf = env.fs.home_directory()
-        .join("Library")
-        .join("Preferences")
-        .join(plist_file_name);
-    let plist_file_path = ns_string::from_rust_string(env, plist_file_path_buf.as_str().to_string());
-    let dict: id = msg_class![env; NSDictionary dictionaryWithContentsOfFile:plist_file_path];
-
-    let dict: id = if dict == nil {
-        msg_class![env; NSMutableDictionary new]
-    } else {
-        msg![env; dict mutableCopy]
-    };
-    env.objc.borrow_mut::<NSUserDefaultsHostObject>(this).app_domain_dict = dict;
-}
-
-fn ultrahle_minionjump_force_unlock_key(env: &mut Environment, key: id) -> bool {
-    if !matches!(
-        env.bundle.bundle_identifier(),
-        "com.apprisetec9.minionjump" | "com.risinghighapps.kingdomprincepro"
-    ) {
-        return false;
-    }
-
-    if key == nil {
-        return false;
-    }
-
-    let key_str = to_rust_string(env, key).into_owned();
-
-    // Minion Jump uses:
-    // stage_u_%d = unlocked flag
-    // stage_s_%d = stars/progress
-    //
-    // Forcing only the GrowStarButton locked argument makes the tiles LOOK
-    // unlocked, but selectLVAction still checks saved progress internally.
-    for prefix in ["stage_u_", "stage_s_"] {
-        if let Some(rest) = key_str.strip_prefix(prefix) {
-            if let Ok(n) = rest.parse::<u32>() {
-                if n <= 25 {
-                    log!("UltraHLE MinionJump: forcing NSUserDefaults {} = 1", key_str);
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
-}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -138,7 +56,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         global_domain_dict: nil,
         app_domain_dict: nil,
         registration_domain_dict: nil,
-        suite_name: None,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -156,44 +73,55 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (id)initWithSuiteName:(id)_suite_name { // NSString*
+    // Apple docs: `- (instancetype)initWithSuiteName:(NSString *)suitename` is
+    // an INSTANCE method (called via `[[NSUserDefaults alloc]
+    // initWithSuiteName:]`), see
+    // <https://developer.apple.com/documentation/foundation/userdefaults/init(suitename:)>.
+    // It returns a defaults object whose search list also includes the named
+    // suite (a shared container, typically used by app extensions). touchHLE
+    // does not implement separate suite domains, so we initialize the receiver
+    // exactly like `-init` and ignore the suite name; reads/writes go to the
+    // app's standard domain. This is sufficient for apps that merely expect a
+    // usable NSUserDefaults instance back.
+    log_dbg!("NSUserDefaults initWithSuiteName: — ignoring suite name, using standard app domain");
+    msg![env; this init]
+}
+
 + (())resetStandardUserDefaults {
     // Remove the cached singleton so it gets re-created fresh.
     State::get(env).standard_defaults = None;
     log_dbg!("NSUserDefaults resetStandardUserDefaults: cache cleared");
 }
 
-// Apple docs (NSUserDefaults `-initWithSuiteName:`): instance method.
-// "Initializes a defaults object for the specified app group or domain."
-// Passing nil is equivalent to `-init` (the current app's search list).
-// Passing the app's own bundle identifier is documented as invalid and
-// behaves like `-init` as well. touchHLE has no shared app-group
-// containers, so any other suite is backed by its own in-memory +
-// on-disk domain, scoped per suite name.
-- (id)initWithSuiteName:(id)suite_name { // NSString*
-    if suite_name == nil {
-        log_dbg!("-[NSUserDefaults initWithSuiteName:nil] — same as -init");
-        return msg![env; this init];
-    }
-
-    let suite = to_rust_string(env, suite_name).into_owned();
-    let bundle_id = env.bundle.bundle_identifier().to_string();
-    if suite == bundle_id {
-        // Apple: "Passing the current app's bundle identifier [...] is not
-        // a valid suite name"; Foundation logs and behaves like -init.
-        log!(
-            "Warning: -[NSUserDefaults initWithSuiteName:{:?}] called with \
-             the app's own bundle identifier; using -init instead.",
-            suite
-        );
-        return msg![env; this init];
-    }
-
-    init_common(env, this, Some(suite));
-    this
-}
-
 - (id)init {
-    init_common(env, this, None);
+    // First, init globals
+    // TODO: init globals once per app run
+    // TODO: Are there other default keys we need to set?
+    let langs_value: id = msg_class![env; NSLocale preferredLanguages];
+    let langs_key: id = ns_string::get_static_str(env, "AppleLanguages");
+
+    let dict = msg_class![env; NSMutableDictionary new];
+    () = msg![env; dict setObject:langs_value forKey:langs_key];
+
+    env.objc.borrow_mut::<NSUserDefaultsHostObject>(this).global_domain_dict = dict;
+
+    // Now, load from disk and init app's own preferences.
+    let plist_file_name = format!("{}.plist", env.bundle.bundle_identifier());
+    let plist_file_path_buf = env.fs.home_directory()
+        .join("Library")
+        .join("Preferences")
+        .join(plist_file_name);
+    let plist_file_path = ns_string::from_rust_string(env, plist_file_path_buf.as_str().to_string());
+    let dict: id = msg_class![env; NSDictionary dictionaryWithContentsOfFile:plist_file_path];
+
+    let dict: id = if dict == nil {
+        msg_class![env; NSMutableDictionary new]
+    } else {
+        msg![env; dict mutableCopy]
+    };
+    env.objc.borrow_mut::<NSUserDefaultsHostObject>(this).app_domain_dict = dict;
+
     this
 }
 
@@ -226,16 +154,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setValue:(id)val forKey:(id)key { // NSString*
-    // ULTRAHLE_MINIONJUMP_SETVALUE_BEGIN
-    if ultrahle_minionjump_force_unlock_key(env, key) {
-        let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
-        let one_i: NSInteger = 1;
-        let one: id = msg_class![env; NSNumber numberWithInteger:one_i];
-        () = msg![env; dict setValue:one forKey:key];
-        return;
-    }
-    // ULTRAHLE_MINIONJUMP_SETVALUE_END
-
     let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
     () = msg![env; dict setValue:val forKey:key];
 }
@@ -315,7 +233,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MARK: - Domain management
 
-- (())setPersistentDomain:(id)domain forName:(id)_domain_name { // NSDictionary*, NSString*
+- (())setPersistentDomain:(id)domain forName:(id)domain_name { // NSDictionary*, NSString*
     log_dbg!("NSUserDefaults setPersistentDomain:forName: — writing to app domain");
     let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
     () = msg![env; dict addEntriesFromDictionary:domain];
@@ -402,14 +320,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)objectForKey:(id)key { // NSString*
-    // ULTRAHLE_MINIONJUMP_OBJECTFORKEY_BEGIN
-    if ultrahle_minionjump_force_unlock_key(env, key) {
-        let one_i: NSInteger = 1;
-        let one: id = msg_class![env; NSNumber numberWithInteger:one_i];
-        return one;
-    }
-    // ULTRAHLE_MINIONJUMP_OBJECTFORKEY_END
-
     let app_domain_dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
     let res: id = msg![env; app_domain_dict objectForKey:key];
     if res != nil {
@@ -437,16 +347,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setObject:(id)object forKey:(id)key { // NSString*
-    // ULTRAHLE_MINIONJUMP_SETOBJECT_BEGIN
-    if ultrahle_minionjump_force_unlock_key(env, key) {
-        let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
-        let one_i: NSInteger = 1;
-        let one: id = msg_class![env; NSNumber numberWithInteger:one_i];
-        () = msg![env; dict setObject:one forKey:key];
-        return;
-    }
-    // ULTRAHLE_MINIONJUMP_SETOBJECT_END
-
     let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
     () = msg![env; dict setObject:object forKey:key];
 }
@@ -575,8 +475,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         .join("Library")
         .join("Preferences");
     _ = env.fs.create_dir_all(plist_file_path_dir.clone());
-    let domain = persistent_domain_name(env, this);
-    let plist_file_name = format!("{}.plist", domain);
+    let plist_file_name = format!("{}.plist", env.bundle.bundle_identifier());
     let plist_file_path_buf = plist_file_path_dir.join(plist_file_name);
     let plist_file_path = ns_string::from_rust_string(env, plist_file_path_buf.as_str().to_string());
     let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;

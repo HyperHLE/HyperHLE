@@ -651,13 +651,14 @@ fn __fpclassifyf(_env: &mut Environment, arg: f32) -> GuestFPCategory {
     }
 }
 
-
-// Classification helpers from Apple's <math.h>. On iPhone OS the
-// `isnan(x)` / `isinf(x)` / `isfinite(x)` / `fpclassify(x)` macros expand
-// to calls to these `__`-prefixed libm functions depending on the
-// argument type (see math.h in the iPhone OS 2/3 SDKs). They return
-// non-zero for true, zero for false, matching C99 semantics.
-
+// Type-specific classification helpers from `<math.h>`. The standard
+// `isnan`/`isinf` macros on Apple platforms (and glibc) expand to these
+// underlying functions: `__isnanf`/`__isnand` for NaN tests and
+// `__isinff`/`__isinfd` for infinity tests. Each returns a C `int`:
+// `__isnan*` returns nonzero (1) for NaN, otherwise 0; `__isinf*` returns
+// 1 for +inf, -1 for -inf, otherwise 0. See the `math.h` declarations
+// `extern int __isnanf(float)`, `extern int __isnand(double)`,
+// `extern int __isinff(float)`, `extern int __isinfd(double)`.
 fn __isnanf(_env: &mut Environment, arg: f32) -> i32 {
     arg.is_nan() as i32
 }
@@ -666,41 +667,27 @@ fn __isnand(_env: &mut Environment, arg: f64) -> i32 {
     arg.is_nan() as i32
 }
 
-fn __isnan(_env: &mut Environment, arg: f64) -> i32 {
-    arg.is_nan() as i32
-}
-
 fn __isinff(_env: &mut Environment, arg: f32) -> i32 {
-    arg.is_infinite() as i32
+    if arg.is_infinite() {
+        if arg.is_sign_positive() {
+            1
+        } else {
+            -1
+        }
+    } else {
+        0
+    }
 }
 
 fn __isinfd(_env: &mut Environment, arg: f64) -> i32 {
-    arg.is_infinite() as i32
-}
-
-fn __isinf(_env: &mut Environment, arg: f64) -> i32 {
-    arg.is_infinite() as i32
-}
-
-fn __isfinitef(_env: &mut Environment, arg: f32) -> i32 {
-    arg.is_finite() as i32
-}
-
-fn __isfinited(_env: &mut Environment, arg: f64) -> i32 {
-    arg.is_finite() as i32
-}
-
-fn __isfinite(_env: &mut Environment, arg: f64) -> i32 {
-    arg.is_finite() as i32
-}
-
-fn __fpclassifyd(_env: &mut Environment, arg: f64) -> GuestFPCategory {
-    match arg.classify() {
-        FpCategory::Nan => FP_NAN,
-        FpCategory::Infinite => FP_INFINITE,
-        FpCategory::Zero => FP_ZERO,
-        FpCategory::Normal => FP_NORMAL,
-        FpCategory::Subnormal => FP_SUBNORMAL,
+    if arg.is_infinite() {
+        if arg.is_sign_positive() {
+            1
+        } else {
+            -1
+        }
+    } else {
+        0
     }
 }
 
@@ -998,16 +985,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(hypot(_, _)),
     export_c_func!(hypotf(_, _)),
     export_c_func!(__fpclassifyf(_)),
-    export_c_func!(__fpclassifyd(_)),
     export_c_func!(__isnanf(_)),
     export_c_func!(__isnand(_)),
-    export_c_func!(__isnan(_)),
     export_c_func!(__isinff(_)),
     export_c_func!(__isinfd(_)),
-    export_c_func!(__isinf(_)),
-    export_c_func!(__isfinitef(_)),
-    export_c_func!(__isfinited(_)),
-    export_c_func!(__isfinite(_)),
     export_c_func!(__udivdi3(_, _)), // <--- 2 подчеркивания
     export_c_func!(__umoddi3(_, _)), // <--- 2 подчеркивания
     export_c_func!(__divdi3(_, _)),  // <--- 2 подчеркивания
