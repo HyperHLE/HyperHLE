@@ -23,7 +23,7 @@ use crate::frameworks::foundation::NSInteger;
 use crate::impl_HostObject_with_superclass;
 use crate::mem::{ConstVoidPtr, SafeRead};
 use crate::objc::{
-    id, msg, msg_class, nil, objc_classes, retain, release,
+    id, msg, msg_class, msg_super, nil, objc_classes, retain, release,
     ClassExports, HostObject, NSZonePtr,
 };
 use crate::frameworks::uikit::ui_view_controller::UIViewControllerHostObject;
