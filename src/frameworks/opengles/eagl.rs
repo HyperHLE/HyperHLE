@@ -1308,7 +1308,7 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     // FIXME: A cleaner solution would be to read the actual transform from
     //        the EAGL layer's view hierarchy and apply it here, instead of
     //        using a device-family heuristic.
-    let needs_autorotation_compensation =
+    let needs_autorotation_compensation = false
         matches!(device_family, crate::window::DeviceFamily::iPad)
             && !matches!(
                 device_orientation,
