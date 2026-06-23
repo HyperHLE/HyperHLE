@@ -1302,18 +1302,16 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     // call `presentRenderbuffer:` directly, so we have to replicate that
     // additional rotation here. Without it, iPad landscape games (e.g.
     // Plants vs. Zombies HD) render upside-down. iPhone-only landscape
-    // games (e.g. Plants vs. Zombies, the iPhone version) typically rotate
+    // games (e.g. s vs. Zombies, the iPhone version) typically rotate
     // their drawing themselves, so we must NOT apply the extra rotation
     // for them.
     // FIXME: A cleaner solution would be to read the actual transform from
     //        the EAGL layer's view hierarchy and apply it here, instead of
     //        using a device-family heuristic.
-    let needs_autorotation_compensation =
-        matches!(device_family, crate::window::DeviceFamily::iPad)
-            && !matches!(
-                device_orientation,
-                crate::window::DeviceOrientation::Portrait
-            );
+    // Patched: Disabled iPad autorotation compensation for Angry Birds HD
+    // FIXME: Revisit orientation heuristics to correctly handle auto-rotation
+    //        via actual layer/view hierarchy transforms instead of a hardcoded false.
+    let needs_autorotation_compensation = false;
     let rotation_matrix = if needs_autorotation_compensation {
         env.window
             .as_mut()
