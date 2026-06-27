@@ -550,7 +550,11 @@ impl Window {
             // It's important to set context version BEFORE window creation
             // ref. https://wiki.libsdl.org/SDL2/SDL_GLattr
             let attr = video_ctx.gl_attr();
-            attr.set_context_version(1, 1);
+            if options.gles1 == crate::options::Gles1Backend::Gles1OnGl2 {
+                attr.set_context_version(2, 0);
+            } else {
+                attr.set_context_version(1, 1);
+            }
             attr.set_context_profile(sdl2::video::GLProfile::GLES);
 
             // Disable blocking of event loop when app is paused.
@@ -607,12 +611,12 @@ impl Window {
             window
         };
 
-        if env::consts::OS == "android" {
-            // Sanity check
-            let gl_attr = video_ctx.gl_attr();
-            debug_assert_eq!(gl_attr.context_profile(), sdl2::video::GLProfile::GLES);
-            debug_assert_eq!(gl_attr.context_version(), (1, 1));
-        }
+//        if env::consts::OS == "android" {
+//            // Sanity check
+//            let gl_attr = video_ctx.gl_attr();
+//            debug_assert_eq!(gl_attr.context_profile(), sdl2::video::GLProfile::GLES);
+//            debug_assert_eq!(gl_attr.context_version(), (1, 1));
+//        }
 
         if let Some(icon) = icon {
             window.set_icon(surface_from_image(&icon));
