@@ -932,6 +932,56 @@ impl GLES for GLES2Native<'_> {
     ) {
         gles2::RenderbufferStorage(target, internalformat, width, height)
     }
+    // GL_APPLE_framebuffer_multisample
+    //
+    // The canonical iOS EAGLView MSAA pattern allocates a multisample
+    // "sample" renderbuffer, renders into it, then resolves it into the
+    // single-sample "resolve" renderbuffer whose color storage is the
+    // CAEAGLLayer drawable, and finally calls `-presentRenderbuffer:`.
+    // Real iPhone OS ES 2.0 drivers expose this extension natively, and so
+    // do many Android GPUs (e.g. Adreno advertises
+    // GL_APPLE_framebuffer_multisample). When the host driver exports the
+    // native entry points we forward to them directly; otherwise we degrade
+    // gracefully so the app keeps running (see the generic-backend fallback
+    // in `gles_generic`).
+    unsafe fn RenderbufferStorageMultisampleAPPLE(
+        &mut self,
+        target: GLenum,
+        samples: GLsizei,
+        internalformat: GLenum,
+        width: GLsizei,
+        height: GLsizei,
+    ) {
+        if gles2::RenderbufferStorageMultisampleAPPLE::is_loaded() {
+            gles2::RenderbufferStorageMultisampleAPPLE(
+                target,
+                samples,
+                internalformat,
+                width,
+                height,
+            )
+        } else {
+            log_once!(
+                "RenderbufferStorageMultisampleAPPLE: host ES 2.0 driver lacks \
+                 GL_APPLE_framebuffer_multisample; using single-sample storage"
+            );
+            gles2::RenderbufferStorage(target, internalformat, width, height)
+        }
+    }
+    unsafe fn ResolveMultisampleFramebufferAPPLE(&mut self) {
+        if gles2::ResolveMultisampleFramebufferAPPLE::is_loaded() {
+            // The app has already bound the sample framebuffer to
+            // GL_READ_FRAMEBUFFER_APPLE and the resolve framebuffer to
+            // GL_DRAW_FRAMEBUFFER_APPLE; the driver does the resolve.
+            gles2::ResolveMultisampleFramebufferAPPLE()
+        } else {
+            log_once!(
+                "ResolveMultisampleFramebufferAPPLE: host ES 2.0 driver lacks \
+                 GL_APPLE_framebuffer_multisample; relying on the single-sample \
+                 fallback from RenderbufferStorageMultisampleAPPLE"
+            );
+        }
+    }
     unsafe fn FramebufferRenderbuffer(
         &mut self,
         target: GLenum,

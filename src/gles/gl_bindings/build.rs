@@ -84,6 +84,17 @@ fn main() {
             "GL_EXT_texture_format_BGRA8888",
             "GL_OES_mapbuffer",
             "GL_OES_vertex_array_object",
+            // GL_APPLE_framebuffer_multisample provides the native
+            // glRenderbufferStorageMultisampleAPPLE /
+            // glResolveMultisampleFramebufferAPPLE entry points (and the
+            // GL_READ_FRAMEBUFFER_APPLE / GL_DRAW_FRAMEBUFFER_APPLE targets)
+            // used by the canonical iOS EAGLView MSAA pattern. Real ES 2.0
+            // drivers on iPhone OS hardware (and many Android GPUs, e.g.
+            // Adreno) export this extension, so route the guest's APPLE
+            // multisample calls straight through to the host driver instead
+            // of degrading to a no-op resolve (which leaves the drawable
+            // empty → black screen).
+            "GL_APPLE_framebuffer_multisample",
         ],
     )
     .write_bindings(GlobalGenerator, &mut file)
@@ -117,6 +128,11 @@ fn main() {
             // `glMapBufferRange`. Include them so guest code that drives an
             // ES 3.0 backend via an ES-1.1-shaped API can still map buffers.
             "GL_OES_mapbuffer",
+            // As with the ES 2.0 registry above, expose the native Apple
+            // multisample resolve entry points so the ES 3.0 native backend
+            // can honour the canonical iOS EAGLView MSAA pattern on drivers
+            // that advertise GL_APPLE_framebuffer_multisample.
+            "GL_APPLE_framebuffer_multisample",
         ],
     )
     .write_bindings(GlobalGenerator, &mut file)
