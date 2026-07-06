@@ -20,11 +20,18 @@ use crate::objc::{id, msg, msg_class, retain};
 use crate::Environment;
 
 const kCFBundleVersionKey: &str = "CFBundleVersion";
+const kCFBundleExecutableKey: &str = "CFBundleExecutable";
 
-pub const CONSTANTS: ConstantExports = &[(
-    "_kCFBundleVersionKey",
-    HostConstant::NSString(kCFBundleVersionKey),
-)];
+pub const CONSTANTS: ConstantExports = &[
+    (
+        "_kCFBundleVersionKey",
+        HostConstant::NSString(kCFBundleVersionKey),
+    ),
+    (
+        "_kCFBundleExecutableKey",
+        HostConstant::NSString(kCFBundleExecutableKey),
+    ),
+];
 
 pub type CFBundleRef = CFTypeRef;
 

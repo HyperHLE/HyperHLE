@@ -30,6 +30,7 @@ pub mod ns_error;
 pub mod ns_exception;
 pub mod ns_file_handle;
 pub mod ns_file_manager;
+pub mod ns_garbage_collector;
 pub mod ns_index_path;
 pub mod ns_invocation;
 pub mod ns_keyed_archiver;
@@ -77,6 +78,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_error::CLASSES,
         ns_file_handle::CLASSES,
         ns_file_manager::CLASSES,
+        ns_garbage_collector::CLASSES,
         ns_index_path::CLASSES,
         ns_invocation::CLASSES,
         ns_keyed_archiver::CLASSES,
@@ -123,18 +125,22 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
 
 #[derive(Default)]
 pub struct State {
-    ns_autorelease_pool: ns_autorelease_pool::State,
     ns_bundle: ns_bundle::State,
     ns_file_manager: ns_file_manager::State,
     ns_locale: ns_locale::State,
     ns_notification_center: ns_notification_center::State,
     ns_null: ns_null::State,
     ns_process_info: ns_process_info::State,
-    ns_run_loop: ns_run_loop::State,
     ns_string: ns_string::State,
     ns_thread: ns_thread::State,
     ns_time_zone: ns_time_zone::State,
     ns_user_defaults: ns_user_defaults::State,
+}
+
+#[derive(Default)]
+pub struct ThreadLocalState {
+    ns_autorelease_pool: ns_autorelease_pool::ThreadLocalState,
+    ns_run_loop: ns_run_loop::ThreadLocalState,
 }
 
 pub type NSInteger = i32;

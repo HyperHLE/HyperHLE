@@ -123,6 +123,18 @@ fn CFURLCreateWithFileSystemPath(
     msg![env; url initFileURLWithPath:file_path isDirectory:is_directory]
 }
 
+fn CFURLCreateWithString(
+    env: &mut Environment,
+    allocator: CFAllocatorRef,
+    url_string: CFStringRef,
+    base_url: CFURLRef,
+) -> CFURLRef {
+    assert!(allocator == kCFAllocatorDefault || env.mem.read(allocator).is_system_default()); // unimplemented
+    assert!(base_url.is_null()); // TODO
+    let url: id = msg_class![env; NSURL alloc];
+    msg![env; url initWithString:url_string]
+}
+
 pub fn CFURLCopyPathExtension(env: &mut Environment, url: CFURLRef) -> CFStringRef {
     let path = msg![env; url path];
     let ext = msg![env; path pathExtension];
@@ -187,6 +199,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFURLCreateFromFileSystemRepresentation(_, _, _, _)),
     export_c_func!(CFURLCreateWithBytes(_, _, _, _, _)),
     export_c_func!(CFURLCreateWithFileSystemPath(_, _, _, _)),
+    export_c_func!(CFURLCreateWithString(_, _, _)),
     export_c_func!(CFURLCopyPathExtension(_)),
     export_c_func!(CFURLCopyFileSystemPath(_, _)),
     export_c_func!(CFURLCreateCopyAppendingPathComponent(_, _, _, _)),

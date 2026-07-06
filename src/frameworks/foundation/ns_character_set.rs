@@ -5,7 +5,7 @@
  */
 //! The `NSCharacterSet` class cluster, including `NSMutableCharacterSet`.
 
-use super::{ns_string, unichar};
+use super::{ns_string, unichar, NSRange, NSUInteger};
 use crate::objc::{
     autorelease, id, msg, msg_class, objc_classes, retain, ClassExports, HostObject, NSZonePtr,
 };
@@ -79,6 +79,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
++ (id)characterSetWithRange:(NSRange)range {
+    let mut set = HashSet::new();
+
+    for c in range.location..range.location.checked_add(range.length).unwrap() {
+        set.insert(unichar::try_from(c).unwrap());
+    }
+
+    let new: id = msg![env; this alloc];
+    env.objc.borrow_mut::<CharacterSetHostObject>(new).set = set;
+
+    autorelease(env, new)
+}
+
 + (id)newlineCharacterSet {
     let set = HashSet::from(NEWLINE_CHARACTERS.map(|c| unichar::try_from(c).unwrap()));
 
@@ -117,10 +130,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
-// NSCopying implementation
-- (id)copyWithZone:(NSZonePtr)_zone {
-    // TODO: override this once we have NSMutableCharacterSet!
-    retain(env, this)
+@end
+
+// NSMutableCharacterSet defines no primitive methods. Subclasses must
+// implement all methods declared by this class in addition to the
+// primitives of NSCharacterSet. They must also implement mutableCopyWithZone:.
+@implementation NSMutableCharacterSet: NSCharacterSet
+
++ (id)allocWithZone:(NSZonePtr)zone {
+    // NSMutableCharacterSet might be subclassed by something which needs
+    // allocWithZone: to have the normal behaviour. Unimplemented: call
+    // superclass alloc then.
+    assert!(this == env.objc.get_known_class("NSMutableCharacterSet", &mut env.mem));
+    msg_class![env; _touchHLE_NSMutableCharacterSet allocWithZone:zone]
 }
 
 @end
@@ -139,6 +161,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // TODO: initWithCoder:
 
+// NSCopying implementation
+- (id)copyWithZone:(NSZonePtr)_zone {
+    retain(env, this)
+}
+// NSMutableCopying implementation
+- (id)mutableCopyWithZone:(NSZonePtr)_zone {
+    todo!()
+}
+
 - (bool)characterIsMember:(unichar)code_unit {
     let host_object = env.objc.borrow::<CharacterSetHostObject>(this);
     host_object.set.contains(&code_unit) ^ host_object.inverted
@@ -152,6 +183,43 @@ pub const CLASSES: ClassExports = objc_classes! {
     });
     let class = env.objc.get_known_class("_touchHLE_NSCharacterSet", &mut env.mem);
     env.objc.alloc_object(class, host_object, &mut env.mem)
+}
+
+@end
+
+// Our private subclass that is the single implementation of
+// NSMutableCharacterSet for the time being.
+@implementation _touchHLE_NSMutableCharacterSet: NSMutableCharacterSet
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = Box::new(CharacterSetHostObject {
+        set: HashSet::new(),
+        inverted: false
+    });
+    env.objc.alloc_object(this, host_object, &mut env.mem)
+}
+
+// NSCopying implementation
+- (id)copyWithZone:(NSZonePtr)_zone {
+    todo!()
+}
+// NSMutableCopying implementation
+- (id)mutableCopyWithZone:(NSZonePtr)_zone {
+    todo!()
+}
+
+- (bool)characterIsMember:(unichar)code_unit {
+    let host_object = env.objc.borrow::<CharacterSetHostObject>(this);
+    host_object.set.contains(&code_unit) ^ host_object.inverted
+}
+
+- (())addCharactersInString:(id)string { // NSString *
+    assert!(!env.objc.borrow::<CharacterSetHostObject>(this).inverted); // TODO
+    let length: NSUInteger = msg![env; string length];
+    for i in 0..length {
+        let c = msg![env; string characterAtIndex:i];
+        env.objc.borrow_mut::<CharacterSetHostObject>(this).set.insert(c);
+    }
 }
 
 @end

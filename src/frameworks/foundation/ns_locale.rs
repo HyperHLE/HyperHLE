@@ -131,6 +131,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         new_locale
     }
 }
++ (id)autoupdatingCurrentLocale {
+    // TODO: autoupdating part
+    msg![env; this currentLocale]
+}
 
 + (id)systemLocale {
     if let Some(locale) = State::get(env).system_locale {

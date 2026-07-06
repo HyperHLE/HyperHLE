@@ -22,7 +22,7 @@ use crate::{
     window,
 };
 use std::cell::Cell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
@@ -46,6 +46,8 @@ pub struct Thread {
     /// If this is not [ThreadBlock::NotBlocked], the thread is not executing
     /// until a certain condition is fufilled.
     pub blocked_by: ThreadBlock,
+    /// Container for thread local state of various child modules
+    pub framework_state: frameworks::ThreadLocalState,
     /// After a secondary thread finishes, this is set to the returned value.
     return_value: Option<MutVoidPtr>,
     /// Context object containing the CPU state for this thread.
@@ -372,10 +374,21 @@ impl Environment {
         let mut mem = mem::Mem::new();
 
         let is_spore = bundle.bundle_identifier().starts_with("com.ea.spore");
+        let is_critter_crunch = bundle
+            .bundle_identifier()
+            .starts_with("com.capybaragames.CritterCrunch")
+            || bundle
+                .bundle_identifier()
+                .starts_with("com.go.starwave.CritterCrunch");
         // We always reset this flag depending on which game is launched.
-        mem.zero_memory_on_free = !is_spore;
+        mem.zero_memory_on_free = !is_spore && !is_critter_crunch;
         if is_spore {
             log!("Applying game-specific hack for Spore Origins: zeroing memory on alloc instead of free.");
+        }
+        if is_critter_crunch {
+            // Without this hack, every time a critter 'explodes',
+            // the game crashes with a null page access error.
+            log!("Applying game-specific hack for Critter Crunch: zeroing memory on alloc instead of free.");
         }
         let executable = mach_o::MachO::load_from_file(
             bundle.executable_path(),
@@ -403,6 +416,18 @@ impl Environment {
                         // We build `libz` from sources with our OSS toolchain,
                         // the base address is already set and sliding is not
                         // needed.
+                        0
+                    }
+                    "libsqlite3.dylib" | "libsqlite3.0.dylib" => {
+                        // We build `libsqlite3` from sources with our OSS
+                        // toolchain, the base address is already set and
+                        // sliding is not needed.
+                        0
+                    }
+                    "libxml2.2.dylib" | "libxml2.dylib" | "libxml2.2.7.8.dylib" => {
+                        // We build `libxml2` from sources with our OSS
+                        // toolchain, the base address is already set and
+                        // sliding is not needed.
                         0
                     }
                     _ => unimplemented!("Unknown binary slide for {}", name),
@@ -460,6 +485,54 @@ impl Environment {
                     // will try to poke the top of the stack, so we'll give
                     // it some room.
                     env.cpu.regs_mut()[Cpu::SP] = 0xFFFFF000;
+
+                    // Call `+load` method on classes where it's defined.
+                    // TODO: `+load` methods from our image should take priority
+                    // over frameworks ones.
+                    // TODO: a category `+load` method should be called after
+                    // the class's own +load method.
+                    // Note: `+load` is sent without triggering `+initialize`,
+                    // matching the runtime's guarantee that `+load` runs first.
+                    let mut to_be_loaded = Vec::new();
+                    let mut processed = HashSet::new();
+                    let load_sel: objc::SEL = env
+                        .objc
+                        .register_host_selector("load".to_string(), &mut env.mem);
+                    for (class_name, &class) in env.objc.all_classes() {
+                        if processed.contains(&class) {
+                            continue;
+                        }
+                        if env.objc.is_unimplemented_class(class) || env.objc.is_fake_class(class) {
+                            continue;
+                        }
+                        if env
+                            .objc
+                            .object_has_uninherited_method(&env.mem, class, load_sel)
+                        {
+                            log_dbg!("Calling +load on inheritance chain of {} class", class_name);
+                            let mut inherited = Vec::new();
+                            let mut curr_class = class;
+                            while curr_class != objc::nil
+                                && !env.objc.is_unimplemented_class(curr_class)
+                                && !env.objc.is_fake_class(curr_class)
+                            {
+                                if !processed.contains(&curr_class)
+                                    && env.objc.object_has_uninherited_method(
+                                        &env.mem, curr_class, load_sel,
+                                    )
+                                {
+                                    inherited.push(curr_class);
+                                    processed.insert(curr_class);
+                                }
+                                curr_class = env.objc.get_superclass(curr_class);
+                            }
+                            to_be_loaded.extend(inherited.into_iter().rev());
+                        }
+                    }
+                    for &class in &to_be_loaded {
+                        () = objc::msg_send_no_initialize(env, (class, load_sel));
+                    }
+
                     // Static initializers for libraries must be run before
                     // the initializer in the app binary.
                     for bin_idx in env.get_sorted_bin_indices().unwrap() {
@@ -542,6 +615,7 @@ impl Environment {
             guest_context: None,
             host_context: Some(main_thread_init_routine),
             stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=0u32.wrapping_sub(1)),
+            framework_state: Default::default(),
         };
 
         let mut env = Environment {
@@ -676,6 +750,7 @@ impl Environment {
             guest_context: None,
             host_context: None,
             stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=0u32.wrapping_sub(1)),
+            framework_state: Default::default(),
         };
 
         let mut env = Environment {
@@ -990,6 +1065,7 @@ impl Environment {
             guest_context: Some(Box::new(cpu::CpuContext::new())),
             host_context: Some(thread_routine),
             stack: Some(stack_alloc.to_bits()..=(stack_high_addr - 1)),
+            framework_state: Default::default(),
         });
 
         let new_thread_id = self.threads.len() - 1;
@@ -997,6 +1073,11 @@ impl Environment {
         log_dbg!("Created new thread {} with stack {:#x}–{:#x}, will execute function {:?} with data {:?}", new_thread_id, stack_alloc.to_bits(), (stack_high_addr - 1), start_routine, user_data);
 
         new_thread_id
+    }
+
+    #[allow(unused)]
+    pub fn get_tl_framework_state(&mut self) -> &mut frameworks::ThreadLocalState {
+        &mut self.threads[self.current_thread].framework_state
     }
 
     /// Put the current thread to sleep for some duration, running other threads

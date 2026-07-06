@@ -860,10 +860,12 @@ pub fn handle_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
         }
     }
 
-    let state = State::get(&mut env.framework_state);
-
-    let host_object = state.audio_queues.get_mut(&in_aq).unwrap();
-    host_object.is_running_handler = false;
+    if let Some(host_object) = State::get(&mut env.framework_state)
+        .audio_queues
+        .get_mut(&in_aq)
+    {
+        host_object.is_running_handler = false;
+    }
 }
 
 fn AudioQueuePrime(

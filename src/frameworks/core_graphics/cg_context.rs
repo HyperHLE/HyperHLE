@@ -16,7 +16,7 @@ use super::cg_color_space::{
 use super::cg_font::{CGFontHostObject, CGFontRef, CGFontRelease, CGFontRetain, CGGlyph};
 use super::cg_geometry::CGPointZero;
 use super::cg_image::CGImageRef;
-use super::{cg_bitmap_context, cg_color, CGFloat, CGRect, CGSize};
+use super::{cg_bitmap_context, cg_color, CGFloat, CGPoint, CGRect, CGSize};
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
 use crate::frameworks::uikit;
@@ -38,6 +38,7 @@ pub const kCGBlendModeScreen: CGBlendMode = 2;
 pub const kCGBlendModeOverlay: CGBlendMode = 3;
 pub const kCGBlendModeDarken: CGBlendMode = 4;
 pub const kCGBlendModeLighten: CGBlendMode = 5;
+pub const kCGBlendModeCopy: CGBlendMode = 17;
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -314,6 +315,14 @@ fn CGContextSetAllowsAntialiasing(_env: &mut Environment, context: CGContextRef,
     );
 }
 
+fn CGContextSetShouldSmoothFonts(_env: &mut Environment, context: CGContextRef, should: bool) {
+    log!(
+        "TODO: CGContextSetShouldSmoothFonts({:?}, {})",
+        context,
+        should
+    );
+}
+
 fn CGContextSetFont(env: &mut Environment, context: CGContextRef, font: CGFontRef) {
     CGFontRetain(env, font);
     let old_font = env.objc.borrow_mut::<CGContextHostObject>(context).font;
@@ -390,6 +399,35 @@ fn CGContextShowGlyphsAtPoint(
     );
 }
 
+fn CGContextShowGlyphsAtPositions(
+    env: &mut Environment,
+    context: CGContextRef,
+    glyphs: ConstPtr<CGGlyph>,
+    positions: ConstPtr<CGPoint>,
+    count: GuestUSize,
+) {
+    let text_transform = env
+        .objc
+        .borrow::<CGContextHostObject>(context)
+        .text_transform
+        .unwrap_or(CGAffineTransformIdentity);
+    assert!(text_transform.tx == 0.0 && text_transform.ty == 0.0); // TODO
+
+    for i in 0..count {
+        let glyph_ptr = glyphs + i;
+        let point = env.mem.read(positions + i);
+        let transformed_point = text_transform.apply_to_point(point);
+        CGContextShowGlyphsAtPoint(
+            env,
+            context,
+            transformed_point.x,
+            transformed_point.y,
+            glyph_ptr,
+            1,
+        );
+    }
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextRetain(_)),
     export_c_func!(CGContextRelease(_)),
@@ -414,9 +452,11 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextRestoreGState(_)),
     export_c_func!(CGContextSetInterpolationQuality(_, _)),
     export_c_func!(CGContextSetAllowsAntialiasing(_, _)),
+    export_c_func!(CGContextSetShouldSmoothFonts(_, _)),
     export_c_func!(CGContextSetFont(_, _)),
     export_c_func!(CGContextSetFontSize(_, _)),
     export_c_func!(CGContextSetTextDrawingMode(_, _)),
     export_c_func!(CGContextSetTextMatrix(_, _)),
     export_c_func!(CGContextShowGlyphsAtPoint(_, _, _, _, _)),
+    export_c_func!(CGContextShowGlyphsAtPositions(_, _, _, _)),
 ];

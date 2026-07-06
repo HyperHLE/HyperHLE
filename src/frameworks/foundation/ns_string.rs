@@ -279,8 +279,16 @@ pub fn with_format(env: &mut Environment, format: id, args: VaList) -> String {
         },
         args,
     );
-    // TODO: what if it's not valid UTF-8?
-    String::from_utf8(res).unwrap()
+    match String::from_utf8_lossy(&res) {
+        Cow::Borrowed(str) => str.to_owned(),
+        Cow::Owned(string) => {
+            // TODO: Support UTF-16 printf directly
+            log!(
+                "Warning: invalid UTF-8 sequence replaced with U+FFFD in UTF-16 string formatting"
+            );
+            string
+        }
+    }
 }
 
 pub fn from_rust_ordering(ordering: std::cmp::Ordering) -> NSComparisonResult {
@@ -358,6 +366,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     let new: id = msg![env; new initWithContentsOfFile:path
                                               encoding:encoding
                                                  error:error];
+    autorelease(env, new)
+}
+
++ (id)stringWithContentsOfURL:(id)url // NSURL*
+                     encoding:(NSStringEncoding)encoding
+                         error:(MutPtr<id>)error { // NSError**
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithContentsOfURL:url
+                                             encoding:encoding
+                                                error:error];
     autorelease(env, new)
 }
 
@@ -526,6 +544,19 @@ pub const CLASSES: ClassExports = objc_classes! {
             }
         },
         _ => unimplemented!("options {}", options)
+    }
+    NSRange { location: NSNotFound as NSUInteger, length: 0 }
+}
+
+- (NSRange)rangeOfCharacterFromSet:(id)set { // NSCharacterSet *
+    let length: NSUInteger = msg![env; this length];
+    let mut idx: NSUInteger = 0;
+    while idx < length {
+        let c: u16 = msg![env; this characterAtIndex:idx];
+        if msg![env; set characterIsMember:c] {
+            return NSRange { location: idx, length: 1 };
+        }
+        idx += 1;
     }
     NSRange { location: NSNotFound as NSUInteger, length: 0 }
 }
@@ -1403,15 +1434,27 @@ pub const CLASSES: ClassExports = objc_classes! {
     let path = to_rust_string(env, path);
     let Ok(bytes) = env.fs.read(GuestPath::new(&path)) else {
         assert!(error.is_null()); // TODO: error handling
+        release(env, this);
         return nil;
     };
 
     // TODO: error handling for encoding
     let host_object = StringHostObject::decode(Cow::Owned(bytes), encoding);
-
     *env.objc.borrow_mut(this) = host_object;
-
     this
+}
+
+- (id)initWithContentsOfURL:(id)url // NSURL*
+                    encoding:(NSStringEncoding)encoding
+                       error:(MutPtr<id>)error { // NSError**
+    let data: id = msg_class![env; NSData dataWithContentsOfURL:url];
+    if data == nil {
+        assert!(error.is_null()); // TODO: error handling
+        release(env, this);
+        return nil;
+    }
+    // TODO: error handling for encoding
+    msg![env; this initWithData:data encoding:encoding]
 }
 
 - (bool)isAbsolutePath {

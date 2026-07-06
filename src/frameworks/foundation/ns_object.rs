@@ -241,6 +241,13 @@ forUndefinedKey:(id)key { // NSString*
         env.objc.debug_all_class_ivars_as_strings(class).join(", "));
 }
 
+- (())willChangeValueForKey:(id)_key { // NSString *
+    log_once!("TODO: NSObject willChangeValueForKey:");
+}
+- (())didChangeValueForKey:(id)_key { // NSString *
+    log_once!("TODO: NSObject didChangeValueForKey:");
+}
+
 - (bool)respondsToSelector:(SEL)selector {
     env.objc.object_has_method(&env.mem, this, selector)
 }

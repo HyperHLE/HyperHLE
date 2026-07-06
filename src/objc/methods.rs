@@ -159,6 +159,12 @@ impl ObjC {
         }
     }
 
+    /// Variant of `class_has_method` which doesn't account for inheritance.
+    pub fn class_has_uninherited_method(&self, class: Class, sel: SEL) -> bool {
+        let ClassHostObject { methods, .. } = self.borrow(class);
+        methods.contains_key(&sel)
+    }
+
     pub fn class_get_method_signature(&self, class: Class, sel: SEL) -> Option<&ConstPtr<u8>> {
         // TODO: support `host` method signatures
         let mut class = class;
@@ -192,6 +198,11 @@ impl ObjC {
     /// Checks if a given object has a method (responds to a selector).
     pub fn object_has_method(&self, mem: &Mem, obj: id, sel: SEL) -> bool {
         self.class_has_method(ObjC::read_isa(obj, mem), sel)
+    }
+
+    /// Variant of `object_has_method` which doesn't account for inheritance.
+    pub fn object_has_uninherited_method(&self, mem: &Mem, obj: id, sel: SEL) -> bool {
+        self.class_has_uninherited_method(ObjC::read_isa(obj, mem), sel)
     }
 
     #[allow(dead_code)]

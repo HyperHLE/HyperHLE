@@ -10,8 +10,9 @@ use super::cg_color_space::{
     kCGColorSpaceGenericGray, kCGColorSpaceGenericRGB, CGColorSpaceHostObject, CGColorSpaceRef,
 };
 use super::cg_context::{
-    kCGBlendModeDarken, kCGBlendModeLighten, kCGBlendModeMultiply, kCGBlendModeNormal,
-    kCGBlendModeScreen, CGBlendMode, CGContextHostObject, CGContextRef, CGContextSubclass,
+    kCGBlendModeCopy, kCGBlendModeDarken, kCGBlendModeLighten, kCGBlendModeMultiply,
+    kCGBlendModeNormal, kCGBlendModeScreen, CGBlendMode, CGContextHostObject, CGContextRef,
+    CGContextSubclass,
 };
 use super::cg_image::{
     self, kCGBitmapAlphaInfoMask, kCGBitmapByteOrderMask, kCGImageAlphaFirst, kCGImageAlphaLast,
@@ -247,6 +248,9 @@ fn blend_premultiplied(
     fg: (f32, f32, f32, f32),
     blend_mode: CGBlendMode,
 ) -> (f32, f32, f32, f32) {
+    if blend_mode == kCGBlendModeCopy {
+        return fg;
+    }
     // Blend
     let blend_res = match blend_mode {
         kCGBlendModeNormal => (bg.3 * fg.0, bg.3 * fg.1, bg.3 * fg.2),

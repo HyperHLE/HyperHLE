@@ -13,7 +13,7 @@ env:
 jobs:
   build-osx:
 
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       # actions/checkout really doesn't work well with git-describe for some
@@ -191,7 +191,7 @@ jobs:
 
   build-win:
 
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
     # actions/checkout really doesn't work well with git-describe for some

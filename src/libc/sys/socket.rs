@@ -273,6 +273,40 @@ fn setsockopt(
     0 // Success
 }
 
+fn getsockname(
+    env: &mut Environment,
+    socket: i32,
+    address: MutPtr<sockaddr>,
+    address_len: MutPtr<socklen_t>,
+) -> i32 {
+    // TODO: handle errno properly
+    set_errno(env, 0);
+
+    let Some(socket_host_object) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+    let type_ = socket_host_object.type_;
+    assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
+
+    assert!(socket_host_object.tcp_listener.is_none());
+    assert!(socket_host_object.pending_tcp_stream.is_none());
+
+    match socket_host_object.type_ {
+        SOCK_DGRAM => {
+            let udp_socket = socket_host_object.udp_socket.as_ref().unwrap();
+            let socket_addr = udp_socket.local_addr().unwrap();
+            let local_guest_addr = sockaddr::from_sockaddr_v4(&socket_addr);
+            assert_eq!(env.mem.read(address_len), guest_size_of::<sockaddr>());
+            env.mem.write(address, local_guest_addr);
+        }
+        SOCK_STREAM => unimplemented!(),
+        _ => unreachable!(),
+    }
+
+    0 // Success
+}
+
 fn bind(
     env: &mut Environment,
     socket: i32,
@@ -282,7 +316,10 @@ fn bind(
     // TODO: handle errno properly
     set_errno(env, 0);
 
-    let socket_host_object = State::get(env).sockets.get(&socket).unwrap();
+    let Some(socket_host_object) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
     let type_ = socket_host_object.type_;
     assert!(type_ == SOCK_STREAM || type_ == SOCK_DGRAM);
 
@@ -347,7 +384,11 @@ fn listen(env: &mut Environment, socket: i32, backlog: i32) -> i32 {
     // TODO: handle errno properly
     set_errno(env, 0);
 
-    let type_ = State::get(env).sockets.get(&socket).unwrap().type_;
+    let Some(socket_host_object) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+    let type_ = socket_host_object.type_;
     assert!(type_ == SOCK_STREAM);
 
     log!(
@@ -367,7 +408,11 @@ fn connect(
     // TODO: handle errno properly
     set_errno(env, 0);
 
-    let type_ = State::get(env).sockets.get(&socket).unwrap().type_;
+    let Some(socket_host_object) = State::get(env).sockets.get(&socket) else {
+        set_errno(env, EBADF);
+        return -1;
+    };
+    let type_ = socket_host_object.type_;
     assert!(type_ == SOCK_STREAM);
 
     assert_eq!(address_len, guest_size_of::<sockaddr>());
@@ -1044,6 +1089,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(ioctl(_, _, _)),
     export_c_func!(getsockopt(_, _, _, _, _)),
     export_c_func!(setsockopt(_, _, _, _, _)),
+    export_c_func!(getsockname(_, _, _)),
     export_c_func!(bind(_, _, _)),
     export_c_func!(listen(_, _)),
     export_c_func!(connect(_, _, _)),

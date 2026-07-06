@@ -203,6 +203,17 @@ SEL NSSelectorFromString(NSString *);
                     userInfo:(NSDictionary *)userInfo;
 @end
 
+@interface NSConditionLock : NSObject
+- (instancetype)initWithCondition:(NSInteger)condition;
+- (NSInteger)condition;
+- (void)lock;
+- (void)unlock;
+- (BOOL)tryLock;
+- (void)lockWhenCondition:(NSInteger)condition;
+- (BOOL)tryLockWhenCondition:(NSInteger)condition;
+- (void)unlockWithCondition:(NSInteger)condition;
+@end
+
 // Core Graphics
 
 // (See CGAffineTransform.c for where this define comes from.)
@@ -382,12 +393,29 @@ CFTimeInterval CACurrentMediaTime();
 - (void)setPosition:(CGPoint)position;
 - (CGRect)bounds;
 - (void)setBounds:(CGRect)bounds;
+- (CGRect)frame;
+- (void)setFrame:(CGRect)frame;
+- (CGColorRef)backgroundColor;
+- (void)setBackgroundColor:(CGColorRef)newColorRef;
 - (CGPoint)convertPoint:(CGPoint)point fromLayer:(CALayer *)layer;
 - (CGPoint)convertPoint:(CGPoint)point toLayer:(CALayer *)layer;
 - (CGRect)convertRect:(CGRect)point fromLayer:(CALayer *)layer;
 - (CGRect)convertRect:(CGRect)point toLayer:(CALayer *)layer;
 - (void)addAnimation:(CAAnimation *)anim forKey:(NSString *)key;
 - (void)removeAnimationForKey:(NSString *)key;
+@end
+@interface CATransaction : NSObject
++ (void)setValue:(id)value forKey:(NSString *)key;
++ (id)valueForKey:(NSString *)key;
++ (void)begin;
++ (void)commit;
++ (bool)disableActions;
++ (void)setDisableActions:(bool)flag;
++ (CFTimeInterval)animationDuration;
++ (void)setAnimationDuration:(CFTimeInterval)duration;
++ (id)animationTimingFunction;
++ (void)setAnimationTimingFunction:
+    (CAMediaTimingFunction *)animation_timing_function;
 @end
 
 // UIKit

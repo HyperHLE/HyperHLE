@@ -1099,10 +1099,10 @@ where
                 }
             }
             b's' => {
-                assert_eq!(max_width, 0);
                 assert!(length_modifier.is_none());
                 let orig_dst_ptr: MutPtr<u8> = args.next(env);
                 let mut dst_ptr: MutPtr<u8> = orig_dst_ptr;
+                let mut written = 0;
                 loop {
                     let x = getc_fn(env, subject, src_char_idx);
                     if x.is_err() {
@@ -1113,9 +1113,14 @@ where
                         if cc == b'\0' {
                             break;
                         }
+                        if max_width > 0 && written >= max_width {
+                            ungetc_fn(env, subject, cc);
+                            break;
+                        }
                         env.mem.write(dst_ptr, cc);
                         src_char_idx += 1;
                         dst_ptr += 1;
+                        written += 1;
                     } else {
                         ungetc_fn(env, subject, cc);
                         break;

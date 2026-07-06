@@ -200,12 +200,23 @@ impl Font {
             .glyph_hor_advance(owned_ttf_parser::GlyphId(glyph_id))
     }
 
+    pub fn glyph_bounding_box(&self, glyph_id: u16) -> Option<(i16, i16, i16, i16)> {
+        let rect = self
+            .as_face_ref()
+            .glyph_bounding_box(owned_ttf_parser::GlyphId(glyph_id));
+        rect.map(|rect| (rect.x_min, rect.y_min, rect.x_max, rect.y_max))
+    }
+
     pub fn italic_angle(&self) -> Option<f32> {
         self.as_face_ref().italic_angle()
     }
 
     pub fn table_data(&self, tag: u32) -> Option<&[u8]> {
         self.as_face_ref().table_data(owned_ttf_parser::Tag(tag))
+    }
+
+    pub fn number_of_glyphs(&self) -> u16 {
+        self.as_face_ref().number_of_glyphs()
     }
 
     fn line_height_and_gap(&self, font_size: f32) -> (f32, f32) {
@@ -383,7 +394,7 @@ impl Font {
     }
 
     /// Draw text. Calls the provided callback for each glyph that is to be
-    /// drawn. Assumes y starts at the bottom-left corner and points upwards.
+    /// drawn. Assumes y starts at the top-left corner and points downwards.
     /// Used by UIKit for font rendering.
     pub fn draw<F: FnMut(RasterGlyph)>(
         &self,
@@ -394,12 +405,9 @@ impl Font {
         alignment: TextAlignment,
         mut draw_glyph: F,
     ) {
-        // TODO: This code has gone through a rather traumatic series of y sign
-        //       flips and might benefit from refactoring for clarity?
-
         let lines = self.break_lines(font_size, text, wrap);
 
-        let mut line_y = self.v_metrics_scaled(font_size).ascent;
+        let mut baseline = origin.1 + self.v_metrics_scaled(font_size).ascent;
         let (line_height, line_gap) = self.line_height_and_gap(font_size);
 
         // RustType requires a "draw pixel" callback that will be called for
@@ -425,16 +433,12 @@ impl Font {
                 self.scale(font_size),
                 Point {
                     x: origin.0 + line_x_offset,
-                    y: 0.0,
+                    y: baseline,
                 },
             ) {
                 let Some(glyph_bounds) = glyph.pixel_bounding_box() else {
                     continue;
                 };
-                // y needs to be flipped to point up
-                let glyph_height = glyph_bounds.height();
-                let x_offset = glyph_bounds.min.x;
-                let y_offset = ((origin.1 + line_y).round() as i32) + glyph_bounds.max.y;
 
                 // TODO: Refactor this method to support y clipping too.
                 // It's not mandatory since the caller can do it, but it would
@@ -460,14 +464,14 @@ impl Font {
                 });
 
                 let raster_glyph = RasterGlyph {
-                    origin: (x_offset as f32, y_offset as f32 - glyph_height as f32),
-                    dimensions: (glyph_bitmap_bounds.0 as _, glyph_bitmap_bounds.1 as _),
+                    origin: (glyph_bounds.min.x as f32, glyph_bounds.min.y as f32),
+                    dimensions: (glyph_bitmap_bounds.0 as i32, glyph_bitmap_bounds.1 as i32),
                     pixels: &glyph_bitmap,
                 };
 
                 draw_glyph(raster_glyph);
             }
-            line_y += line_height + line_gap;
+            baseline += line_height + line_gap;
         }
     }
 

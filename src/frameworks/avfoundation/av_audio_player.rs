@@ -128,7 +128,13 @@ pub const CLASSES: ClassExports = objc_classes! {
             this
         }
         Err(_) => {
-            assert!(out_error.is_null()); // TODO
+            let domain = ns_string::get_static_str(env, NSOSStatusErrorDomain);
+            let error = msg_class![env; NSError alloc];
+            let code = -1; // TODO: set a proper code
+            let error = msg![env; error initWithDomain:domain code:code userInfo:nil];
+            autorelease(env, error);
+            env.mem.write(out_error, error);
+
             release(env, this);
             nil
         }
@@ -393,10 +399,8 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
         "_touchHLE_AVAudioPlayerOutputBufferHelper on object of class: {}",
         env.objc.get_class_name(class)
     );
-    assert_eq!(
-        class,
-        env.objc.get_known_class("AVAudioPlayer", &mut env.mem)
-    );
+    let audio_player_class = env.objc.get_known_class("AVAudioPlayer", &mut env.mem);
+    assert!(env.objc.class_is_subclass_of(class, audio_player_class));
 
     let &AVAudioPlayerHostObject {
         audio_file_id,

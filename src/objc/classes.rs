@@ -496,6 +496,11 @@ fn substitute_classes(
 }
 
 impl ObjC {
+    /// Iterator over all known classes and their names.
+    pub fn all_classes(&self) -> impl Iterator<Item = (&String, &Class)> {
+        self.classes.iter()
+    }
+
     fn get_class(&self, name: &str, is_metaclass: bool, mem: &Mem) -> Option<Class> {
         let class = self.classes.get(name).copied()?;
         Some(if is_metaclass {
@@ -976,6 +981,25 @@ impl ObjC {
         } else {
             None
         }
+    }
+
+    pub fn is_unimplemented_class(&self, class: Class) -> bool {
+        if class == nil {
+            return false;
+        }
+        let host_object = self.get_host_object(class).unwrap();
+        matches!(
+            host_object.as_any().downcast_ref(),
+            Some(UnimplementedClass { .. })
+        )
+    }
+
+    pub fn is_fake_class(&self, class: Class) -> bool {
+        if class == nil {
+            return false;
+        }
+        let host_object = self.get_host_object(class).unwrap();
+        matches!(host_object.as_any().downcast_ref(), Some(FakeClass { .. }))
     }
 }
 

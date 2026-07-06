@@ -337,6 +337,16 @@ fn CFStringGetBytes(
     length.try_into().unwrap()
 }
 
+fn CFStringGetFileSystemRepresentation(
+    env: &mut Environment,
+    string: CFStringRef,
+    buffer: MutPtr<u8>,
+    max_buflen: CFIndex,
+) -> bool {
+    let max_buflen: NSUInteger = max_buflen.try_into().unwrap();
+    msg![env; string getFileSystemRepresentation:buffer maxLength:max_buflen]
+}
+
 fn CFStringGetLength(env: &mut Environment, the_string: CFStringRef) -> CFIndex {
     let length: NSUInteger = msg![env; the_string length];
     length.try_into().unwrap()
@@ -458,6 +468,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFStringGetCStringPtr(_, _)),
     export_c_func!(CFStringGetCString(_, _, _, _)),
     export_c_func!(CFStringGetBytes(_, _, _, _, _, _, _, _)),
+    export_c_func!(CFStringGetFileSystemRepresentation(_, _, _)),
     export_c_func!(CFStringGetIntValue(_)),
     export_c_func!(CFStringGetLength(_)),
     export_c_func!(CFStringFind(_, _, _)),
