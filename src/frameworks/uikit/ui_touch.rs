@@ -50,137 +50,46 @@ pub(super) struct UITouchHostObject {
 }
 impl HostObject for UITouchHostObject {}
 
-fn touchhle_cocos_view_class_name(env: &mut Environment, view: id) -> String {
-    if view == nil { return String::new(); }
-    let view_class: crate::objc::Class = msg![env; view class];
-    env.objc.get_class_name(view_class).to_owned()
-}
-
-fn touchhle_cocos_is_gl_or_game_view_name(class_name: &str) -> bool {
-    matches!(
-        class_name,
-        "CCGLView" | "EAGLView" | "CCEAGLView" | "GLKView" |
-        "Cocos2dxGLView" | "Cocos2dView" | "DirectorView" | "CCUIViewWrapper"
-    ) || class_name.contains("EAGL")
-        || class_name.contains("GLView")
-        || class_name.contains("Cocos")
-        || class_name.contains("CCGL")
-        || class_name.contains("Unity")
-        || class_name.contains("UnityView")
-        || class_name.contains("UnityGLView")
-        || class_name.contains("UnityRenderingView")
-        || class_name.contains("RenderView")
-        || class_name.contains("GameView")
-        || class_name.contains("RootView")
-}
-
 fn touchhle_should_use_landscape_touch_remap(env: &Environment) -> bool {
     match env.bundle.bundle_identifier() {
         // Confirmed landscape Source/Cocos games.
-        "at.source.veggie1" | "at.source.potato3D" | "at.source.potpan" | "com.robtop.geometryjump" => true,
+        "at.source.veggie1" | "at.source.potato3D" | "at.source.potpan" => true,
 
         // TomatoZombie is native portrait.
         "at.source.tomzom" => false,
 
         // Manual override for testing.
-        _ => std::env::var_os("TOUCHHLE_TOUCH_LOCATION_PORTRAIT_TO_LANDSCAPE").is_some()
-            || std::env::var_os("TOUCHHLE_COCOS_TOUCH_REMAP").is_some()
-            || std::env::var_os("TOUCHHLE_UNITY_TOUCH_REMAP").is_some()
-            || std::env::var_os("TOUCHHLE_ENGINE_TOUCH_REMAP").is_some(),
+        _ => std::env::var_os("TOUCHHLE_TOUCH_LOCATION_PORTRAIT_TO_LANDSCAPE").is_some(),
     }
 }
+
 
 fn should_remap_touch_location_for_view(env: &mut Environment, view: id) -> bool {
-    if !touchhle_should_use_landscape_touch_remap(env) {
-        return false;
+    match env.bundle.bundle_identifier() {
+        // Confirmed/wip landscape Source/Cocos games.
+        "at.source.veggie1" | "at.source.potato3D" | "at.source.potpan" => return true,
+
+        // TomatoZombie is native portrait.
+        "at.source.tomzom" => return false,
+
+        _ => {}
     }
 
-    if view == nil { return false; }
-    let class_name = touchhle_cocos_view_class_name(env, view);
-    touchhle_cocos_is_gl_or_game_view_name(&class_name)
-}
-
-fn touchhle_cocos_target_size() -> (f32, f32) {
-    std::env::var("TOUCHHLE_COCOS_TOUCH_SIZE").or_else(|_| std::env::var("TOUCHHLE_UNITY_TOUCH_SIZE")).or_else(|_| std::env::var("TOUCHHLE_ENGINE_TOUCH_SIZE"))
-        .ok()
-        .and_then(|v| {
-            let mut parts = v.split(|c| c == 'x' || c == 'X' || c == ',');
-            let w = parts.next()?.trim().parse::<f32>().ok()?;
-            let h = parts.next()?.trim().parse::<f32>().ok()?;
-            Some((w, h))
-        })
-        .unwrap_or((480.0, 320.0))
-}
-
-fn touchhle_cocos_remap_point(env: &mut Environment, view: id, point: CGPoint) -> CGPoint {
-    let old_x = point.x;
-    let old_y = point.y;
-    let (target_w, target_h) = touchhle_cocos_target_size();
-    let mode = std::env::var("TOUCHHLE_TOUCH_MODE").unwrap_or_else(|_| {
-        match env.bundle.bundle_identifier() {
-            "at.source.veggie1" | "at.source.potato3D" | "at.source.potpan" | "com.robtop.geometryjump" => "scale".to_string(),
-            _ => std::env::var("TOUCHHLE_COCOS_TOUCH_MODE")
-                .or_else(|_| std::env::var("TOUCHHLE_UNITY_TOUCH_MODE"))
-                .or_else(|_| std::env::var("TOUCHHLE_ENGINE_TOUCH_MODE"))
-                .unwrap_or_else(|_| "scale".to_string()),
-        }
-    });
-
-    let source_bounds: CGRect = if view != nil {
-        msg![env; view bounds]
-    } else {
-        CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: crate::frameworks::core_graphics::CGSize { width: 320.0, height: 480.0 } }
-    };
-    let source_w = if source_bounds.size.width.abs() > 0.001 { source_bounds.size.width.abs() } else { 320.0 };
-    let source_h = if source_bounds.size.height.abs() > 0.001 { source_bounds.size.height.abs() } else { 480.0 };
-
-    let (mut new_x, mut new_y) = match mode.as_str() {
-        "identity" | "none" => (old_x, old_y),
-        "right" => (old_y * (target_w / source_h), target_h - old_x * (target_h / source_w)),
-        "right-flip-x" => (target_w - old_y * (target_w / source_h), target_h - old_x * (target_h / source_w)),
-        "left" => (target_w - old_y * (target_w / source_h), old_x * (target_h / source_w)),
-        "left-flip-x" => (old_y * (target_w / source_h), old_x * (target_h / source_w)),
-        "flip-x" => (target_w - old_x * (target_w / source_w), old_y * (target_h / source_h)),
-        "flip-y" => (old_x * (target_w / source_w), target_h - old_y * (target_h / source_h)),
-        "scale-1024x768" => (old_x * (1024.0 / source_w), old_y * (768.0 / source_h)),
-        "scale-480x320" | "scale" | _ => (old_x * (target_w / source_w), old_y * (target_h / source_h)),
-    };
-
-    if let Ok(offset) = std::env::var("TOUCHHLE_TOUCH_LOCATION_X_OFFSET") {
-        if let Ok(offset) = offset.parse::<f32>() { new_x += offset; }
-    }
-    if let Ok(offset) = std::env::var("TOUCHHLE_TOUCH_LOCATION_Y_OFFSET") {
-        if let Ok(offset) = offset.parse::<f32>() { new_y += offset; }
-    }
-
-    if std::env::var_os("TOUCHHLE_COCOS_NO_TOUCH_CLAMP").is_none() {
-        new_x = new_x.clamp(0.0, (target_w - 1.0).max(0.0));
-        new_y = new_y.clamp(0.0, (target_h - 1.0).max(0.0));
-    }
-
-    log_dbg!(
-        "UITouch Cocos remap mode={} source=({:.1}x{:.1}) target=({:.1}x{:.1}): ({:.1}, {:.1}) -> ({:.1}, {:.1})",
-        mode, source_w, source_h, target_w, target_h, old_x, old_y, new_x, new_y
-    );
-
-    CGPoint { x: new_x, y: new_y }
-}
-
-fn touchhle_cocos_should_allow_multitouch(env: &mut Environment, view: id) -> bool {
-    if std::env::var_os("TOUCHHLE_COCOS_FORCE_SINGLE_TOUCH").is_some()
-        || std::env::var_os("TOUCHHLE_UNITY_FORCE_SINGLE_TOUCH").is_some()
-        || std::env::var_os("TOUCHHLE_ENGINE_FORCE_SINGLE_TOUCH").is_some()
-    {
-        return false;
-    }
-    if std::env::var_os("TOUCHHLE_COCOS_FORCE_MULTITOUCH").is_some()
-        || std::env::var_os("TOUCHHLE_UNITY_FORCE_MULTITOUCH").is_some()
-        || std::env::var_os("TOUCHHLE_ENGINE_FORCE_MULTITOUCH").is_some()
-    {
+    if std::env::var_os("TOUCHHLE_TOUCH_LOCATION_PORTRAIT_TO_LANDSCAPE").is_some() {
         return true;
     }
-    let class_name = touchhle_cocos_view_class_name(env, view);
-    touchhle_cocos_is_gl_or_game_view_name(&class_name)
+
+    if view == nil {
+        return false;
+    }
+
+    let view_class: crate::objc::Class = msg![env; view class];
+    let class_name = env.objc.get_class_name(view_class);
+
+    matches!(
+        class_name,
+        "CCGLView" | "EAGLView" | "CCEAGLView" | "GLKView"
+    )
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -210,7 +119,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (CGPoint)locationInView:(id)that_view {
-    let &UITouchHostObject { location, window, view, .. } = env.objc.borrow(this);
+    let &UITouchHostObject { location, window, .. } = env.objc.borrow(this);
     let location_in_window: CGPoint = msg![env; window
         convertPoint:location fromWindow:nil];
     let mut result: CGPoint = if that_view == nil {
@@ -220,19 +129,87 @@ pub const CLASSES: ClassExports = objc_classes! {
         that_view convertPoint:location_in_window fromView:window]
     };
 
-    let remap_view = if that_view != nil { that_view } else { view };
-    if touchhle_should_use_landscape_touch_remap(env) || should_remap_touch_location_for_view(env, remap_view) {
+    if touchhle_should_use_landscape_touch_remap(env) {
         // Important: this happens AFTER UIKit hit-testing. The touch can still
-        // hit a portrait-sized EAGL/CCGL view, but the game can receive the
-        // Cocos/OpenGL coordinate system it expects.
-        result = touchhle_cocos_remap_point(env, remap_view, result);
+        // hit the 320x480 EAGLView, but the game receives a landscape-style
+        // 480x320 point from locationInView:, which is what PotatoGold's
+        // custom OpenGL menu widgets appear to expect.
+        let old_x = result.x;
+        let old_y = result.y;
+
+        // CaptainTomato / Cocos2D landscape fix.
+        // UIKit hit-testing sees a 320x480 portrait CCGLView, but the game's
+        // Cocos/OpenGL menu expects 480x320 landscape coordinates.
+        //
+        // Default to LandscapeRight. Set TOUCHHLE_TOUCH_LANDSCAPE_LEFT=1 if
+        // taps are mirrored to the wrong side.
+        // CaptainTomato fix:
+        // Do NOT rotate. UIKit gives 320x480-ish touch coords, while the game
+        // wants 480x320-ish coords. The image is already visually rotated by
+        // the emulator/window path, so a 90-degree touch rotation makes the
+        // speaker/pause button hit the play button.
+        let mode = std::env::var("TOUCHHLE_TOUCH_MODE").unwrap_or_else(|_| {
+            match env.bundle.bundle_identifier() {
+                // CaptainTomato's confirmed working mode.
+                "at.source.veggie1" => "scale".to_string(),
+
+                // Potato Story / Potato Panic use the same scale-only touch
+                // behavior class as CaptainTomato. Do not rotate; rotation
+                // makes buttons miss entirely.
+                "at.source.potato3D" | "at.source.potpan" => "scale".to_string(),
+
+                // Other remapped apps default to the old safe behavior.
+                _ => "scale".to_string(),
+            }
+        });
+
+        let (mut new_x, mut new_y) = match mode.as_str() {
+            // LandscapeRight: portrait window -> 480x320 landscape coords.
+            "right" => (old_y, 320.0 - old_x),
+
+            // Same rotation as right, but mirrored horizontally.
+            "right-flip-x" => (480.0 - old_y, 320.0 - old_x),
+
+            // LandscapeLeft, kept for quick testing if right is mirrored.
+            "left" => (480.0 - old_y, old_x),
+
+            // Confirmed CaptainTomato behavior.
+            "scale" | _ => (
+                old_x * (480.0 / 320.0),
+                old_y * (320.0 / 480.0),
+            ),
+        };
+
+        if let Ok(offset) = std::env::var("TOUCHHLE_TOUCH_LOCATION_X_OFFSET") {
+            if let Ok(offset) = offset.parse::<f32>() {
+                new_x += offset;
+            }
+        }
+        if let Ok(offset) = std::env::var("TOUCHHLE_TOUCH_LOCATION_Y_OFFSET") {
+            if let Ok(offset) = offset.parse::<f32>() {
+                new_y += offset;
+            }
+        }
+
+        log!(
+            "UITouch landscape remap: ({:.1}, {:.1}) -> ({:.1}, {:.1})",
+            old_x,
+            old_y,
+            new_x,
+            new_y
+        );
+
+        result = CGPoint {
+            x: new_x.clamp(0.0, 479.0),
+            y: new_y.clamp(0.0, 319.0),
+        };
     }
 
     result
 }
 
 - (CGPoint)previousLocationInView:(id)that_view {
-    let &UITouchHostObject { previous_location, window, view, .. } = env.objc.borrow(this);
+    let &UITouchHostObject { previous_location, window, .. } = env.objc.borrow(this);
     let location_in_window: CGPoint = msg![env; window
         convertPoint:previous_location fromWindow:nil];
     let mut result: CGPoint = if that_view == nil {
@@ -242,9 +219,47 @@ pub const CLASSES: ClassExports = objc_classes! {
         that_view convertPoint:location_in_window fromView:window]
     };
 
-    let remap_view = if that_view != nil { that_view } else { view };
-    if touchhle_should_use_landscape_touch_remap(env) || should_remap_touch_location_for_view(env, remap_view) {
-        result = touchhle_cocos_remap_point(env, remap_view, result);
+    if touchhle_should_use_landscape_touch_remap(env) {
+        let old_x = result.x;
+        let old_y = result.y;
+
+        // CaptainTomato / Cocos2D landscape fix.
+        // UIKit hit-testing sees a 320x480 portrait CCGLView, but the game's
+        // Cocos/OpenGL menu expects 480x320 landscape coordinates.
+        //
+        // Default to LandscapeRight. Set TOUCHHLE_TOUCH_LANDSCAPE_LEFT=1 if
+        // taps are mirrored to the wrong side.
+        // CaptainTomato fix:
+        // Do NOT rotate. UIKit gives 320x480-ish touch coords, while the game
+        // wants 480x320-ish coords. The image is already visually rotated by
+        // the emulator/window path, so a 90-degree touch rotation makes the
+        // speaker/pause button hit the play button.
+        let mut new_x = old_x * (480.0 / 320.0);
+        let mut new_y = old_y * (320.0 / 480.0);
+
+        if let Ok(offset) = std::env::var("TOUCHHLE_TOUCH_LOCATION_X_OFFSET") {
+            if let Ok(offset) = offset.parse::<f32>() {
+                new_x += offset;
+            }
+        }
+        if let Ok(offset) = std::env::var("TOUCHHLE_TOUCH_LOCATION_Y_OFFSET") {
+            if let Ok(offset) = offset.parse::<f32>() {
+                new_y += offset;
+            }
+        }
+
+        log!(
+            "UITouch landscape remap: ({:.1}, {:.1}) -> ({:.1}, {:.1})",
+            old_x,
+            old_y,
+            new_x,
+            new_y
+        );
+
+        result = CGPoint {
+            x: new_x.clamp(0.0, 479.0),
+            y: new_y.clamp(0.0, 319.0),
+        };
     }
 
     result
@@ -300,83 +315,6 @@ pub fn handle_event(env: &mut Environment, event: Event) {
             );
         }
     }
-}
-
-
-fn touchhle_cocos_touch_aliases_enabled(env: &mut Environment, view: id) -> bool {
-    if std::env::var_os("TOUCHHLE_DISABLE_COCOS_TOUCH_ALIASES").is_some() { return false; }
-    if std::env::var_os("TOUCHHLE_COCOS_TOUCH_ALIASES").is_some() { return true; }
-    let class_name = touchhle_cocos_view_class_name(env, view);
-    touchhle_cocos_is_gl_or_game_view_name(&class_name)
-        || class_name.starts_with("CC")
-        || class_name.contains("Layer")
-        || class_name.contains("Scene")
-        || class_name.contains("Menu")
-}
-
-fn touchhle_send_cocos_touch_aliases(env: &mut Environment, view: id, phase: &str, touches: id, event: id) {
-    if view == nil || !touchhle_cocos_touch_aliases_enabled(env, view) { return; }
-
-    let all_sel_name = match phase {
-        "began" => "ccTouchesBegan:withEvent:",
-        "moved" => "ccTouchesMoved:withEvent:",
-        "ended" => "ccTouchesEnded:withEvent:",
-        "cancelled" => "ccTouchesCancelled:withEvent:",
-        _ => return,
-    };
-    let one_sel_name = match phase {
-        "began" => "ccTouchBegan:withEvent:",
-        "moved" => "ccTouchMoved:withEvent:",
-        "ended" => "ccTouchEnded:withEvent:",
-        "cancelled" => "ccTouchCancelled:withEvent:",
-        _ => return,
-    };
-
-    let all_sel = env.objc.register_host_selector(all_sel_name.to_string(), &mut env.mem);
-    let responds_all: bool = msg![env; view respondsToSelector:all_sel];
-    if responds_all {
-        let _: () = msg_send_no_type_checking(env, (view, all_sel, touches, event));
-    }
-
-    let one_sel = env.objc.register_host_selector(one_sel_name.to_string(), &mut env.mem);
-    let responds_one: bool = msg![env; view respondsToSelector:one_sel];
-    if responds_one {
-        let arr: id = msg![env; touches allObjects];
-        let count: NSUInteger = msg![env; arr count];
-        if count > 0 {
-            let touch: id = msg![env; arr objectAtIndex:0];
-            if phase == "began" {
-                let _: u32 = msg_send_no_type_checking(env, (view, one_sel, touch, event));
-            } else {
-                let _: () = msg_send_no_type_checking(env, (view, one_sel, touch, event));
-            }
-        }
-    }
-}
-
-fn touchhle_send_cocos_touch_aliases_to_chain(env: &mut Environment, view: id, phase: &str, touches: id, event: id) {
-    let mut current = view;
-    let mut depth = 0;
-    while current != nil && depth < 32 {
-        touchhle_send_cocos_touch_aliases(env, current, phase, touches, event);
-        current = msg![env; current superview];
-        depth += 1;
-    }
-}
-
-fn touchhle_find_cocos_touch_target(env: &mut Environment, root: id) -> id {
-    if root == nil { return nil; }
-    let subviews: id = msg![env; root subviews];
-    if subviews != nil {
-        let count: NSUInteger = msg![env; subviews count];
-        for i in (0..count).rev() {
-            let child: id = msg![env; subviews objectAtIndex:i];
-            let found = touchhle_find_cocos_touch_target(env, child);
-            if found != nil { return found; }
-        }
-    }
-    let class_name = touchhle_cocos_view_class_name(env, root);
-    if touchhle_cocos_is_gl_or_game_view_name(&class_name) { root } else { nil }
 }
 
 fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
@@ -512,12 +450,8 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
         }
 
         if view == nil {
-            log_dbg!("SUPER HACK: hitTest failed, looking for Cocos/GL target before using window");
-            let cocos_target = touchhle_find_cocos_touch_target(env, window);
-            view = if cocos_target != nil { cocos_target } else { window };
-        } else if view == window {
-            let cocos_target = touchhle_find_cocos_touch_target(env, window);
-            if cocos_target != nil { view = cocos_target; }
+            log_dbg!("SUPER HACK: hitTest failed, forcing touch directly into the window");
+            view = window;
         } else {
             let f: CGRect = msg![env;
                 view frame];
@@ -536,7 +470,7 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
         }
 
         let is_multi_touch_enabled: bool = msg![env; view isMultipleTouchEnabled];
-        if !is_multi_touch_enabled && !touchhle_cocos_should_allow_multitouch(env, view)
+        if !is_multi_touch_enabled
             && (view_touches.contains_key(&view) || views_with_existing_touches.contains(&view))
         {
             let stuck: Vec<FingerId> = env
@@ -588,7 +522,6 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     for (view, v_set) in view_touches {
         let _: () = msg![env;
             view touchesBegan:v_set withEvent:event];
-        touchhle_send_cocos_touch_aliases_to_chain(env, view, "began", v_set, event);
     }
     release(env, pool);
 }
@@ -655,7 +588,6 @@ fn handle_touches_move(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     for (view, v_set) in view_touches {
         let _: () = msg![env;
             view touchesMoved:v_set withEvent:event];
-        touchhle_send_cocos_touch_aliases_to_chain(env, view, "moved", v_set, event);
     }
     release(env, pool);
 }
@@ -811,10 +743,8 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     for (view, v_set) in view_touches {
         let _: () = msg![env;
             view touchesEnded:v_set withEvent:event];
-        touchhle_send_cocos_touch_aliases_to_chain(env, view, "ended", v_set, event);
     }
     for (view, start, end) in swipe_candidates {
-        recognize_taps(env, view, start, end);
         recognize_swipes(env, view, start, end);
     }
 
@@ -826,48 +756,6 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     // ULTRAHLE_MINIONJUMP_DRAIN_POST_END
 
     release(env, pool);
-}
-
-
-fn recognize_taps(env: &mut Environment, view: id, start: CGPoint, end: CGPoint) {
-    const MAX_TAP_MOVE: f32 = 18.0;
-    let dx = end.x - start.x;
-    let dy = end.y - start.y;
-    if (dx * dx + dy * dy).sqrt() > MAX_TAP_MOVE { return; }
-
-    let mut current = view;
-    let mut depth = 0;
-    while current != nil && depth < 32 {
-        fire_matching_taps(env, current);
-        current = msg![env; current superview];
-        depth += 1;
-    }
-}
-
-fn fire_matching_taps(env: &mut Environment, view: id) {
-    let recognizers: id = msg![env; view gestureRecognizers];
-    if recognizers == nil { return; }
-    let count: NSUInteger = msg![env; recognizers count];
-    for i in 0..count {
-        let recognizer: id = msg![env; recognizers objectAtIndex:i];
-        if recognizer == nil { continue; }
-        let cls: crate::objc::Class = msg![env; recognizer class];
-        let class_name = env.objc.get_class_name(cls);
-        if !class_name.contains("TapGestureRecognizer") { continue; }
-        let enabled: bool = msg![env; recognizer isEnabled];
-        if !enabled { continue; }
-        {
-            let host = env
-                .objc
-                .borrow_mut::<UIGestureRecognizerHostObject>(recognizer);
-            host.state = UIGestureRecognizerStateRecognized;
-        }
-        fire_targets(env, recognizer);
-        let host = env
-            .objc
-            .borrow_mut::<UIGestureRecognizerHostObject>(recognizer);
-        host.state = UIGestureRecognizerStatePossible;
-    }
 }
 
 /// Minimal `UISwipeGestureRecognizer` support.

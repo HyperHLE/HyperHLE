@@ -166,7 +166,7 @@ fn pthread_attr_getstacksize(
     if attr.is_null() {
         return EINVAL;
     }
-    check_magic!(env, attr, MAGIC_ATTR);
+    check_magic!(env, attr, MAGIC_THREAD);
     let size = env.mem.read(attr).stacksize;
     env.mem.write(stacksize, size);
     0

@@ -437,36 +437,6 @@ pub trait GLES {
         // closest sensible behaviour available.
     }
 
-    /// `GL_OES_matrix_palette` / `GL_ARB_matrix_palette`.
-    /// Backends may override this to keep track of the current palette matrix
-    /// index; the default just accepts the call.
-    unsafe fn CurrentPaletteMatrixOES(&mut self, _matrixpaletteindex: GLuint) {
-        let _ = _matrixpaletteindex;
-    }
-    /// Copies the current model-view matrix into the current palette slot.
-    /// Backends may override this for real palette support.
-    unsafe fn LoadPaletteFromModelViewMatrixOES(&mut self) {}
-    /// `glMatrixIndexPointerOES` / `glMatrixIndexPointerARB`.
-    unsafe fn MatrixIndexPointerOES(
-        &mut self,
-        _size: GLint,
-        _type_: GLenum,
-        _stride: GLsizei,
-        _pointer: *const GLvoid,
-    ) {
-        let _ = (_size, _type_, _stride, _pointer);
-    }
-    /// `glWeightPointerOES` / `glWeightPointerARB`.
-    unsafe fn WeightPointerOES(
-        &mut self,
-        _size: GLint,
-        _type_: GLenum,
-        _stride: GLsizei,
-        _pointer: *const GLvoid,
-    ) {
-        let _ = (_size, _type_, _stride, _pointer);
-    }
-
     // Drawing
     unsafe fn DrawArrays(&mut self, _mode: GLenum, _first: GLint, _count: GLsizei) {
         unimplemented!("DrawArrays not implemented by this backend")

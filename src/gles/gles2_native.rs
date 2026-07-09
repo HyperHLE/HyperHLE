@@ -219,7 +219,9 @@ fn patch_shader_for_native_es2(
         if trimmed.starts_with("#version") && version_line.is_none() {
             version_line = Some(line.to_string());
         } else if trimmed.starts_with("#extension") {
+            // If the driver doesn't support texture_lod, strip that extension
             if !texture_lod_ext_supported && trimmed.contains("GL_EXT_shader_texture_lod") {
+                // Drop this line entirely
                 continue;
             }
             extension_lines.push(line.to_string());
@@ -240,6 +242,7 @@ fn patch_shader_for_native_es2(
         }
     }
 
+    // Reassemble: version, then extensions, then body.
     let mut out = String::with_capacity(source.len() + 64);
     if let Some(v) = &version_line {
         out.push_str(v);
@@ -257,6 +260,12 @@ fn patch_shader_for_native_es2(
         out.push('\n');
     }
 
+    // If the driver doesn't support GL_EXT_shader_texture_lod, replace
+    // texture2DLodEXT / texture2DProjLodEXT / textureCubeLodEXT calls.
+    // These functions take an extra LOD parameter that we drop:
+    //   texture2DLodEXT(sampler, coord, lod) -> texture2D(sampler, coord)
+    //   texture2DProjLodEXT(sampler, coord, lod) -> texture2DProj(sampler, coord)
+    //   textureCubeLodEXT(sampler, coord, lod) -> textureCube(sampler, coord)
     if !texture_lod_ext_supported {
         out = replace_texture_lod_ext_calls(&out);
     }
@@ -385,16 +394,6 @@ mod tests {
         let src = "#version 100\nvoid main() { gl_Position = vec4(1.0); }\n";
         let out = patch_shader_for_native_es2(src, true, false);
         assert!(!out.contains("precision"));
-    }
-
-    #[test]
-    fn hoists_extension_directives_before_body_code() {
-        let src = "#version 100\nvoid helper() {}\n#extension GL_OES_texture_3D : enable\nvoid main() { gl_FragColor = vec4(1.0); }\n";
-        let out = patch_shader_for_native_es2(src, true, false);
-        let ext_pos = out.find("#extension GL_OES_texture_3D : enable").unwrap();
-        let helper_pos = out.find("void helper()").unwrap();
-        assert!(ext_pos < helper_pos);
-        assert!(out.starts_with("#version 100\n#extension GL_OES_texture_3D : enable\n"));
     }
 }
 
@@ -933,56 +932,6 @@ impl GLES for GLES2Native<'_> {
     ) {
         gles2::RenderbufferStorage(target, internalformat, width, height)
     }
-    // GL_APPLE_framebuffer_multisample
-    //
-    // The canonical iOS EAGLView MSAA pattern allocates a multisample
-    // "sample" renderbuffer, renders into it, then resolves it into the
-    // single-sample "resolve" renderbuffer whose color storage is the
-    // CAEAGLLayer drawable, and finally calls `-presentRenderbuffer:`.
-    // Real iPhone OS ES 2.0 drivers expose this extension natively, and so
-    // do many Android GPUs (e.g. Adreno advertises
-    // GL_APPLE_framebuffer_multisample). When the host driver exports the
-    // native entry points we forward to them directly; otherwise we degrade
-    // gracefully so the app keeps running (see the generic-backend fallback
-    // in `gles_generic`).
-    unsafe fn RenderbufferStorageMultisampleAPPLE(
-        &mut self,
-        target: GLenum,
-        samples: GLsizei,
-        internalformat: GLenum,
-        width: GLsizei,
-        height: GLsizei,
-    ) {
-        if gles2::RenderbufferStorageMultisampleAPPLE::is_loaded() {
-            gles2::RenderbufferStorageMultisampleAPPLE(
-                target,
-                samples,
-                internalformat,
-                width,
-                height,
-            )
-        } else {
-            log_once!(
-                "RenderbufferStorageMultisampleAPPLE: host ES 2.0 driver lacks \
-                 GL_APPLE_framebuffer_multisample; using single-sample storage"
-            );
-            gles2::RenderbufferStorage(target, internalformat, width, height)
-        }
-    }
-    unsafe fn ResolveMultisampleFramebufferAPPLE(&mut self) {
-        if gles2::ResolveMultisampleFramebufferAPPLE::is_loaded() {
-            // The app has already bound the sample framebuffer to
-            // GL_READ_FRAMEBUFFER_APPLE and the resolve framebuffer to
-            // GL_DRAW_FRAMEBUFFER_APPLE; the driver does the resolve.
-            gles2::ResolveMultisampleFramebufferAPPLE()
-        } else {
-            log_once!(
-                "ResolveMultisampleFramebufferAPPLE: host ES 2.0 driver lacks \
-                 GL_APPLE_framebuffer_multisample; relying on the single-sample \
-                 fallback from RenderbufferStorageMultisampleAPPLE"
-            );
-        }
-    }
     unsafe fn FramebufferRenderbuffer(
         &mut self,
         target: GLenum,
@@ -1179,6 +1128,27 @@ impl GLES for GLES2Native<'_> {
             joined.push_str(&s);
         }
 
+        // Check if any patching is needed at all. If the shader has no
+        // extension directives and no texture*LodEXT calls, pass through
+        // unchanged for maximum fidelity.
+        let needs_ext_hoist = joined.contains("#extension")
+            && joined.lines().enumerate().any(|(i, line)| {
+                let trimmed = line.trim();
+                if !trimmed.starts_with("#extension") {
+                    return false;
+                }
+                // Check if there's a non-preprocessor, non-empty, non-comment
+                // line before this #extension
+                joined.lines().take(i).any(|prev| {
+                    let pt = prev.trim();
+                    !pt.is_empty() && !pt.starts_with('#') && !pt.starts_with("//")
+                })
+            });
+        let needs_lod_patch = !self.texture_lod_ext_supported
+            && (joined.contains("texture2DLodEXT")
+                || joined.contains("texture2DProjLodEXT")
+                || joined.contains("textureCubeLodEXT"));
+
         // GLSL ES fragment shaders have no default precision for `float`, so
         // strict drivers (e.g. AMD's native GLES) reject any fragment shader
         // that declares a float without a `precision ... float;` line. Real
@@ -1191,21 +1161,7 @@ impl GLES for GLES2Native<'_> {
         let needs_precision_inject = shader_type as GLenum == gles2::FRAGMENT_SHADER
             && !shader_has_default_float_precision(&joined);
 
-        // Patch whenever the shader carries any #extension directive (its
-        // placement relative to code is what strict drivers reject), needs a
-        // texture*LodEXT rewrite, or needs a default float precision. This is
-        // deliberately broad: real PowerVR SGX drivers tolerated late
-        // #extension lines and glued preprocessor tokens, but Adreno/Mali
-        // reject them, so we always normalize rather than trying to predict
-        // the exact offending arrangement.
-        let needs_lod_patch = !self.texture_lod_ext_supported
-            && (joined.contains("texture2DLodEXT")
-                || joined.contains("texture2DProjLodEXT")
-                || joined.contains("textureCubeLodEXT"));
-        let needs_patch =
-            joined.contains("#extension") || needs_lod_patch || needs_precision_inject;
-
-        if !needs_patch {
+        if !needs_ext_hoist && !needs_lod_patch && !needs_precision_inject {
             // No patching needed — pass through directly.
             gles2::ShaderSource(shader, count, string, length);
             return;

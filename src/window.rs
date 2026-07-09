@@ -176,52 +176,6 @@ impl DeviceFamily {
         }
     }
 
-    /// Amount of physical RAM (in bytes) the modelled device shipped with.
-    ///
-    /// Used by `NSProcessInfo.physicalMemory`, the `host_statistics`
-    /// VM page counts and the `hw.memsize` / `hw.physmem` sysctls so that
-    /// every memory-reporting API agrees with the chosen device family.
-    /// Reporting too little (the old code reported ~50 MiB regardless of
-    /// device) makes memory-budgeting engines such as Unreal Engine 3
-    /// (UDKGame / Batman: Arkham City Lockdown) compute a bogus pool size and
-    /// then attempt absurd allocations that fail, while reporting too much on
-    /// a 32-bit address space risks overflow.
-    /// Values come from Apple's published hardware specifications for each
-    /// model.
-    pub fn physical_memory(&self) -> u64 {
-        const MIB: u64 = 1024 * 1024;
-        match self {
-            // Early devices shipped with 128 MiB of RAM.
-            DeviceFamily::iPhone
-            | DeviceFamily::iPhone3G
-            | DeviceFamily::iPodTouch
-            | DeviceFamily::iPodTouch2
-            | DeviceFamily::iPodTouch3 => 128 * MIB,
-            // iPhone 3GS / 4, iPad 1, iPod touch 4 shipped with 256 MiB.
-            DeviceFamily::iPhone3GS
-            | DeviceFamily::iPhone4
-            | DeviceFamily::iPad
-            | DeviceFamily::iPodTouch4 => 256 * MIB,
-            // iPhone 4S / 5 / 5c, iPad 2/3/4/mini, iPod touch 5 shipped with
-            // 512 MiB.
-            DeviceFamily::iPhone4s
-            | DeviceFamily::iPhone5
-            | DeviceFamily::iPhone5c
-            | DeviceFamily::iPad2
-            | DeviceFamily::iPad3
-            | DeviceFamily::iPad4
-            | DeviceFamily::iPadMini
-            | DeviceFamily::iPodTouch5 => 512 * MIB,
-            // iPad 5 (2017) and the Retina iPad minis shipped with 1 GiB. We
-            // intentionally cap this at 1 GiB even though the address space is
-            // 4 GiB, leaving headroom for the guest heap, stacks and mapped
-            // libraries.
-            DeviceFamily::iPad5
-            | DeviceFamily::iPadMini2
-            | DeviceFamily::iPadMini3 => 1024 * MIB,
-        }
-    }
-
     /// Heuristically pick the emulated device family whose screen most closely
     /// matches an arbitrary host screen of `(width, height)` physical pixels.
     pub fn pick_for_screen(width: u32, height: u32) -> DeviceFamily {
@@ -603,12 +557,8 @@ impl Window {
             sdl2::hint::set("SDL_ANDROID_BLOCK_ON_PAUSE", "0");
         }
 
-        // Separate mouse and touch events in both SDL synthesis directions.
-        // SDL_TOUCH_MOUSE_EVENTS=0 stops touch input from also generating mouse input.
-        // SDL_MOUSE_TOUCH_EVENTS=0 stops mouse input from also generating touch input.
-        // Without both, one physical press can become two UIKit touches on some hosts.
+        // Separate mouse and touch events
         sdl2::hint::set("SDL_TOUCH_MOUSE_EVENTS", "0");
-        sdl2::hint::set("SDL_MOUSE_TOUCH_EVENTS", "0");
 
         // SDL2 disables the screen saver by default, but iPhone OS enables
         // the idle timer that triggers sleep by default, so we turn it back on

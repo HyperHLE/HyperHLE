@@ -36,22 +36,16 @@ const SYSTEM_CLOCK: clock_id_t = 0; // monotonic uptime
 const CALENDAR_CLOCK: clock_id_t = 1; // wall-clock (UTC)
 const REALTIME_CLOCK: clock_id_t = 2; // alias for SYSTEM_CLOCK on Darwin
 
-// Used in host_statistics function (returned in vm_statistics).
-// These are reported as a fraction of the device's physical memory so that
-// `host_statistics(HOST_VM_INFO)` agrees with `NSProcessInfo.physicalMemory`
-// and the `hw.memsize` sysctl. The previous code hardcoded counts taken from
-// an iPod touch 4 (≈50 MiB total), which under-reported RAM on every device
-// and confused memory-budgeting engines such as Unreal Engine 3.
-//
-// We model a freshly-launched device: roughly a quarter of RAM still free,
-// the rest accounted as wired/active. The exact split doesn't matter much —
-// only that free_count is non-trivial and the total matches physical memory.
+// Values taken from an iPod Touch 4 running iOS 6.1
+// Used in host_statistics function (returned in vm_statistics)
+// Also used to calcuate PHYSICAL_MEMORY (used by NSProcessInfo)
+const FREE_COUNT: natural_t = 12897;
+const ACTIVE_COUNT: natural_t = 0;
+const INACTIVE_COUNT: natural_t = 0;
+const WIRE_COUNT: natural_t = 0;
 
-/// Physical memory of the emulated device, in bytes. Mirrors what a real
-/// device reports through `NSProcessInfo.physicalMemory` and `hw.memsize`.
-pub fn physical_memory(env: &Environment) -> u64 {
-    env.window().device_family().physical_memory()
-}
+pub const PHYSICAL_MEMORY: natural_t =
+    (FREE_COUNT + ACTIVE_COUNT + INACTIVE_COUNT + WIRE_COUNT) * PAGE_SIZE;
 
 const HOST_VM_INFO: host_flavor_t = 2;
 
@@ -136,22 +130,13 @@ fn host_statistics(
         );
         return KERN_INVALID_ARGUMENT;
     }
-    let physical = physical_memory(env);
-    // `vm_statistics` reports page counts, not bytes. Convert and split the
-    // total across the buckets so they sum exactly to the physical page count
-    // (model a freshly-booted device with ~1/4 of RAM free).
-    let total_pages = (physical / PAGE_SIZE as u64) as natural_t;
-    let free_count = total_pages / 4;
-    let inactive_count = total_pages / 8;
-    let wire_count = total_pages / 4;
-    let active_count = total_pages - free_count - inactive_count - wire_count;
     env.mem.write(
         host_info_out.cast(),
         vm_statistics {
-            free_count,
-            active_count,
-            inactive_count,
-            wire_count,
+            free_count: FREE_COUNT,
+            active_count: ACTIVE_COUNT,
+            inactive_count: INACTIVE_COUNT,
+            wire_count: WIRE_COUNT,
             zero_fill_count: 0,
             reactivations: 0,
             pageins: 0,

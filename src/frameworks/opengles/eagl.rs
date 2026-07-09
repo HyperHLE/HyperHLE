@@ -996,23 +996,6 @@ unsafe fn present_renderbuffer_es2(
 
     gles.ActiveTexture(gles2::TEXTURE0);
     gles.BindTexture(gles2::TEXTURE_2D, present_objects.texture);
-    gles.BindBuffer(gles2::ARRAY_BUFFER, present_objects.quad_vbo);
-    #[rustfmt::skip]
-    let verts: [f32; 24] = [
-        // x, y, u, v
-        -1.0, -1.0, 0.0, 0.0,
-         1.0, -1.0, 1.0, 0.0,
-        -1.0,  1.0, 0.0, 1.0,
-         1.0, -1.0, 1.0, 0.0,
-         1.0,  1.0, 1.0, 1.0,
-        -1.0,  1.0, 0.0, 1.0,
-    ];
-    gles.BufferData(
-        gles2::ARRAY_BUFFER,
-        std::mem::size_of_val(&verts) as isize,
-        verts.as_ptr().cast(),
-        gles2::STREAM_DRAW,
-    );
     gles.CopyTexImage2D(gles2::TEXTURE_2D, 0, gles2::RGB, 0, 0, width, height, 0);
 
     gles.BindFramebuffer(gles2::FRAMEBUFFER, 0);
@@ -1092,12 +1075,18 @@ unsafe fn present_renderbuffer_es2(
         cols.as_ptr() as *const _,
     );
 
-    // The full-screen quad lives in `present_objects.quad_vbo`, uploaded
-    // above. Core-profile desktop GL (and the GL-on-Vulkan Zink driver used
-    // by Winlator on Android) reject client-side vertex arrays with
-    // GL_INVALID_OPERATION, so we must source the quad from a real buffer
-    // object — never from a host-memory pointer.
-    gles.BindBuffer(gles2::ARRAY_BUFFER, present_objects.quad_vbo);
+    // Pixel-coordinate quad covering the whole viewport.
+    #[rustfmt::skip]
+    let verts: [f32; 24] = [
+        // x, y, u, v
+        -1.0, -1.0, 0.0, 0.0,
+         1.0, -1.0, 1.0, 0.0,
+        -1.0,  1.0, 0.0, 1.0,
+         1.0, -1.0, 1.0, 0.0,
+         1.0,  1.0, 1.0, 1.0,
+        -1.0,  1.0, 0.0, 1.0,
+    ];
+    gles.BindBuffer(gles2::ARRAY_BUFFER, 0);
     gles.EnableVertexAttribArray(program.a_pos as _);
     gles.EnableVertexAttribArray(program.a_uv as _);
     gles.VertexAttribPointer(
@@ -1106,7 +1095,7 @@ unsafe fn present_renderbuffer_es2(
         gles2::FLOAT,
         gles2::FALSE,
         16,
-        std::ptr::null(),
+        verts.as_ptr() as *const _,
     );
     gles.VertexAttribPointer(
         program.a_uv as _,
@@ -1114,7 +1103,7 @@ unsafe fn present_renderbuffer_es2(
         gles2::FLOAT,
         gles2::FALSE,
         16,
-        8usize as *const _,
+        (verts.as_ptr() as *const u8).add(8) as *const _,
     );
     gles.DrawArrays(gles2::TRIANGLES, 0, 6);
 
@@ -1183,21 +1172,6 @@ unsafe fn present_renderbuffer_es2(
     if scissor_was_on {
         gles.Enable(gles2::SCISSOR_TEST);
     }
-
-    // The renderbuffer present is performed by us (the emulator), not by the
-    // guest app. On a real iPhone OS device the equivalent work happens
-    // inside `-[EAGLContext presentRenderbuffer:]` / the windowserver, behind
-    // a context the app never error-checks. Our present path runs in the
-    // *same* host GL context and therefore shares a single `glGetError` error
-    // queue with the guest. Any error our own present operations might queue
-    // (e.g. a benign INVALID_OPERATION from a strict desktop GL / Zink core
-    // profile that the guest's lenient iOS PowerVR/Adreno driver would never
-    // raise) would otherwise be read back by the guest's *next* GL call and
-    // misattributed to the app — this is exactly the per-frame
-    // `OpenGLES error 0x0502 in .../GlesHelper.mm` flood seen on Unity titles.
-    // Drain the queue so the guest only ever observes errors it actually
-    // caused, matching the real-device contract.
-    while gles.GetError() != 0 {}
 }
 
 #[derive(Copy, Clone)]
@@ -1222,7 +1196,6 @@ struct PresentProgram {
 struct PresentObjects {
     framebuffer: GLuint,
     texture: GLuint,
-    quad_vbo: GLuint,
 }
 
 thread_local! {
@@ -1359,8 +1332,6 @@ unsafe fn ensure_present_objects(gles: &mut dyn GLES) -> PresentObjects {
     gles.GenFramebuffers(1, &mut framebuffer);
     let mut texture: GLuint = 0;
     gles.GenTextures(1, &mut texture);
-    let mut quad_vbo: GLuint = 0;
-    gles.GenBuffers(1, &mut quad_vbo);
     gles.ActiveTexture(crate::gles::gles2_raw::TEXTURE0);
     gles.BindTexture(crate::gles::gles2_raw::TEXTURE_2D, texture);
     gles.TexParameteri(
@@ -1387,7 +1358,6 @@ unsafe fn ensure_present_objects(gles: &mut dyn GLES) -> PresentObjects {
     let result = PresentObjects {
         framebuffer,
         texture,
-        quad_vbo,
     };
     PRESENT_OBJECTS.with(|c| c.set(Some(result)));
     result

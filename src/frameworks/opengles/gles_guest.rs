@@ -403,12 +403,7 @@ fn glGetString(env: &mut Environment, name: GLenum) -> ConstPtr<GLubyte> {
             gles11::VENDOR => b"Imagination Technologies",
             gles11::RENDERER => b"PowerVR MBXLite with VGPLite",
             gles11::VERSION => b"OpenGL ES-CM 1.1 (76)",
-            // Includes GL_OES_matrix_palette: the real PowerVR SGX in the
-            // iPhone 3GS exposes it, and touchHLE now emulates palette
-            // skinning CPU-side (see gles1_on_gl2's skin_vertices). Games such
-            // as LEGO Ninjago: Rise of the Snakes feature-test this string and
-            // use the palette path for skinned character meshes.
-            gles11::EXTENSIONS => b"GL_APPLE_framebuffer_multisample GL_APPLE_texture_max_level GL_EXT_discard_framebuffer GL_EXT_texture_filter_anisotropic GL_EXT_texture_lod_bias GL_IMG_read_format GL_IMG_texture_compression_pvrtc GL_IMG_texture_format_BGRA8888 GL_OES_blend_subtract GL_OES_compressed_paletted_texture GL_OES_depth24 GL_OES_draw_texture GL_OES_framebuffer_object GL_OES_mapbuffer GL_OES_matrix_palette GL_OES_point_size_array GL_OES_point_sprite GL_OES_read_format GL_OES_rgb8_rgba8 GL_OES_texture_mirrored_repeat GL_OES_vertex_array_object ",
+            gles11::EXTENSIONS => b"GL_APPLE_framebuffer_multisample GL_APPLE_texture_max_level GL_EXT_discard_framebuffer GL_EXT_texture_filter_anisotropic GL_EXT_texture_lod_bias GL_IMG_read_format GL_IMG_texture_compression_pvrtc GL_IMG_texture_format_BGRA8888 GL_OES_blend_subtract GL_OES_compressed_paletted_texture GL_OES_depth24 GL_OES_draw_texture GL_OES_framebuffer_object GL_OES_mapbuffer GL_OES_point_size_array GL_OES_point_sprite GL_OES_read_format GL_OES_rgb8_rgba8 GL_OES_texture_mirrored_repeat GL_OES_vertex_array_object ",
             _ => b"Unknown",
         }
     } else {
@@ -1215,41 +1210,23 @@ fn glIsVertexArrayOES(env: &mut Environment, array: GLuint) -> GLboolean {
         }
     })
 }
-fn glCurrentPaletteMatrixOES(env: &mut Environment, matrixpaletteindex: GLuint) {
-    with_ctx_and_mem(env, |gles, _mem| unsafe {
-        gles.CurrentPaletteMatrixOES(matrixpaletteindex)
-    })
-}
-fn glLoadPaletteFromModelViewMatrixOES(env: &mut Environment) {
-    with_ctx_and_mem(env, |gles, _mem| unsafe {
-        gles.LoadPaletteFromModelViewMatrixOES()
-    })
-}
+fn glCurrentPaletteMatrixOES(_env: &mut Environment, _matrixpaletteindex: GLuint) {}
+fn glLoadPaletteFromModelViewMatrixOES(_env: &mut Environment) {}
 fn glMatrixIndexPointerOES(
-    env: &mut Environment,
-    size: GLint,
-    type_: GLenum,
-    stride: GLsizei,
-    pointer: ConstVoidPtr,
+    _env: &mut Environment,
+    _size: GLint,
+    _type_: GLenum,
+    _stride: GLsizei,
+    _pointer: ConstVoidPtr,
 ) {
-    with_ctx_and_mem(env, |gles, mem| unsafe {
-        let pointer =
-            translate_pointer_or_offset_to_host(gles, mem, pointer, gles11::ARRAY_BUFFER_BINDING);
-        gles.MatrixIndexPointerOES(size, type_, stride, pointer)
-    })
 }
 fn glWeightPointerOES(
-    env: &mut Environment,
-    size: GLint,
-    type_: GLenum,
-    stride: GLsizei,
-    pointer: ConstVoidPtr,
+    _env: &mut Environment,
+    _size: GLint,
+    _type_: GLenum,
+    _stride: GLsizei,
+    _pointer: ConstVoidPtr,
 ) {
-    with_ctx_and_mem(env, |gles, mem| unsafe {
-        let pointer =
-            translate_pointer_or_offset_to_host(gles, mem, pointer, gles11::ARRAY_BUFFER_BINDING);
-        gles.WeightPointerOES(size, type_, stride, pointer)
-    })
 }
 fn glGetBufferPointervOES(
     env: &mut Environment,
@@ -1276,17 +1253,7 @@ fn glGetBufferPointervOES(
 /// temporarily disable any whose pointer falls outside guest memory, restoring
 /// them after the draw. The draw then renders with default attribute values
 /// instead of taking the whole emulator down.
-///
-/// This guard relies on vertex-attrib query entry points that are not valid on
-/// native ES 1.1 backends. On real ES 1.1 drivers (e.g. Qualcomm Adreno) those
-/// queries return GL_INVALID_OPERATION and poison the error queue, so we only
-/// apply this on the GLES1-on-GL2 emulation backend where the queries are
-/// supported.
 unsafe fn guard_client_vertex_arrays(gles: &mut dyn GLES, mem: &Mem) -> Vec<GLuint> {
-    if gles.is_native_es1() {
-        return Vec::new();
-    }
-
     const VERTEX_ATTRIB_ARRAY_ENABLED: GLenum = 0x8622;
     const VERTEX_ATTRIB_ARRAY_BUFFER_BINDING: GLenum = 0x889F;
     const VERTEX_ATTRIB_ARRAY_POINTER: GLenum = 0x8645;
@@ -3179,38 +3146,6 @@ fn strip_captain_tomato_shader_precision(source: &str) -> String {
     lines.join("\n")
 }
 
-fn normalize_shader_preprocessor_whitespace(source: &str) -> String {
-    let mut out = String::with_capacity(source.len() + 32);
-    for (i, line) in source.split('\n').enumerate() {
-        if i > 0 {
-            out.push('\n');
-        }
-        let line = line.trim_end_matches('\r');
-        let trimmed_start = line.trim_start();
-        let is_directive = trimmed_start.starts_with('#');
-        if is_directive {
-            let comment_at = match (line.find("//"), line.find("/*")) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (Some(a), None) => Some(a),
-                (None, Some(b)) => Some(b),
-                (None, None) => None,
-            };
-            if let Some(comment_at) = comment_at {
-                let before = &line[..comment_at];
-                let comment = &line[comment_at..];
-                if !before.ends_with(' ') && !before.ends_with('\t') && !before.is_empty() {
-                    out.push_str(before.trim_end());
-                    out.push(' ');
-                    out.push_str(comment);
-                    continue;
-                }
-            }
-        }
-        out.push_str(line);
-    }
-    out
-}
-
 fn glShaderSource(
     env: &mut Environment,
     shader: GLuint,
@@ -3223,13 +3158,12 @@ fn glShaderSource(
     }
     // Copy each source string out of the guest's memory into a host-side
     // buffer so we can pass real host pointers to the GLES implementation.
-    // Concatenate first so preprocessor normalization can see directive
-    // boundaries that guest code split across multiple source strings.
-    let mut raw_source = Vec::<u8>::new();
+    let mut owned: Vec<std::ffi::CString> = Vec::with_capacity(count as usize);
     for i in 0..count {
         let str_ptr_ptr: ConstPtr<ConstPtr<GLubyte>> = string + (i as GuestUSize);
         let str_ptr: ConstPtr<GLubyte> = env.mem.read(str_ptr_ptr);
         if str_ptr.is_null() {
+            owned.push(std::ffi::CString::default());
             continue;
         }
         // Check if explicit lengths were provided.
@@ -3260,26 +3194,18 @@ fn glShaderSource(
                 .cstr_at_with_max_len(str_ptr, MAX_SHADER_SRC_LEN)
                 .to_vec()
         };
-        raw_source.extend_from_slice(&bytes_vec);
-    }
-    // Normalize shader text before sending it to the driver:
-    // 1. Fix up preprocessor-directive whitespace (see doc comment on
-    //    `normalize_shader_preprocessor_whitespace`) — real-world guest
-    //    shaders (e.g. Gameloft's "9mm") glue same-line comments
-    //    directly onto `#endif`/`#if`/`#elif` or use CRLF endings,
-    //    which real PowerVR SGX drivers tolerated but modern GLSL
-    //    compilers reject with "unexpected tokens following #endif".
-    // 2. Normalize GLES precision qualifiers for all Cocos2D shaders.
-    //    Fixes Mesa link failures like:
-    //    uniform `CC_PMatrix` declared as type `f16mat4` and type `mat4`.
-    let src = String::from_utf8_lossy(&raw_source);
-    let src = normalize_shader_preprocessor_whitespace(&src);
-    let bytes_vec = strip_captain_tomato_shader_precision(&src).into_bytes();
+        // Normalize GLES precision qualifiers for all Cocos2D shaders.
+        // Fixes Mesa link failures like:
+        // uniform `CC_PMatrix` declared as type `f16mat4` and type `mat4`.
+        let src = String::from_utf8_lossy(&bytes_vec);
+        let bytes_vec = strip_captain_tomato_shader_precision(&src).into_bytes();
 
-    let cs = std::ffi::CString::new(bytes_vec).unwrap_or_default();
-    let ptr = cs.as_ptr();
+        let cs = std::ffi::CString::new(bytes_vec).unwrap_or_default();
+        owned.push(cs);
+    }
+    let ptrs: Vec<*const std::os::raw::c_char> = owned.iter().map(|s| s.as_ptr()).collect();
     with_ctx_and_mem(env, |gles, _mem| unsafe {
-        gles.ShaderSource(shader, 1, &ptr, std::ptr::null());
+        gles.ShaderSource(shader, count, ptrs.as_ptr(), std::ptr::null());
     });
 }
 fn glEnableVertexAttribArray(env: &mut Environment, index: GLuint) {
@@ -5451,69 +5377,3 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glLabelObjectEXT(_, _, _, _)),
     export_c_func!(glGetObjectLabelEXT(_, _, _, _, _)),
 ];
-
-#[cfg(test)]
-mod shader_preprocessor_normalization_tests {
-    use super::normalize_shader_preprocessor_whitespace;
-
-    #[test]
-    fn inserts_space_before_comment_on_endif() {
-        let src = "#if defined(FOO)\nvoid main() {}\n#endif//comment\n";
-        let out = normalize_shader_preprocessor_whitespace(src);
-        assert!(out.contains("#endif //comment"));
-    }
-
-    #[test]
-    fn inserts_space_before_comment_on_if() {
-        let src = "#if defined(FOO)//bar\nvoid main() {}\n#endif\n";
-        let out = normalize_shader_preprocessor_whitespace(src);
-        assert!(out.contains("#if defined(FOO) //bar"));
-    }
-
-    #[test]
-    fn strips_stray_carriage_returns() {
-        let src = "#if defined(FOO)\r\nvoid main() {}\r\n#endif\r\n";
-        let out = normalize_shader_preprocessor_whitespace(src);
-        assert!(!out.contains('\r'));
-        assert!(out.contains("#if defined(FOO)"));
-        assert!(out.contains("#endif"));
-    }
-
-    #[test]
-    fn leaves_already_spaced_directives_unchanged() {
-        let src = "#if defined(FOO) // bar\nvoid main() {}\n#endif // baz\n";
-        let out = normalize_shader_preprocessor_whitespace(src);
-        assert_eq!(out, src.replace('\r', ""));
-    }
-
-    #[test]
-    fn does_not_touch_comments_in_body_code() {
-        let src = "void main() {\n  float x = 1.0;//no space needed here\n}\n";
-        let out = normalize_shader_preprocessor_whitespace(src);
-        assert_eq!(out, src);
-    }
-
-    #[test]
-    fn inserts_space_before_block_comment_on_directive() {
-        let src = "#endif/* trailing */\nvoid main() {}\n";
-        let out = normalize_shader_preprocessor_whitespace(src);
-        assert!(out.contains("#endif /* trailing */"));
-    }
-
-    #[test]
-    fn normalizes_directive_spanning_concatenated_source_strings() {
-        // Guest code often calls glShaderSource with count > 1, splitting the
-        // source into several strings. touchHLE concatenates them before
-        // normalization; verify that a directive whose trailing `//comment`
-        // only becomes adjacent *after* concatenation is still fixed up.
-        // Real case: Gameloft's "9mm" glues `#endif//...` at a chunk boundary,
-        // which real PowerVR SGX tolerated but desktop/Adreno GLSL rejects with
-        // "unexpected tokens following #endif".
-        let chunk_a = "#if defined(FOO)\nvoid main() {}\n#endif";
-        let chunk_b = "//trailing comment\n";
-        let joined = format!("{chunk_a}{chunk_b}");
-        let out = normalize_shader_preprocessor_whitespace(&joined);
-        assert!(out.contains("#endif //trailing comment"));
-        assert!(!out.contains("#endif//trailing comment"));
-    }
-}

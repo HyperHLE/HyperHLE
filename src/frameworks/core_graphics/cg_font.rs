@@ -102,7 +102,7 @@ fn font_from_name(env: &mut Environment, name: CFStringRef) -> id {
 // =========================================================================
 
 /// `CGFontRef CGFontCreateWithFontName(CFStringRef name)`
-pub fn CGFontCreateWithFontName(env: &mut Environment, name: CFStringRef) -> CGFontRef {
+fn CGFontCreateWithFontName(env: &mut Environment, name: CFStringRef) -> CGFontRef {
     let font = font_from_name(env, name);
     if font == nil {
         log!(

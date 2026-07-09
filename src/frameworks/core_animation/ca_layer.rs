@@ -633,26 +633,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         x: frame.origin.x + transformed_offset.x,
         y: frame.origin.y + transformed_offset.y,
     };
-    // The inverse-transform round-trip above accumulates floating-point
-    // error, so a frame whose origin/size are whole numbers can come back
-    // as e.g. 320.000031 instead of 320.0. Real iOS reports clean integer
-    // bounds back to apps that set integer frames; some games (e.g. Real
-    // Racing 3) compare the layer's bounds against their own integer screen
-    // size every frame and, on a mismatch, tear down and recreate their
-    // EAGL framebuffer — looping forever and never rendering. Snap values
-    // that are within a sub-pixel epsilon of an integer back to the exact
-    // integer to match Apple's observed behaviour and break the loop.
-    let new_position = CGPoint {
-        x: snap_near_integer(new_position.x),
-        y: snap_near_integer(new_position.y),
-    };
     () = msg![env; this setPosition:new_position];
     let new_bounds = CGRect {
         origin: CGPoint { x: 0.0, y: 0.0 },
-        size: CGSize {
-            width: snap_near_integer(transformed_size.width),
-            height: snap_near_integer(transformed_size.height),
-        },
+        size: transformed_size,
     };
     () = msg![env; this setBounds:new_bounds];
 }
@@ -1053,19 +1037,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// Project a `CGAffineTransform` (2x3 matrix used by `setAffineTransform:`)
 /// up into the equivalent `CATransform3D` used by `setTransform:`. This is
 /// the documented `CATransform3DMakeAffineTransform(t)` mapping.
-/// Snap a coordinate that is within a sub-pixel epsilon of a whole number
-/// back to that exact integer. Used to undo floating-point drift from the
-/// `setFrame:` -> bounds/position inverse-transform round-trip so that apps
-/// reading back integer geometry see clean values (matching real iOS).
-fn snap_near_integer(v: CGFloat) -> CGFloat {
-    let rounded = v.round();
-    if (v - rounded).abs() < 1.0e-3 {
-        rounded
-    } else {
-        v
-    }
-}
-
 fn affine_transform_to_catransform3d(t: CGAffineTransform) -> CATransform3D {
     CATransform3D::from_affine(t)
 }

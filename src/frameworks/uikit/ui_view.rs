@@ -92,7 +92,6 @@ pub(crate) struct UIViewHostObject {
     user_interaction_enabled: bool,
     multiple_touch_enabled: bool,
     exclusive_touch: bool,
-    content_scale_factor: CGFloat,
     delegate: id,
     animation_interval: f64,
     is_animating: bool,
@@ -146,7 +145,6 @@ impl Default for UIViewHostObject {
             user_interaction_enabled: true,
             multiple_touch_enabled: false,
             exclusive_touch: false,
-            content_scale_factor: 1.0,
             delegate: nil,
             animation_interval: 1.0 / 60.0,
             is_animating: false,
@@ -188,99 +186,26 @@ fn init_common(env: &mut Environment, this: id) -> id {
 }
 
 
-fn touchhle_cocos_view_class_name(env: &mut Environment, view: id) -> String {
-    if view == nil { return String::new(); }
-    let cls: crate::objc::Class = msg![env; view class];
-    env.objc.get_class_name(cls).to_owned()
-}
-
-fn touchhle_cocos_is_gl_or_game_view_name(class_name: &str) -> bool {
-    matches!(
-        class_name,
-        "CCGLView" | "CCEAGLView" | "EAGLView" | "GLKView" |
-        "Cocos2dxGLView" | "Cocos2dView" | "CCUIViewWrapper" | "DirectorView"
-    ) || class_name.contains("EAGL")
-        || class_name.contains("GLView")
-        || class_name.contains("Cocos")
-        || class_name.contains("CCGL")
-        || class_name.contains("Unity")
-        || class_name.contains("UnityView")
-        || class_name.contains("UnityGLView")
-        || class_name.contains("UnityRenderingView")
-        || class_name.contains("RenderView")
-        || class_name.contains("RootView")
-        || class_name.contains("GameView")
-}
-
-fn touchhle_cocos_landscape_rect(env: &Environment) -> CGRect {
-    let size = std::env::var("TOUCHHLE_COCOS_LANDSCAPE_SIZE").or_else(|_| std::env::var("TOUCHHLE_UNITY_LANDSCAPE_SIZE")).or_else(|_| std::env::var("TOUCHHLE_ENGINE_LANDSCAPE_SIZE"))
-        .ok()
-        .and_then(|v| {
-            let mut parts = v.split(|c| c == 'x' || c == 'X' || c == ',');
-            let w = parts.next()?.trim().parse::<f32>().ok()?;
-            let h = parts.next()?.trim().parse::<f32>().ok()?;
-            Some((w, h))
-        })
-        .unwrap_or_else(|| {
-            match env.bundle.bundle_identifier() {
-                // Existing known iPad-ish Cocos clones keep using their old safe size.
-                "com.apprisetec9.minionjump" | "com.risinghighapps.kingdomprincepro" => (1024.0, 768.0),
-                _ => (480.0, 320.0),
-            }
-        });
-    CGRect {
-        origin: CGPoint { x: 0.0, y: 0.0 },
-        size: CGSize { width: size.0, height: size.1 },
-    }
-}
-
-fn touchhle_cocos_should_force_landscape_view(env: &mut Environment, view: id) -> bool {
-    if view == nil { return false; }
-
-    let class_name = touchhle_cocos_view_class_name(env, view);
-    if !touchhle_cocos_is_gl_or_game_view_name(&class_name) && class_name != "UIWindow" {
-        return false;
-    }
-
-    if std::env::var_os("TOUCHHLE_COCOS_FORCE_LANDSCAPE_VIEW").is_some()
-        || std::env::var_os("TOUCHHLE_UNITY_FORCE_LANDSCAPE_VIEW").is_some()
-        || std::env::var_os("TOUCHHLE_ENGINE_FORCE_LANDSCAPE_VIEW").is_some()
-        || std::env::var_os("TOUCHHLE_FORCE_LANDSCAPE_VIEW_BOUNDS").is_some()
-    {
-        return true;
-    }
-
-    matches!(
+fn ultrahle_minionjump_force_landscape_ccglview(env: &mut Environment, this: id) -> bool {
+    if !matches!(
         env.bundle.bundle_identifier(),
         "com.apprisetec9.minionjump" | "com.risinghighapps.kingdomprincepro"
-    ) && class_name == "CCGLView"
-}
-
-fn touchhle_cocos_sanitize_rect(rect: CGRect) -> CGRect {
-    let mut r = rect;
-    if !r.origin.x.is_finite() { r.origin.x = 0.0; }
-    if !r.origin.y.is_finite() { r.origin.y = 0.0; }
-    if !r.size.width.is_finite() || r.size.width < 0.0 { r.size.width = 0.0; }
-    if !r.size.height.is_finite() || r.size.height < 0.0 { r.size.height = 0.0; }
-    r
-}
-
-fn touchhle_cocos_should_fuzz_hit_testing(env: &mut Environment, view: id) -> bool {
-    if std::env::var_os("TOUCHHLE_COCOS_STRICT_HITTEST").is_some() {
+    ) {
         return false;
     }
-    let class_name = touchhle_cocos_view_class_name(env, view);
-    touchhle_cocos_is_gl_or_game_view_name(&class_name)
-}
 
-fn ultrahle_minionjump_force_landscape_ccglview(env: &mut Environment, this: id) -> bool {
-    touchhle_cocos_should_force_landscape_view(env, this)
+    let cls: crate::objc::Class = msg![env; this class];
+    let class_name = env.objc.get_class_name(cls);
+    class_name == "CCGLView"
 }
 
 fn ultrahle_minionjump_landscape_rect() -> CGRect {
     CGRect {
         origin: CGPoint { x: 0.0, y: 0.0 },
-        size: CGSize { width: 1024.0, height: 768.0 },
+        size: CGSize {
+            width: 1024.0,
+            height: 768.0,
+        },
     }
 }
 
@@ -485,9 +410,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (())setAnimationRepeatCount:(f32)_count { }
 + (())setAnimationsEnabled:(f32)_enabled { }
 + (())setAnimationTransition:(NSInteger)_transition forView:(id)_view cache:(bool)_cache { }
-+ (())setAnimationStartDate:(id)_date { }
-+ (())setAnimationPosition:(CGPoint)_position { }
-+ (bool)areAnimationsEnabled { true }
 
 // MARK: - Block-based animation API (iOS 4+)
 //
@@ -823,10 +745,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)viewWithTag:(NSInteger)tag {
     let &UIViewHostObject { ref subviews, tag: view_tag, .. } = env.objc.borrow(this);
     if view_tag == tag { return this; }
-    let subviews = subviews.clone();
     for view in subviews {
-        let found: id = msg![env; view viewWithTag:tag];
-        if found != nil { return found; }
+        if env.objc.borrow::<UIViewHostObject>(*view).tag == tag { return *view; }
     }
     nil
 }
@@ -957,26 +877,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setShouldGroupAccessibilityChildren:(bool)should {
     env.objc.borrow_mut::<UIViewHostObject>(this).should_group_accessibility_children = should;
 }
-
-// Broad UIKit/Cocos compatibility. A lot of Cocos2D-era games call
-// these optional UIView hooks directly on their GL view subclasses. The default
-// UIView behavior is effectively no-op, but having the selectors prevents the
-// dynamic dispatcher from treating harmless lifecycle notifications as missing
-// methods.
-- (())willMoveToSuperview:(id)_newSuperview { }
-- (())didMoveToSuperview { }
-- (())willMoveToWindow:(id)_newWindow { }
-- (())didMoveToWindow { }
-- (())didAddSubview:(id)_subview { }
-- (())willRemoveSubview:(id)_subview { }
-- (())setNeedsDisplayOnBoundsChange:(bool)_flag { }
-- (bool)needsDisplayOnBoundsChange { false }
-- (())setAutoresizesLayer:(bool)_flag { }
-- (bool)autoresizesLayer { true }
-- (())setLayerContentsPlacement:(NSInteger)_placement { }
-- (NSInteger)layerContentsPlacement { 0 }
-- (())setLayerContentsRedrawPolicy:(NSInteger)_policy { }
-- (NSInteger)layerContentsRedrawPolicy { 0 }
 
 // `UIAccessibilityContainer` informal protocol — `UIView` returns
 // these no-op defaults in real iOS when nothing has been customised.
@@ -1335,28 +1235,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; layer insertSublayer:subview_layer atIndex:0u32];
 }
 
-- (())exchangeSubviewAtIndex:(NSInteger)index1 withSubviewAtIndex:(NSInteger)index2 {
-    let &mut UIViewHostObject { ref mut subviews, layer, .. } = env.objc.borrow_mut(this);
-    if index1 < 0 || index2 < 0 { return; }
-    let i1 = index1 as usize;
-    let i2 = index2 as usize;
-    if i1 >= subviews.len() || i2 >= subviews.len() || i1 == i2 { return; }
-    subviews.swap(i1, i2);
-
-    // Keep CALayer order roughly in sync. The exact UIKit implementation is
-    // more subtle, but rebuilding the sublayer order is enough for old Cocos
-    // menu stacks and avoids crashes from missing exchangeSubviewAtIndex:.
-    let ordered = subviews.clone();
-    for subview in &ordered {
-        let subview_layer = env.objc.borrow::<UIViewHostObject>(*subview).layer;
-        let _: () = msg![env; subview_layer removeFromSuperlayer];
-    }
-    for subview in &ordered {
-        let subview_layer = env.objc.borrow::<UIViewHostObject>(*subview).layer;
-        let _: () = msg![env; layer addSublayer:subview_layer];
-    }
-}
-
 - (())removeFromSuperview {
     let &mut UIViewHostObject { ref mut superview, layer: this_layer, .. } = env.objc.borrow_mut(this);
     let superview = std::mem::take(superview);
@@ -1454,15 +1332,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer setOpacity:alpha]
 }
 
-- (CGFloat)contentScaleFactor { env.objc.borrow::<UIViewHostObject>(this).content_scale_factor }
-- (())setContentScaleFactor:(CGFloat)scale {
-    let safe_scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
-    env.objc.borrow_mut::<UIViewHostObject>(this).content_scale_factor = safe_scale;
-    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    if let Some(sel) = env.objc.lookup_selector("setContentsScale:") {
-        let _: () = msg_send_no_type_checking(env, (layer, sel, safe_scale));
-    }
-}
+- (CGFloat)contentScaleFactor { 1.0 }
+- (())setContentScaleFactor:(CGFloat)_scale { }
 
 - (id)backgroundColor {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
@@ -1550,7 +1421,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer bounds]
 }
 - (())setBounds:(CGRect)bounds {
-    let mut bounds = touchhle_cocos_sanitize_rect(bounds);
+    let mut bounds = bounds;
 
     if std::env::var_os("TOUCHHLE_FORCE_LANDSCAPE_VIEW_BOUNDS").is_some() {
         let view_class: Class = msg![env; this class];
@@ -1590,7 +1461,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (CGRect)frame {
     // ULTRAHLE_MINIONJUMP_FRAME_BEGIN
     if ultrahle_minionjump_force_landscape_ccglview(env, this) {
-        return touchhle_cocos_landscape_rect(env);
+        return ultrahle_minionjump_landscape_rect();
     }
     // ULTRAHLE_MINIONJUMP_FRAME_END
 
@@ -1600,13 +1471,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setFrame:(CGRect)frame {
     // ULTRAHLE_MINIONJUMP_SETFRAME_BEGIN
     let frame = if ultrahle_minionjump_force_landscape_ccglview(env, this) {
-        touchhle_cocos_landscape_rect(env)
+        ultrahle_minionjump_landscape_rect()
     } else {
         frame
     };
     // ULTRAHLE_MINIONJUMP_SETFRAME_END
 
-    let mut frame = touchhle_cocos_sanitize_rect(frame);
+    let mut frame = frame;
 
     if std::env::var_os("TOUCHHLE_FORCE_LANDSCAPE_VIEW_BOUNDS").is_some() {
         let view_class: Class = msg![env; this class];
@@ -1663,22 +1534,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (bool)pointInside:(CGPoint)point withEvent:(id)_event {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    let inside: bool = msg![env; layer containsPoint:point];
-    if inside { return true; }
-
-    if touchhle_cocos_should_fuzz_hit_testing(env, this) {
-        let bounds: CGRect = msg![env; this bounds];
-        let inset = std::env::var("TOUCHHLE_COCOS_HITTEST_SLOP")
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(12.0);
-        return point.x >= bounds.origin.x - inset
-            && point.y >= bounds.origin.y - inset
-            && point.x <= bounds.origin.x + bounds.size.width + inset
-            && point.y <= bounds.origin.y + bounds.size.height + inset;
-    }
-
-    false
+    msg![env; layer containsPoint:point]
 }
 
 - (bool)isUncontrolled {

@@ -111,7 +111,7 @@ pub struct State {
     pub cf_binary_heap: cf_binary_heap::CFBinaryHeapState,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
 pub struct CFRange {
     pub location: CFIndex,

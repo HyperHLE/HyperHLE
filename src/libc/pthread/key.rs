@@ -38,41 +38,23 @@ fn pthread_key_create(
 }
 
 fn pthread_getspecific(env: &mut Environment, key: pthread_key_t) -> MutVoidPtr {
-    // Per Apple's pthread_getspecific(3): "The effect of calling
-    // pthread_getspecific() with a key value that was not obtained from
-    // pthread_key_create(), or after a key has been deleted with
-    // pthread_key_delete(), is undefined." The documented return contract is
-    // that, when no thread-specific value is associated with the key, NULL is
-    // returned. Real iOS implementations never abort the process for a bad
-    // key, so neither do we: a corrupt/garbage key (which guest
-    // use-after-free or uninitialised reads can produce) simply yields NULL
-    // instead of panicking and taking the whole emulator down.
-    let Some(idx) = key.checked_sub(1).and_then(|i| usize::try_from(i).ok()) else {
-        return Ptr::null();
-    };
+    // Use of invalid key is undefined, panicking is fine.
+    let idx: usize = key.checked_sub(1).unwrap().try_into().unwrap();
     let current_thread = env.current_thread;
-    let state = get_state(env);
-    let Some((data, _)) = state.keys.get(idx) else {
-        return Ptr::null();
-    };
-    data.get(&current_thread).copied().unwrap_or(Ptr::null())
+    get_state(env).keys[idx]
+        .0
+        .get(&current_thread)
+        .copied()
+        .unwrap_or(Ptr::null())
 }
 
 fn pthread_setspecific(env: &mut Environment, key: pthread_key_t, value: ConstVoidPtr) -> i32 {
-    // Per Apple's pthread_setspecific(3): it "will fail if: [EINVAL] The key
-    // value is invalid." A key not obtained from pthread_key_create() is
-    // undefined behaviour on real iOS, but it must not crash the host
-    // process. Return EINVAL for an out-of-range/garbage key rather than
-    // panicking on an out-of-bounds index.
-    let Some(idx) = key.checked_sub(1).and_then(|i| usize::try_from(i).ok()) else {
-        return 22; // EINVAL
-    };
+    // TODO: return error instead of panicking if key is invalid?
+    let idx: usize = key.checked_sub(1).unwrap().try_into().unwrap();
     let current_thread = env.current_thread;
-    let state = get_state(env);
-    let Some((data, _)) = state.keys.get_mut(idx) else {
-        return 22; // EINVAL
-    };
-    data.insert(current_thread, value.cast_mut());
+    get_state(env).keys[idx]
+        .0
+        .insert(current_thread, value.cast_mut());
     0 // success
 }
 

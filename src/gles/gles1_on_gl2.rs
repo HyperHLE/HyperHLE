@@ -409,85 +409,16 @@ const TEX_PARAMS: ParamTable = ParamTable(&[
 const UNSUPPORTED_TEX_PARAMS: ParamTable =
     ParamTable(&[(gl21::TEXTURE_MAX_LEVEL, ParamType::Float, 1)]);
 
-const MATRIX_PALETTE_MIN_MATRICES: usize = 9;
-const MATRIX_PALETTE_DEFAULT_UNITS: usize = 3;
-const MATRIX_PALETTE_MAX_UNITS: usize = MATRIX_PALETTE_DEFAULT_UNITS;
-
-/// Column-major flat 4×4 identity matrix.
-const MATRIX_IDENTITY: [GLfloat; 16] = [
-    1.0, 0.0, 0.0, 0.0, //
-    0.0, 1.0, 0.0, 0.0, //
-    0.0, 0.0, 1.0, 0.0, //
-    0.0, 0.0, 0.0, 1.0, //
-];
-
-/// Multiply two column-major flat 4×4 matrices, returning `a * b` using the
-/// OpenGL convention (so that applying the result to a column vector is
-/// equivalent to applying `b` then `a`). `m[col * 4 + row]` indexing.
-fn mat4_multiply(a: &[GLfloat; 16], b: &[GLfloat; 16]) -> [GLfloat; 16] {
-    let mut out = [0.0f32; 16];
-    for col in 0..4 {
-        for row in 0..4 {
-            let mut sum = 0.0f32;
-            for k in 0..4 {
-                sum += a[k * 4 + row] * b[col * 4 + k];
-            }
-            out[col * 4 + row] = sum;
-        }
-    }
-    out
-}
-
-/// Transform a 4-component column vector by a column-major flat 4×4 matrix.
-fn mat4_transform(m: &[GLfloat; 16], v: [GLfloat; 4]) -> [GLfloat; 4] {
-    let mut out = [0.0f32; 4];
-    for row in 0..4 {
-        out[row] = m[row] * v[0] + m[4 + row] * v[1] + m[8 + row] * v[2] + m[12 + row] * v[3];
-    }
-    out
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum MatrixModeState {
-    ModelView,
-    Projection,
-    Texture,
-    MatrixPalette,
-}
-
-#[derive(Copy, Clone, Debug)]
-struct MatrixArrayPointerState {
-    size: GLint,
-    type_: GLenum,
-    stride: GLsizei,
-    pointer: *const GLvoid,
-    enabled: bool,
-    buffer_binding: GLuint,
-}
-
-impl Default for MatrixArrayPointerState {
-    fn default() -> Self {
-        MatrixArrayPointerState {
-            size: 0,
-            type_: 0,
-            stride: 0,
-            pointer: std::ptr::null(),
-            enabled: false,
-            buffer_binding: 0,
-        }
-    }
-}
-
 pub struct GLES1OnGL2State {
     pointer_is_fixed_point: [bool; ARRAYS.len()],
     fixed_point_texture_units: HashSet<GLenum>,
     fixed_point_translation_buffers: [Vec<GLfloat>; ARRAYS.len()],
-    matrix_mode: MatrixModeState,
-    matrix_palette_enabled: bool,
-    current_palette_matrix: GLuint,
-    palette_matrices: Vec<[GLfloat; 16]>,
-    palette_weight_state: MatrixArrayPointerState,
-    palette_index_state: MatrixArrayPointerState,
+    /// Set while the guest has selected a matrix mode we don't emulate, such
+    /// as `GL_MATRIX_PALETTE_OES` (0x8840) from `OES_matrix_palette`. Desktop
+    /// GL 2.1 has no fixed-function palette skinning, so we drop matrix-stack
+    /// writes while this is set rather than corrupting the real
+    /// MODELVIEW/PROJECTION/TEXTURE matrices (or panicking).
+    unsupported_matrix_mode: bool,
 }
 
 pub struct GLES1OnGL2Context {
@@ -495,24 +426,6 @@ pub struct GLES1OnGL2Context {
     state: GLES1OnGL2State,
     is_loaded: bool,
 }
-
-/// Build the initial backend state. Centralised so both context constructors
-/// stay in sync as fields are added.
-fn new_gles1_on_gl2_state() -> GLES1OnGL2State {
-    GLES1OnGL2State {
-        pointer_is_fixed_point: [false; ARRAYS.len()],
-        fixed_point_texture_units: HashSet::new(),
-        fixed_point_translation_buffers: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
-        matrix_mode: MatrixModeState::ModelView,
-        matrix_palette_enabled: false,
-        current_palette_matrix: 0,
-        // OES_matrix_palette: "all matrices are set to the identity" initially.
-        palette_matrices: vec![MATRIX_IDENTITY; MATRIX_PALETTE_MIN_MATRICES],
-        palette_weight_state: MatrixArrayPointerState::default(),
-        palette_index_state: MatrixArrayPointerState::default(),
-    }
-}
-
 impl GLESContext for GLES1OnGL2Context {
     fn description() -> &'static str {
         "OpenGL ES 1.1 via touchHLE GLES1-on-GL2 layer"
@@ -521,7 +434,12 @@ impl GLESContext for GLES1OnGL2Context {
     fn new(window: &mut Window) -> Result<Self, String> {
         Ok(Self {
             gl_ctx: window.create_gl_context(GLVersion::GL21Compat)?,
-            state: new_gles1_on_gl2_state(),
+            state: GLES1OnGL2State {
+                pointer_is_fixed_point: [false; ARRAYS.len()],
+                fixed_point_texture_units: HashSet::new(),
+                fixed_point_translation_buffers: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+                unsupported_matrix_mode: false,
+            },
             is_loaded: false,
         })
     }
@@ -775,374 +693,6 @@ impl GLES1OnGL2<'_> {
             }
         }
     }
-
-    /// Returns `true` if `GL_OES_matrix_palette` skinning is active for the
-    /// current draw: the palette is enabled and both the weight and matrix
-    /// index client arrays are enabled. When this is false the regular
-    /// fixed-function path handles the draw.
-    unsafe fn matrix_palette_active(&self) -> bool {
-        self.state.matrix_palette_enabled
-            && self.state.palette_weight_state.enabled
-            && self.state.palette_index_state.enabled
-    }
-
-    /// Read one element of a client/array-buffer-backed pointer array as up to
-    /// 4 `f32`s, decoding the source type. Used to gather vertex positions,
-    /// blend weights and matrix indices for CPU skinning.
-    ///
-    /// `base` already points at element 0 in host memory (offset/buffer
-    /// translation resolved by the caller). `stride` of 0 means tightly
-    /// packed (`size * element_size`).
-    unsafe fn read_array_element_f32(
-        base: *const u8,
-        index: usize,
-        size: usize,
-        type_: GLenum,
-        stride: usize,
-        out: &mut [GLfloat; 4],
-    ) {
-        let element_size = match type_ {
-            gl21::BYTE | gl21::UNSIGNED_BYTE => 1usize,
-            gl21::SHORT | gl21::UNSIGNED_SHORT => 2,
-            gl21::FLOAT | gles11::FIXED => 4,
-            _ => 4,
-        };
-        let effective_stride = if stride == 0 {
-            size * element_size
-        } else {
-            stride
-        };
-        let elem_ptr = base.add(index * effective_stride);
-        for c in 0..size {
-            let comp_ptr = elem_ptr.add(c * element_size);
-            out[c] = match type_ {
-                gl21::FLOAT => (comp_ptr as *const GLfloat).read_unaligned(),
-                gles11::FIXED => fixed_to_float((comp_ptr as *const GLfixed).read_unaligned()),
-                gl21::UNSIGNED_BYTE => (comp_ptr as *const u8).read_unaligned() as GLfloat,
-                gl21::BYTE => (comp_ptr as *const i8).read_unaligned() as GLfloat,
-                gl21::UNSIGNED_SHORT => (comp_ptr as *const u16).read_unaligned() as GLfloat,
-                gl21::SHORT => (comp_ptr as *const i16).read_unaligned() as GLfloat,
-                _ => 0.0,
-            };
-        }
-    }
-
-    /// Resolve a client array's element-0 host pointer, mapping the bound
-    /// `GL_ARRAY_BUFFER` if `buffer_binding` is non-zero. Returns the raw host
-    /// pointer and, when a buffer was mapped, `true` so the caller can unmap.
-    unsafe fn resolve_array_base(
-        pointer: *const GLvoid,
-        buffer_binding: GLuint,
-    ) -> (*const u8, bool) {
-        if buffer_binding != 0 {
-            gl21::BindBuffer(gl21::ARRAY_BUFFER, buffer_binding);
-            let mapped = gl21::MapBuffer(gl21::ARRAY_BUFFER, gl21::READ_ONLY) as *const u8;
-            if mapped.is_null() {
-                gl21::BindBuffer(gl21::ARRAY_BUFFER, 0);
-                return (std::ptr::null(), false);
-            }
-            (mapped.add(pointer as usize), true)
-        } else {
-            (pointer as *const u8, false)
-        }
-    }
-
-    /// Perform `GL_OES_matrix_palette` skinning on the CPU for vertex indices
-    /// `[first, first + count)` and submit the transformed positions.
-    ///
-    /// Desktop GL 2.1 has no fixed-function palette skinning and Mesa does not
-    /// expose `GL_ARB_matrix_palette`/`GL_ARB_vertex_blend`, so we compute eye
-    /// coordinates ourselves following the OES_matrix_palette spec:
-    ///
-    /// ```text
-    ///   eye = sum_i  w_i * (palette[index_i] * object)
-    /// ```
-    ///
-    /// The blended positions are uploaded as a temporary `GL_FLOAT` vertex
-    /// array and drawn with an identity MODELVIEW (the palette matrices are
-    /// expected to already include the model-view transform, as set via
-    /// glLoadPaletteFromModelViewMatrixOES / glLoadMatrix in palette mode).
-    /// Returns `false` if skinning could not be performed (caller should fall
-    /// back to a normal draw).
-    unsafe fn skin_vertices(&mut self, first: GLint, count: GLsizei) -> Option<Vec<GLfloat>> {
-        if first < 0 || count <= 0 {
-            return None;
-        }
-        let first = first as usize;
-        let count = count as usize;
-        let vertex_count = first + count;
-
-        // Gather the bound vertex (position) array via desktop GL queries.
-        let mut vertex_enabled: GLboolean = 0;
-        gl21::GetBooleanv(gl21::VERTEX_ARRAY, &mut vertex_enabled);
-        if vertex_enabled != gl21::TRUE {
-            return None;
-        }
-        let mut vertex_size: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_SIZE, &mut vertex_size);
-        let mut vertex_type: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_TYPE, &mut vertex_type);
-        let mut vertex_stride: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_STRIDE, &mut vertex_stride);
-        let mut vertex_buffer_binding: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_BUFFER_BINDING, &mut vertex_buffer_binding);
-        let mut vertex_pointer: *mut GLvoid = std::ptr::null_mut();
-        #[allow(clippy::unnecessary_mut_passed)]
-        gl21::GetPointerv(gl21::VERTEX_ARRAY_POINTER, &mut vertex_pointer);
-
-        let vertex_size = vertex_size.clamp(2, 4) as usize;
-        let weight = &self.state.palette_weight_state;
-        let index = &self.state.palette_index_state;
-        let weight_size = weight.size.clamp(1, MATRIX_PALETTE_MAX_UNITS as GLint) as usize;
-        let index_size = index.size.clamp(1, MATRIX_PALETTE_MAX_UNITS as GLint) as usize;
-        let units = weight_size.min(index_size);
-        if units == 0 {
-            return None;
-        }
-
-        // Resolve all three source arrays to host pointers.
-        let (vertex_base, vertex_mapped) =
-            Self::resolve_array_base(vertex_pointer.cast_const(), vertex_buffer_binding as GLuint);
-        if vertex_base.is_null() {
-            return None;
-        }
-        let (weight_base, weight_mapped) =
-            Self::resolve_array_base(weight.pointer, weight.buffer_binding);
-        let (index_base, index_mapped) =
-            Self::resolve_array_base(index.pointer, index.buffer_binding);
-        if weight_base.is_null() || index_base.is_null() {
-            if vertex_mapped {
-                gl21::BindBuffer(gl21::ARRAY_BUFFER, vertex_buffer_binding as GLuint);
-                gl21::UnmapBuffer(gl21::ARRAY_BUFFER);
-                gl21::BindBuffer(gl21::ARRAY_BUFFER, 0);
-            }
-            return None;
-        }
-
-        let palette_count = self.state.palette_matrices.len();
-        let mut out: Vec<GLfloat> = vec![0.0; vertex_count * vertex_size];
-
-        for v in first..vertex_count {
-            let mut object = [0.0f32, 0.0, 0.0, 1.0];
-            Self::read_array_element_f32(
-                vertex_base,
-                v,
-                vertex_size,
-                vertex_type as GLenum,
-                weight_stride_or(vertex_stride),
-                &mut object,
-            );
-
-            let mut weights = [0.0f32; 4];
-            Self::read_array_element_f32(
-                weight_base,
-                v,
-                weight_size,
-                weight.type_,
-                weight.stride as usize,
-                &mut weights,
-            );
-            let mut indices = [0.0f32; 4];
-            Self::read_array_element_f32(
-                index_base,
-                v,
-                index_size,
-                index.type_,
-                index.stride as usize,
-                &mut indices,
-            );
-
-            let mut blended = [0.0f32; 4];
-            let mut weight_sum = 0.0f32;
-            for u in 0..units {
-                let w = weights[u];
-                if w == 0.0 {
-                    continue;
-                }
-                weight_sum += w;
-                let mat_index = (indices[u] as i64).clamp(0, (palette_count as i64) - 1) as usize;
-                let transformed =
-                    mat4_transform(&self.state.palette_matrices[mat_index], object);
-                for c in 0..4 {
-                    blended[c] += w * transformed[c];
-                }
-            }
-            // If the guest supplied no usable weights, fall back to the
-            // untransformed position so the vertex is still placed sensibly.
-            if weight_sum == 0.0 {
-                blended = object;
-            }
-
-            for c in 0..vertex_size {
-                out[v * vertex_size + c] = blended[c];
-            }
-        }
-
-        if vertex_mapped {
-            gl21::BindBuffer(gl21::ARRAY_BUFFER, vertex_buffer_binding as GLuint);
-            gl21::UnmapBuffer(gl21::ARRAY_BUFFER);
-            gl21::BindBuffer(gl21::ARRAY_BUFFER, 0);
-        }
-        if weight_mapped {
-            gl21::BindBuffer(gl21::ARRAY_BUFFER, weight.buffer_binding);
-            gl21::UnmapBuffer(gl21::ARRAY_BUFFER);
-            gl21::BindBuffer(gl21::ARRAY_BUFFER, 0);
-        }
-        if index_mapped {
-            gl21::BindBuffer(gl21::ARRAY_BUFFER, index.buffer_binding);
-            gl21::UnmapBuffer(gl21::ARRAY_BUFFER);
-            gl21::BindBuffer(gl21::ARRAY_BUFFER, 0);
-        }
-
-        Some(out)
-    }
-
-    /// Scan an index buffer to find the `[min, max]` vertex range referenced,
-    /// returning `(first, count)` so the caller can skin exactly that range.
-    /// Mirrors the range scan already used for fixed-point translation.
-    unsafe fn indexed_draw_vertex_range(
-        &mut self,
-        count: GLsizei,
-        type_: GLenum,
-        indices: *const GLvoid,
-    ) -> Option<(GLint, GLsizei)> {
-        if count <= 0 {
-            return None;
-        }
-        let mut index_buffer_binding = 0;
-        gl21::GetIntegerv(gl21::ELEMENT_ARRAY_BUFFER_BINDING, &mut index_buffer_binding);
-        let base = if index_buffer_binding != 0 {
-            let mapped = gl21::MapBuffer(gl21::ELEMENT_ARRAY_BUFFER, gl21::READ_ONLY);
-            if mapped.is_null() {
-                return None;
-            }
-            mapped.add(indices as usize)
-        } else {
-            indices
-        };
-
-        let mut first = usize::MAX;
-        let mut last = usize::MIN;
-        match type_ {
-            gl21::UNSIGNED_BYTE => {
-                let p: *const GLubyte = base.cast();
-                for i in 0..(count as usize) {
-                    let idx = p.add(i).read_unaligned() as usize;
-                    first = first.min(idx);
-                    last = last.max(idx);
-                }
-            }
-            gl21::UNSIGNED_SHORT => {
-                let p: *const GLushort = base.cast();
-                for i in 0..(count as usize) {
-                    let idx = p.add(i).read_unaligned() as usize;
-                    first = first.min(idx);
-                    last = last.max(idx);
-                }
-            }
-            _ => {
-                if index_buffer_binding != 0 {
-                    gl21::UnmapBuffer(gl21::ELEMENT_ARRAY_BUFFER);
-                }
-                return None;
-            }
-        }
-        if index_buffer_binding != 0 {
-            gl21::UnmapBuffer(gl21::ELEMENT_ARRAY_BUFFER);
-        }
-        if first == usize::MAX {
-            return None;
-        }
-        Some((first as GLint, (last + 1 - first) as GLsizei))
-    }
-
-    /// Temporarily install the CPU-skinned positions as the active vertex
-    /// array, reset the MODELVIEW to identity (the palette matrices already
-    /// carry the model-view transform per the OES spec), run `body`, then
-    /// restore the previous vertex pointer and MODELVIEW matrix.
-    unsafe fn with_skinned_vertex_array(
-        &mut self,
-        skinned: &[GLfloat],
-        vertex_size: usize,
-        body: impl FnOnce(),
-    ) {
-        // Back up the vertex array pointer/format so we can restore it.
-        let mut old_size: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_SIZE, &mut old_size);
-        let mut old_type: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_TYPE, &mut old_type);
-        let mut old_stride: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_STRIDE, &mut old_stride);
-        let mut old_buffer: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_BUFFER_BINDING, &mut old_buffer);
-        let mut old_pointer: *mut GLvoid = std::ptr::null_mut();
-        #[allow(clippy::unnecessary_mut_passed)]
-        gl21::GetPointerv(gl21::VERTEX_ARRAY_POINTER, &mut old_pointer);
-
-        // Skinned positions are client-side floats: unbind any array buffer.
-        gl21::BindBuffer(gl21::ARRAY_BUFFER, 0);
-        gl21::VertexPointer(
-            vertex_size as GLint,
-            gl21::FLOAT,
-            0,
-            skinned.as_ptr().cast(),
-        );
-
-        // Palette matrices already include the model-view transform, so draw
-        // with an identity MODELVIEW. Save & restore the real one.
-        let mut old_matrix_mode: GLint = 0;
-        gl21::GetIntegerv(gl21::MATRIX_MODE, &mut old_matrix_mode);
-        gl21::MatrixMode(gl21::MODELVIEW);
-        gl21::PushMatrix();
-        gl21::LoadIdentity();
-
-        body();
-
-        gl21::PopMatrix();
-        gl21::MatrixMode(old_matrix_mode as GLenum);
-
-        // Restore the previous vertex array binding/pointer.
-        gl21::BindBuffer(gl21::ARRAY_BUFFER, old_buffer as GLuint);
-        gl21::VertexPointer(old_size, old_type as GLenum, old_stride, old_pointer.cast_const());
-        gl21::BindBuffer(gl21::ARRAY_BUFFER, 0);
-    }
-
-    unsafe fn draw_arrays_skinned(
-        &mut self,
-        mode: GLenum,
-        first: GLint,
-        count: GLsizei,
-        skinned: &[GLfloat],
-    ) {
-        let mut vertex_size: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_SIZE, &mut vertex_size);
-        let vertex_size = vertex_size.clamp(2, 4) as usize;
-        self.with_skinned_vertex_array(skinned, vertex_size, || {
-            gl21::DrawArrays(mode, first, count);
-        });
-    }
-
-    unsafe fn draw_elements_skinned(
-        &mut self,
-        mode: GLenum,
-        count: GLsizei,
-        type_: GLenum,
-        indices: *const GLvoid,
-        skinned: &[GLfloat],
-    ) {
-        let mut vertex_size: GLint = 0;
-        gl21::GetIntegerv(gl21::VERTEX_ARRAY_SIZE, &mut vertex_size);
-        let vertex_size = vertex_size.clamp(2, 4) as usize;
-        self.with_skinned_vertex_array(skinned, vertex_size, || {
-            gl21::DrawElements(mode, count, type_, indices);
-        });
-    }
-}
-
-/// `glVertexPointer` etc. treat a stride of 0 as tightly packed; this just
-/// forwards the value (the readers handle the 0 case per-array).
-fn weight_stride_or(stride: GLint) -> usize {
-    stride as usize
 }
 
 impl GLES for GLES1OnGL2<'_> {
@@ -1165,15 +715,6 @@ impl GLES for GLES1OnGL2<'_> {
     unsafe fn Enable(&mut self, cap: GLenum) {
         if ARRAYS.iter().any(|&ArrayInfo { name, .. }| name == cap) {
             log_dbg!("Tolerating glEnable({:#x}) of client state", cap);
-        } else if cap == gles11::MATRIX_PALETTE_OES {
-            // GL_OES_matrix_palette: enable CPU-side palette skinning. Desktop
-            // GL 2.1 has no fixed-function palette skinning and Mesa does not
-            // expose GL_ARB_matrix_palette, so we emulate it ourselves at draw
-            // time (see draw_with_matrix_palette). Track the flag here and do
-            // NOT forward to gl21::Enable (0x8840 is not a valid desktop cap
-            // and would raise GL_INVALID_ENUM).
-            self.state.matrix_palette_enabled = true;
-            return;
         } else if cap == gl21::PERSPECTIVE_CORRECTION_HINT
             || cap == gl21::SMOOTH
             || cap == gl21::FLAT
@@ -1197,27 +738,6 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::Enable(cap);
     }
     unsafe fn IsEnabled(&mut self, cap: GLenum) -> GLboolean {
-        if cap == gles11::MATRIX_PALETTE_OES {
-            return if self.state.matrix_palette_enabled {
-                gl21::TRUE
-            } else {
-                gl21::FALSE
-            };
-        }
-        if cap == gles11::MATRIX_INDEX_ARRAY_OES {
-            return if self.state.palette_index_state.enabled {
-                gl21::TRUE
-            } else {
-                gl21::FALSE
-            };
-        }
-        if cap == gles11::WEIGHT_ARRAY_OES {
-            return if self.state.palette_weight_state.enabled {
-                gl21::TRUE
-            } else {
-                gl21::FALSE
-            };
-        }
         if !(CAPABILITIES.contains(&cap)
             || ARRAYS.iter().any(|&ArrayInfo { name, .. }| name == cap))
         {
@@ -1230,11 +750,7 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::IsEnabled(cap)
     }
     unsafe fn Disable(&mut self, cap: GLenum) {
-        if cap == gles11::MATRIX_PALETTE_OES {
-            // See Enable: emulated, never forwarded to the desktop driver.
-            self.state.matrix_palette_enabled = false;
-            return;
-        } else if CAPABILITIES.contains(&cap) {
+        if CAPABILITIES.contains(&cap) {
             log_dbg!("glDisable{:#x}", cap);
         } else if ARRAYS.iter().any(|&ArrayInfo { name, .. }| name == cap) {
             log_dbg!("Tolerating glDisable({:#x}) of client state", cap);
@@ -1255,14 +771,6 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::ClientActiveTexture(texture);
     }
     unsafe fn EnableClientState(&mut self, array: GLenum) {
-        if array == gles11::MATRIX_INDEX_ARRAY_OES {
-            self.state.palette_index_state.enabled = true;
-            return;
-        }
-        if array == gles11::WEIGHT_ARRAY_OES {
-            self.state.palette_weight_state.enabled = true;
-            return;
-        }
         if CAPABILITIES.contains(&array) {
             log_dbg!(
                 "Tolerating glEnableClientState({:#x}) of a capability",
@@ -1274,14 +782,6 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::EnableClientState(array);
     }
     unsafe fn DisableClientState(&mut self, array: GLenum) {
-        if array == gles11::MATRIX_INDEX_ARRAY_OES {
-            self.state.palette_index_state.enabled = false;
-            return;
-        }
-        if array == gles11::WEIGHT_ARRAY_OES {
-            self.state.palette_weight_state.enabled = false;
-            return;
-        }
         if CAPABILITIES.contains(&array) {
             log_dbg!(
                 "Tolerating glDisableClientState({:#x}) of a capability",
@@ -1399,50 +899,6 @@ impl GLES for GLES1OnGL2<'_> {
     /// `GetFixedv` above: query the underlying state at its native type and
     /// convert each component per the spec.
     unsafe fn GetIntegerv(&mut self, pname: GLenum, params: *mut GLint) {
-        // GL_OES_matrix_palette queries: the host desktop driver does not
-        // expose GL_ARB_matrix_palette / GL_ARB_vertex_blend (Mesa never
-        // implemented them), so answer these from our emulated state instead
-        // of forwarding to gl21::GetIntegerv (which would set GL_INVALID_ENUM
-        // and leave *params untouched).
-        match pname {
-            gles11::MAX_PALETTE_MATRICES_OES => {
-                *params = self.state.palette_matrices.len() as GLint;
-                return;
-            }
-            gles11::MAX_VERTEX_UNITS_OES => {
-                *params = MATRIX_PALETTE_MAX_UNITS as GLint;
-                return;
-            }
-            gles11::CURRENT_PALETTE_MATRIX_OES => {
-                *params = self.state.current_palette_matrix as GLint;
-                return;
-            }
-            gles11::MATRIX_INDEX_ARRAY_SIZE_OES => {
-                *params = self.state.palette_index_state.size;
-                return;
-            }
-            gles11::MATRIX_INDEX_ARRAY_TYPE_OES => {
-                *params = self.state.palette_index_state.type_ as GLint;
-                return;
-            }
-            gles11::MATRIX_INDEX_ARRAY_STRIDE_OES => {
-                *params = self.state.palette_index_state.stride;
-                return;
-            }
-            gles11::WEIGHT_ARRAY_SIZE_OES => {
-                *params = self.state.palette_weight_state.size;
-                return;
-            }
-            gles11::WEIGHT_ARRAY_TYPE_OES => {
-                *params = self.state.palette_weight_state.type_ as GLint;
-                return;
-            }
-            gles11::WEIGHT_ARRAY_STRIDE_OES => {
-                *params = self.state.palette_weight_state.stride;
-                return;
-            }
-            _ => {}
-        }
         let (type_, count) = GET_PARAMS.get_type_info(pname);
         let count = usize::from(count.max(1));
         match type_ {
@@ -2154,41 +1610,6 @@ impl GLES for GLES1OnGL2<'_> {
         }
     }
 
-    unsafe fn MatrixIndexPointerOES(
-        &mut self,
-        size: GLint,
-        type_: GLenum,
-        stride: GLsizei,
-        pointer: *const GLvoid,
-    ) {
-        // GL_OES_matrix_palette: per-vertex matrix indices for CPU skinning.
-        // We capture the array description (and any bound buffer) here and
-        // perform the actual blend in draw_with_matrix_palette at draw time.
-        let mut buffer_binding: GLint = 0;
-        gl21::GetIntegerv(gl21::ARRAY_BUFFER_BINDING, &mut buffer_binding);
-        self.state.palette_index_state.size = size;
-        self.state.palette_index_state.type_ = type_;
-        self.state.palette_index_state.stride = stride;
-        self.state.palette_index_state.pointer = pointer;
-        self.state.palette_index_state.buffer_binding = buffer_binding as GLuint;
-    }
-    unsafe fn WeightPointerOES(
-        &mut self,
-        size: GLint,
-        type_: GLenum,
-        stride: GLsizei,
-        pointer: *const GLvoid,
-    ) {
-        // GL_OES_matrix_palette: per-vertex blend weights for CPU skinning.
-        let mut buffer_binding: GLint = 0;
-        gl21::GetIntegerv(gl21::ARRAY_BUFFER_BINDING, &mut buffer_binding);
-        self.state.palette_weight_state.size = size;
-        self.state.palette_weight_state.type_ = type_;
-        self.state.palette_weight_state.stride = stride;
-        self.state.palette_weight_state.pointer = pointer;
-        self.state.palette_weight_state.buffer_binding = buffer_binding as GLuint;
-    }
-
     // Drawing
     unsafe fn DrawArrays(&mut self, mode: GLenum, first: GLint, count: GLsizei) {
         assert!([
@@ -2201,15 +1622,6 @@ impl GLES for GLES1OnGL2<'_> {
             gl21::TRIANGLES
         ]
         .contains(&mode));
-
-        // GL_OES_matrix_palette skinning: transform vertices on the CPU and
-        // draw with the blended positions if palette skinning is active.
-        if self.matrix_palette_active() {
-            if let Some(skinned) = self.skin_vertices(first, count) {
-                self.draw_arrays_skinned(mode, first, count, &skinned);
-                return;
-            }
-        }
 
         let fixed_point_arrays_state_backup = self.translate_fixed_point_arrays(first, count);
 
@@ -2235,19 +1647,6 @@ impl GLES for GLES1OnGL2<'_> {
         ]
         .contains(&mode));
         assert!(type_ == gl21::UNSIGNED_BYTE || type_ == gl21::UNSIGNED_SHORT);
-
-        // GL_OES_matrix_palette skinning for indexed draws: skin the full
-        // range of referenced vertices, then draw with blended positions.
-        if self.matrix_palette_active() {
-            if let Some((first, vcount)) =
-                self.indexed_draw_vertex_range(count, type_, indices)
-            {
-                if let Some(skinned) = self.skin_vertices(first, vcount) {
-                    self.draw_elements_skinned(mode, count, type_, indices, &skinned);
-                    return;
-                }
-            }
-        }
 
         let fixed_point_arrays_state_backup = if self
             .state
@@ -2926,113 +2325,67 @@ impl GLES for GLES1OnGL2<'_> {
 
     // Matrix stack operations
     unsafe fn MatrixMode(&mut self, mode: GLenum) {
-        let new_mode = match mode {
-            gl21::MODELVIEW => MatrixModeState::ModelView,
-            gl21::PROJECTION => MatrixModeState::Projection,
-            gl21::TEXTURE => MatrixModeState::Texture,
-            // GL_MATRIX_PALETTE_OES == GL_MATRIX_PALETTE_ARB == 0x8840, from
-            // OES_matrix_palette. Subsequent matrix-stack operations target the
-            // palette slot selected by glCurrentPaletteMatrixOES. We emulate the
-            // palette CPU-side (desktop GL 2.1 / Mesa do not expose working
-            // fixed-function palette skinning), so don't forward this to the
-            // host MatrixMode (it would raise GL_INVALID_ENUM).
-            gles11::MATRIX_PALETTE_OES => MatrixModeState::MatrixPalette,
-            _ => {
+        if mode != gl21::MODELVIEW && mode != gl21::PROJECTION && mode != gl21::TEXTURE {
+            // Modes such as GL_MATRIX_PALETTE_OES (0x8840) come from
+            // OES_matrix_palette, which desktop GL 2.1 can't emulate via the
+            // fixed-function pipeline. Apps that use it normally check for the
+            // extension first and fall back to CPU skinning (we no longer
+            // advertise it), but tolerate a stray call here instead of
+            // panicking, and suppress matrix writes until a supported mode is
+            // selected again so we don't clobber the real matrices.
+            if !self.state.unsupported_matrix_mode {
                 log!(
-                    "Warning: glMatrixMode({:#x}) selected an unrecognized matrix mode; \
+                    "Warning: glMatrixMode({:#x}) selected an unsupported matrix mode; \
                      ignoring matrix-stack writes until a supported mode is selected",
                     mode
                 );
-                self.state.matrix_mode = MatrixModeState::MatrixPalette;
-                return;
             }
-        };
-        self.state.matrix_mode = new_mode;
-        if new_mode != MatrixModeState::MatrixPalette {
-            gl21::MatrixMode(mode);
-        }
-    }
-    unsafe fn CurrentPaletteMatrixOES(&mut self, matrixpaletteindex: GLuint) {
-        // INVALID_VALUE if index >= MAX_PALETTE_MATRICES_OES; clamp instead of
-        // crashing so a misbehaving guest can't take the emulator down.
-        if (matrixpaletteindex as usize) >= self.state.palette_matrices.len() {
-            log!(
-                "Warning: glCurrentPaletteMatrixOES({}) out of range (max {}); clamping",
-                matrixpaletteindex,
-                self.state.palette_matrices.len()
-            );
-            self.state.current_palette_matrix =
-                (self.state.palette_matrices.len() as GLuint).saturating_sub(1);
+            self.state.unsupported_matrix_mode = true;
             return;
         }
-        self.state.current_palette_matrix = matrixpaletteindex;
-    }
-    unsafe fn LoadPaletteFromModelViewMatrixOES(&mut self) {
-        // Copy the live GL MODELVIEW matrix into the current palette slot.
-        let mut modelview = [0.0f32; 16];
-        gl21::GetFloatv(gl21::MODELVIEW_MATRIX, modelview.as_mut_ptr());
-        let idx = self.state.current_palette_matrix as usize;
-        if let Some(slot) = self.state.palette_matrices.get_mut(idx) {
-            *slot = modelview;
-        }
+        self.state.unsupported_matrix_mode = false;
+        gl21::MatrixMode(mode);
     }
     unsafe fn LoadIdentity(&mut self) {
-        if self.state.matrix_mode == MatrixModeState::MatrixPalette {
-            let idx = self.state.current_palette_matrix as usize;
-            if let Some(slot) = self.state.palette_matrices.get_mut(idx) {
-                *slot = MATRIX_IDENTITY;
-            }
+        if self.state.unsupported_matrix_mode {
             return;
         }
         gl21::LoadIdentity();
     }
     unsafe fn LoadMatrixf(&mut self, m: *const GLfloat) {
-        if self.state.matrix_mode == MatrixModeState::MatrixPalette {
-            let idx = self.state.current_palette_matrix as usize;
-            if let Some(slot) = self.state.palette_matrices.get_mut(idx) {
-                for (i, cell) in slot.iter_mut().enumerate() {
-                    *cell = m.add(i).read_unaligned();
-                }
-            }
+        if self.state.unsupported_matrix_mode {
             return;
         }
         gl21::LoadMatrixf(m);
     }
     unsafe fn LoadMatrixx(&mut self, m: *const GLfixed) {
+        if self.state.unsupported_matrix_mode {
+            return;
+        }
         let matrix = matrix_fixed_to_float(m);
-        self.LoadMatrixf(matrix.as_ptr());
+        gl21::LoadMatrixf(matrix.as_ptr());
     }
     unsafe fn MultMatrixf(&mut self, m: *const GLfloat) {
-        if self.state.matrix_mode == MatrixModeState::MatrixPalette {
-            let idx = self.state.current_palette_matrix as usize;
-            if let Some(slot) = self.state.palette_matrices.get(idx).copied() {
-                let mut rhs = [0.0f32; 16];
-                for (i, cell) in rhs.iter_mut().enumerate() {
-                    *cell = m.add(i).read_unaligned();
-                }
-                let product = mat4_multiply(&slot, &rhs);
-                if let Some(dst) = self.state.palette_matrices.get_mut(idx) {
-                    *dst = product;
-                }
-            }
+        if self.state.unsupported_matrix_mode {
             return;
         }
         gl21::MultMatrixf(m);
     }
     unsafe fn MultMatrixx(&mut self, m: *const GLfixed) {
+        if self.state.unsupported_matrix_mode {
+            return;
+        }
         let matrix = matrix_fixed_to_float(m);
-        self.MultMatrixf(matrix.as_ptr());
+        gl21::MultMatrixf(matrix.as_ptr());
     }
     unsafe fn PushMatrix(&mut self) {
-        if self.state.matrix_mode == MatrixModeState::MatrixPalette {
-            // The palette has no matrix stack (OES_matrix_palette issue #5);
-            // ignore push/pop while in palette mode.
+        if self.state.unsupported_matrix_mode {
             return;
         }
         gl21::PushMatrix();
     }
     unsafe fn PopMatrix(&mut self) {
-        if self.state.matrix_mode == MatrixModeState::MatrixPalette {
+        if self.state.unsupported_matrix_mode {
             return;
         }
         gl21::PopMatrix();
@@ -3759,82 +3112,5 @@ impl GLES for GLES1OnGL2<'_> {
                           // call achieves it. Easiest: call Enable with an
                           // invalid cap.
         gl21::Enable(0);
-    }
-}
-
-#[cfg(test)]
-mod matrix_palette_tests {
-    use super::{mat4_multiply, mat4_transform, MATRIX_IDENTITY};
-
-    #[test]
-    fn identity_transform_is_noop() {
-        let v = [1.5, -2.0, 3.25, 1.0];
-        assert_eq!(mat4_transform(&MATRIX_IDENTITY, v), v);
-    }
-
-    #[test]
-    fn identity_multiply_is_noop() {
-        // A non-trivial column-major matrix.
-        let m = [
-            1.0, 2.0, 3.0, 4.0, //
-            5.0, 6.0, 7.0, 8.0, //
-            9.0, 10.0, 11.0, 12.0, //
-            13.0, 14.0, 15.0, 16.0, //
-        ];
-        assert_eq!(mat4_multiply(&MATRIX_IDENTITY, &m), m);
-        assert_eq!(mat4_multiply(&m, &MATRIX_IDENTITY), m);
-    }
-
-    #[test]
-    fn translation_transform_matches_gl_convention() {
-        // Column-major translation by (10, 20, 30): translation in last column.
-        let t = [
-            1.0, 0.0, 0.0, 0.0, //
-            0.0, 1.0, 0.0, 0.0, //
-            0.0, 0.0, 1.0, 0.0, //
-            10.0, 20.0, 30.0, 1.0, //
-        ];
-        let v = [1.0, 2.0, 3.0, 1.0];
-        assert_eq!(mat4_transform(&t, v), [11.0, 22.0, 33.0, 1.0]);
-    }
-
-    #[test]
-    fn multiply_then_transform_equals_sequential_transforms() {
-        // Translate by (1,0,0) then scale by 2 about origin.
-        let translate = [
-            1.0, 0.0, 0.0, 0.0, //
-            0.0, 1.0, 0.0, 0.0, //
-            0.0, 0.0, 1.0, 0.0, //
-            1.0, 0.0, 0.0, 1.0, //
-        ];
-        let scale = [
-            2.0, 0.0, 0.0, 0.0, //
-            0.0, 2.0, 0.0, 0.0, //
-            0.0, 0.0, 2.0, 0.0, //
-            0.0, 0.0, 0.0, 1.0, //
-        ];
-        // scale * translate applied to v == scale(translate(v))
-        let combined = mat4_multiply(&scale, &translate);
-        let v = [3.0, 4.0, 5.0, 1.0];
-        let sequential = mat4_transform(&scale, mat4_transform(&translate, v));
-        assert_eq!(mat4_transform(&combined, v), sequential);
-    }
-
-    #[test]
-    fn weighted_blend_of_two_matrices() {
-        // Two translations; blending with weights 0.5/0.5 yields the average.
-        let a = [
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-        ];
-        let mut b = a;
-        b[12] = 10.0; // translate x by 10
-        let v = [0.0, 0.0, 0.0, 1.0];
-        let ta = mat4_transform(&a, v);
-        let tb = mat4_transform(&b, v);
-        let mut blended = [0.0f32; 4];
-        for c in 0..4 {
-            blended[c] = 0.5 * ta[c] + 0.5 * tb[c];
-        }
-        assert_eq!(blended, [5.0, 0.0, 0.0, 1.0]);
     }
 }

@@ -19,7 +19,7 @@
 use super::NSTimeInterval;
 use crate::abi::{impl_GuestRet_for_large_struct, GuestArg};
 use crate::frameworks::foundation::ns_string;
-use crate::libc::mach::host::physical_memory;
+use crate::libc::mach::host::PHYSICAL_MEMORY;
 use crate::mem::SafeRead;
 use crate::objc::{id, msg, msg_class, objc_classes, ClassExports};
 use crate::Environment;
@@ -166,7 +166,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (u64)physicalMemory {
     assert_process_info_singleton(env, this);
-    physical_memory(env)
+    PHYSICAL_MEMORY.into()
 }
 
 - (u32)processorCount {

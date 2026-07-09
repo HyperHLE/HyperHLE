@@ -139,30 +139,7 @@ fn sysctl(
 
     sysctl_generic(
         env,
-        |env| {
-            // hw.physmem / hw.usermem / hw.memsize must reflect the emulated
-            // device's real RAM, like hw.machine above. The static INT_MAP
-            // values are only fallbacks. Reporting the true size keeps these
-            // consistent with NSProcessInfo.physicalMemory and host_statistics,
-            // and stops memory-budgeting engines (e.g. Unreal Engine 3 in
-            // UDKGame) from sizing pools against a wrong RAM figure.
-            let phys = crate::libc::mach::host::physical_memory(env);
-            match (name0, name1) {
-                // hw.physmem: total physical RAM in bytes. Canonically a 32-bit
-                // `int`; all modeled devices have <= 1 GiB so it fits.
-                (6, 5) => {
-                    return Some(("hw.physmem", SysInfoType::Int32(phys as i32)));
-                }
-                // hw.memsize: total physical RAM in bytes, 64-bit `int64_t`.
-                (6, 24) => {
-                    return Some(("hw.memsize", SysInfoType::Int64(phys as i64)));
-                }
-                // hw.usermem: RAM available to userspace (~75% on iOS), 32-bit.
-                (6, 6) => {
-                    return Some(("hw.usermem", SysInfoType::Int32((phys / 4 * 3) as i32)));
-                }
-                _ => {}
-            }
+        |_env| {
             // Используем INT_MAP для поиска по числовым идентификаторам (name0,
             // name1)
             let Some((name_str, val)) = INT_MAP.get(&(name0, name1)) else {
@@ -216,23 +193,6 @@ fn sysctlbyname(
             if name_str == "hw.machine" {
                 let machine: &'static str = env.window().device_family().machine_name();
                 return Some(("hw.machine", String(machine.as_bytes())));
-            }
-            // hw.physmem / hw.memsize / hw.usermem must reflect the emulated
-            // device's real RAM (see the numeric sysctl() path above for why).
-            match name_str {
-                "hw.physmem" => {
-                    let phys = crate::libc::mach::host::physical_memory(env);
-                    return Some(("hw.physmem", SysInfoType::Int32(phys as i32)));
-                }
-                "hw.memsize" => {
-                    let phys = crate::libc::mach::host::physical_memory(env);
-                    return Some(("hw.memsize", SysInfoType::Int64(phys as i64)));
-                }
-                "hw.usermem" => {
-                    let phys = crate::libc::mach::host::physical_memory(env);
-                    return Some(("hw.usermem", SysInfoType::Int32((phys / 4 * 3) as i32)));
-                }
-                _ => {}
             }
             let Some((name_str, val)) = STRING_MAP.get_key_value(name_str) else {
                 log!(

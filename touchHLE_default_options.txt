@@ -251,14 +251,6 @@ com.chillingo.redball3hd: --landscape-left
 # pointer to the calling host site.
 com.lego.NinjagoSpinjitzuScavengerHunt: --landscape-left --fix-texture-min-filter --trace-gl-errors
 
-# Ninjago: Rise of the Snakes
-# Same fixed-function texture-completeness issue as the other LEGO Ninjago
-# title above. The log shows the bundle id as com.lego.riseofthesnakes, and
-# on strict Adreno ES 1.1 drivers the default mipmapped min filter makes the
-# game texture incomplete unless we force GL_TEXTURE_MIN_FILTER=GL_LINEAR
-# after the level-0 upload.
-com.lego.riseofthesnakes: --landscape-left --fix-texture-min-filter --trace-gl-errors
-
 # Resident Evil Degeneration (jp.co.capcom.residentevil.en)
 # Ported from touchHLE upstream commit 1bd22431 ("Default options for
 # Resident Evil Degeneration"). The game runs in landscape but its

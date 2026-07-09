@@ -61,10 +61,6 @@ pub const CONSTANTS: ConstantExports = &[
         HostConstant::NSString("NSURLNameKey"),
     ),
     (
-        "_NSURLPathKey",
-        HostConstant::NSString("NSURLPathKey"),
-    ),
-    (
         "_NSURLLocalizedNameKey",
         HostConstant::NSString("NSURLLocalizedNameKey"),
     ),
@@ -718,44 +714,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (bool)getResourceValue:(MutPtr<id>)value forKey:(id)key error:(MutPtr<id>)_err {
     let key_str = to_rust_string(env, key);
-    match key_str.as_ref() {
-        // Apple docs: NSURLIsDirectoryKey — true for a directory.
-        "NSURLIsDirectoryKey" => {
-            let is_dir: bool = msg![env; this hasDirectoryPath];
-            let ns_bool = msg_class![env; NSNumber numberWithBool:is_dir];
-            if !value.is_null() { env.mem.write(value, ns_bool); }
-            true
-        }
-        // Apple docs: NSURLPathKey — "The file system path for the URL",
-        // returned as an NSString. This is the toll-free-bridged equivalent
-        // of -[NSURL path].
-        "NSURLPathKey" => {
-            let path: id = msg![env; this path];
-            if !value.is_null() { env.mem.write(value, path); }
-            true
-        }
-        // Apple docs: NSURLNameKey — "The resource's name in the file
-        // system", i.e. the last path component, returned as an NSString.
-        "NSURLNameKey" => {
-            let path: id = msg![env; this path];
-            let name: id = msg![env; path lastPathComponent];
-            if !value.is_null() { env.mem.write(value, name); }
-            true
-        }
-        // Apple docs: NSURLIsRegularFileKey — true for a regular file (i.e.
-        // not a directory in our filesystem model).
-        "NSURLIsRegularFileKey" => {
-            let is_dir: bool = msg![env; this hasDirectoryPath];
-            let ns_bool = msg_class![env; NSNumber numberWithBool:(!is_dir)];
-            if !value.is_null() { env.mem.write(value, ns_bool); }
-            true
-        }
-        _ => {
-            // Default to nil/false for keys we don't model.
-            if !value.is_null() { env.mem.write(value, nil); }
-            false
-        }
+    if key_str == "NSURLIsDirectoryKey" {
+        // ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавлена явная аннотация типа `: bool`
+        let is_dir: bool = msg![env; this hasDirectoryPath];
+        let ns_bool = msg_class![env; NSNumber numberWithBool:is_dir];
+        env.mem.write(value, ns_bool);
+        return true;
     }
+    // Default to nil/false for others
+    if !value.is_null() { env.mem.write(value, nil); }
+    false
 }
 
 - (bool)setResourceValue:(id)_value      // id

@@ -150,16 +150,11 @@ impl<T, const MUT: bool> std::ops::Add<GuestUSize> for Ptr<T, MUT> {
     fn add(self, other: GuestUSize) -> Self {
         let size: GuestUSize = guest_size_of::<T>();
         assert_ne!(size, 0);
-        // Real 32-bit ARM (ARMv7-A) computes addresses modulo 2^32: pointer
-        // arithmetic silently wraps around the 4 GiB address space and never
-        // traps. A fault only occurs when the resulting address is actually
-        // *accessed* and points at unmapped memory — and `Mem::bytes_at` /
-        // `bytes_at_mut` already handle that case gracefully via the null/OOB
-        // stub pages. Using `checked_*().unwrap()` here instead turned benign
-        // (or already-corrupt, but guest-local) pointer math into a hard host
-        // panic, e.g. when a buggy guest computes `base + (size_t)(-N)` while
-        // building a `std::string`/shader buffer. Mirror the hardware: wrap.
-        Self::from_bits(self.to_bits().wrapping_add(other.wrapping_mul(size)))
+        Self::from_bits(
+            self.to_bits()
+                .checked_add(other.checked_mul(size).unwrap())
+                .unwrap(),
+        )
     }
 }
 impl<T, const MUT: bool> std::ops::AddAssign<GuestUSize> for Ptr<T, MUT> {
@@ -173,10 +168,11 @@ impl<T, const MUT: bool> std::ops::Sub<GuestUSize> for Ptr<T, MUT> {
     fn sub(self, other: GuestUSize) -> Self {
         let size: GuestUSize = guest_size_of::<T>();
         assert_ne!(size, 0);
-        // See the note on `Add` above: 32-bit ARM address arithmetic wraps
-        // modulo 2^32 and never traps, so subtracting past zero must wrap
-        // rather than panic the host.
-        Self::from_bits(self.to_bits().wrapping_sub(other.wrapping_mul(size)))
+        Self::from_bits(
+            self.to_bits()
+                .checked_sub(other.checked_mul(size).unwrap())
+                .unwrap(),
+        )
     }
 }
 impl<T, const MUT: bool> std::ops::SubAssign<GuestUSize> for Ptr<T, MUT> {
@@ -1079,22 +1075,5 @@ mod mem_tests {
             mem.write(p, 0xAB);
             assert_eq!(mem.read(p.cast_const()), 0xAB);
         }
-    }
-
-    #[test]
-    fn ptr_arithmetic_wraps_modulo_2_32() {
-        // Real 32-bit ARM computes addresses modulo 2^32 and never traps on
-        // the arithmetic itself. These cases previously panicked the host via
-        // `checked_*().unwrap()`; they must now wrap like the hardware.
-        let near_top: Ptr<u8, true> = Ptr::from_bits(0xFFFF_FFFB);
-        assert_eq!((near_top + 0x10).to_bits(), 0x0000_000B);
-
-        let low: Ptr<u8, true> = Ptr::from_bits(0x0000_0004);
-        assert_eq!((low - 0x10).to_bits(), 0xFFFF_FFF4);
-
-        // Element-sized arithmetic (u32 = 4 bytes) must also wrap rather than
-        // overflow when the multiplied offset exceeds the address space.
-        let p: Ptr<u32, true> = Ptr::from_bits(0xFFFF_FFF0);
-        assert_eq!((p + 0x8).to_bits(), 0x0000_0010);
     }
 }
