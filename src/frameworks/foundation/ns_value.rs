@@ -668,29 +668,54 @@ pub const CLASSES: ClassExports = objc_classes! {
         .register_host_selector("allowsKeyedCoding".to_string(), &mut env.mem);
     let allows_keyed: bool = msg![env; coder respondsToSelector:allows_keyed_sel]
         && msg![env; coder allowsKeyedCoding];
-    if !allows_keyed {
+    if allows_keyed {
+        for (key, kind) in [("NS.boolval", 0_u8), ("NS.intval", 1), ("NS.dblval", 2)] {
+            let key = from_rust_string(env, key.to_string());
+            let key = autorelease(env, key);
+            let contains: bool = msg![env; coder containsValueForKey:key];
+            if !contains {
+                continue;
+            }
+            let value = match kind {
+                0 => NSNumberHostObject::Bool(msg![env; coder decodeBoolForKey:key]),
+                1 => NSNumberHostObject::LongLong(msg![env; coder decodeInt64ForKey:key]),
+                _ => NSNumberHostObject::Double(msg![env; coder decodeDoubleForKey:key]),
+            };
+            *env.objc.borrow_mut::<NSNumberHostObject>(this) = value;
+            return this;
+        }
+
         release(env, this);
         return nil;
     }
 
-    for (key, kind) in [("NS.boolval", 0_u8), ("NS.intval", 1), ("NS.dblval", 2)] {
-        let key = from_rust_string(env, key.to_string());
-        let key = autorelease(env, key);
-        let contains: bool = msg![env; coder containsValueForKey:key];
-        if !contains {
-            continue;
-        }
-        let value = match kind {
-            0 => NSNumberHostObject::Bool(msg![env; coder decodeBoolForKey:key]),
-            1 => NSNumberHostObject::LongLong(msg![env; coder decodeInt64ForKey:key]),
-            _ => NSNumberHostObject::Double(msg![env; coder decodeDoubleForKey:key]),
-        };
-        *env.objc.borrow_mut::<NSNumberHostObject>(this) = value;
-        return this;
-    }
+    // Non-keyed coder (NSUnarchiver or an app-provided NSCoder subclass).
+    // Apple's NSNumber encodes, via -encodeValueOfObjCType:at: (see the
+    // NSCoder documentation), a single `char` holding the value's Objective-C
+    // type encoding, followed by the value itself in that type. Mirror that
+    // sequence with -decodeValueOfObjCType:at: so that any conforming coder —
+    // including custom NSCoder subclasses implemented in guest code — can
+    // round-trip NSNumber correctly.
+    let char_type = env.mem.alloc_and_write_cstr(b"c").cast_const();
+    let type_buf = env.mem.alloc_and_write(0i8);
+    () = msg![env; coder decodeValueOfObjCType:char_type at:(type_buf.cast_void())];
+    let type_byte: u8 = env.mem.read(type_buf) as u8;
+    env.mem.free(type_buf.cast_void());
 
-    release(env, this);
-    nil
+    // Build a NUL-terminated type string for the decoded type and a buffer
+    // large enough for the largest supported value (8 bytes, zeroed so
+    // narrower types leave the upper bytes clean).
+    let value_type = env.mem.alloc_and_write_cstr(&[type_byte]).cast_const();
+    let value_buf = env.mem.alloc_and_write(0u64).cast_void();
+    () = msg![env; coder decodeValueOfObjCType:value_type at:value_buf];
+
+    let result: id = msg![env; this initWithBytes:(value_buf.cast_const())
+                                         objCType:(value_type.cast_void())];
+
+    env.mem.free(value_buf);
+    env.mem.free(char_type.cast_mut().cast_void());
+    env.mem.free(value_type.cast_mut().cast_void());
+    result
 }
 
 - (())encodeWithCoder:(id)coder {
@@ -726,7 +751,17 @@ pub const CLASSES: ClassExports = objc_classes! {
         return;
     }
 
+    // Non-keyed coder: match Apple's format (see NSCoder documentation and
+    // the mirrored logic in initWithCoder: above) — first a `char` holding
+    // the Objective-C type encoding, then the value itself in that type.
     let type_ptr: ConstPtr<u8> = msg![env; this objCType];
+    let type_byte = env.mem.read(type_ptr);
+    let char_type = env.mem.alloc_and_write_cstr(b"c").cast_const();
+    let type_buf = env.mem.alloc_and_write(type_byte as i8);
+    () = msg![env; coder encodeValueOfObjCType:char_type at:(type_buf.cast_void().cast_const())];
+    env.mem.free(type_buf.cast_void());
+    env.mem.free(char_type.cast_mut().cast_void());
+
     let buffer_ptr = env.mem.alloc_and_write(0u64).cast_void();
     () = msg![env; this getValue:buffer_ptr];
     () = msg![env; coder encodeValueOfObjCType:type_ptr at:buffer_ptr];
