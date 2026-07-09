@@ -5,10 +5,10 @@
  */
 //! `UINavigationBar`.
 
-use crate::frameworks::core_graphics::cg_color;
 use crate::frameworks::core_graphics::cg_context::CGContextRef;
 use crate::frameworks::core_graphics::{CGRect, CGSize};
 use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::uikit::ui_color;
 use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
 use crate::frameworks::uikit::ui_view::ios5_theme::{self, BarPalette};
 use crate::frameworks::uikit::ui_view::UIViewHostObject;
@@ -171,8 +171,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
 
     let mut palette = if bar_tint != nil {
-        let cg_color: id = msg![env; bar_tint CGColor];
-        let rgba = cg_color::to_rgba(&env.objc, cg_color);
+        let rgba = ui_color::get_rgba(&env.objc, bar_tint);
         BarPalette::from_tint(rgba)
     } else if bar_style == UIBarStyleBlack
         || bar_style == UIBarStyleBlackOpaque

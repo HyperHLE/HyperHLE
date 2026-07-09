@@ -257,22 +257,26 @@ fn init_visuals(env: &mut Environment, this: id) {
     let font_size: CGFloat = FONT_SIZE as CGFloat;
     let font: id = msg_class![env; UIFont boldSystemFontOfSize:font_size];
 
+    // iOS 5 used a silvery blue-grey track for the default segmented control
+    // rather than the flat white of later releases.
     let bg_color: id =
-        msg_class![env; UIColor colorWithRed:(0.90f32) green:(0.90f32) blue:(0.90f32) alpha:1.0f32];
+        msg_class![env; UIColor colorWithRed:(0.78f32) green:(0.80f32) blue:(0.84f32) alpha:1.0f32];
     () = msg![env; this setBackgroundColor:bg_color];
     {
         let layer: id = msg![env; this layer];
         let r: CGFloat = CORNER_RADIUS as CGFloat;
         () = msg![env; layer setCornerRadius:r];
-        let border_color: id = msg_class![env; UIColor colorWithRed:(0.4f32) green:(0.4f32) blue:(0.4f32) alpha:(0.5f32)];
+        // Darker blue-grey hairline border, as on iOS 5.
+        let border_color: id = msg_class![env; UIColor colorWithRed:(0.34f32) green:(0.38f32) blue:(0.45f32) alpha:(0.9f32)];
         let cg: id = msg![env; border_color CGColor];
         () = msg![env; layer setBorderColor:cg];
-        let bw: CGFloat = 0.5;
+        let bw: CGFloat = 1.0;
         () = msg![env; layer setBorderWidth:bw];
     }
 
+    // The selected segment on iOS 5 is a dark blue-grey, not the iOS 7+ blue.
     let sel_color: id =
-        msg_class![env; UIColor colorWithRed:(0.0f32) green:(0.478f32) blue:(1.0f32) alpha:1.0f32];
+        msg_class![env; UIColor colorWithRed:(0.42f32) green:(0.47f32) blue:(0.55f32) alpha:1.0f32];
     let selection_view: id = msg_class![env; UIView new];
     () = msg![env; selection_view setBackgroundColor:sel_color];
 

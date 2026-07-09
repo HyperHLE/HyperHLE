@@ -271,6 +271,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     retain(env, color);
     release(env, old);
     env.objc.borrow_mut::<UISearchBarHostObject>(this).bar_tint_color = color;
+    () = msg![env; this setNeedsDisplay];
 }
 - (id)barTintColor {
     env.objc.borrow::<UISearchBarHostObject>(this).bar_tint_color
@@ -278,6 +279,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setTranslucent:(bool)translucent {
     env.objc.borrow_mut::<UISearchBarHostObject>(this).translucent = translucent;
+    () = msg![env; this setNeedsDisplay];
 }
 - (bool)isTranslucent {
     env.objc.borrow::<UISearchBarHostObject>(this).translucent

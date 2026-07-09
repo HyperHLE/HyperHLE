@@ -15,8 +15,8 @@
 //! that view as the subview instead.
 
 use crate::abi::{GuestArg, GuestRet};
-use crate::frameworks::core_graphics::cg_color;
 use crate::frameworks::core_graphics::cg_context::CGContextRef;
+use crate::frameworks::uikit::ui_color;
 use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
 use crate::frameworks::uikit::ui_view::ios5_theme::{self, BarPalette};
 use crate::frameworks::uikit::ui_view::ui_control::ui_bar_button_item::UIBarButtonSystemItem;
@@ -152,8 +152,7 @@ fn toolbar_palette(
     bar_tint_color: id,
 ) -> BarPalette {
     let mut palette = if bar_tint_color != nil {
-        let cg_color: id = msg![env; bar_tint_color CGColor];
-        let rgba = cg_color::to_rgba(&env.objc, cg_color);
+        let rgba = ui_color::get_rgba(&env.objc, bar_tint_color);
         BarPalette::from_tint(rgba)
     } else {
         match style {
