@@ -22,8 +22,8 @@
 //! resolution is handled transparently by the context).
 
 use crate::frameworks::core_graphics::cg_context::{
-    CGContextFillRect, CGContextRef, CGContextRestoreGState, CGContextSaveGState,
-    CGContextSetRGBFillColor,
+    CGContextClearRect, CGContextFillRect, CGContextRef, CGContextRestoreGState,
+    CGContextSaveGState, CGContextSetRGBFillColor,
 };
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::Environment;
@@ -335,5 +335,223 @@ pub fn draw_glossy_button(
         1.0,
     );
 
+    CGContextRestoreGState(env, ctx);
+}
+
+/// Inset a rectangle by `dx`/`dy` on every edge.
+#[inline]
+pub fn inset_rect(rect: CGRect, dx: CGFloat, dy: CGFloat) -> CGRect {
+    CGRect {
+        origin: CGPoint {
+            x: rect.origin.x + dx,
+            y: rect.origin.y + dy,
+        },
+        size: CGSize {
+            width: (rect.size.width - dx * 2.0).max(0.0),
+            height: (rect.size.height - dy * 2.0).max(0.0),
+        },
+    }
+}
+
+/// Clear (make transparent) the four corner regions of `rect` so that content
+/// already drawn into `rect` appears with rounded corners of the given
+/// `radius`. The renderer cannot rasterise real arcs, so the arc is
+/// approximated per scanline with horizontal clears — this looks smooth at
+/// typical control sizes and works identically at Retina and non-Retina
+/// backing-store resolutions.
+///
+/// This is how every rounded iOS 5 control in this theme obtains its rounded
+/// silhouette without requiring the CoreAnimation compositor to clip drawn
+/// layer `contents` to `cornerRadius`.
+pub fn clear_rounded_corners(env: &mut Environment, ctx: CGContextRef, rect: CGRect, radius: CGFloat) {
+    if ctx.is_null() {
+        return;
+    }
+    let r = radius
+        .min(rect.size.width / 2.0)
+        .min(rect.size.height / 2.0);
+    if r <= 0.5 {
+        return;
+    }
+    let steps = r.ceil() as i32;
+    let right_x = rect.origin.x + rect.size.width;
+    let bottom_y = rect.origin.y + rect.size.height;
+    for i in 0..steps {
+        let y = i as CGFloat;
+        // Horizontal distance from the arc centre for this scanline.
+        let dy = r - y - 0.5;
+        let inset = r - (r * r - dy * dy).max(0.0).sqrt();
+        if inset <= 0.0 {
+            continue;
+        }
+        // Top-left + top-right.
+        CGContextClearRect(
+            env,
+            ctx,
+            CGRect {
+                origin: CGPoint {
+                    x: rect.origin.x,
+                    y: rect.origin.y + y,
+                },
+                size: CGSize {
+                    width: inset,
+                    height: 1.0,
+                },
+            },
+        );
+        CGContextClearRect(
+            env,
+            ctx,
+            CGRect {
+                origin: CGPoint {
+                    x: right_x - inset,
+                    y: rect.origin.y + y,
+                },
+                size: CGSize {
+                    width: inset,
+                    height: 1.0,
+                },
+            },
+        );
+        // Bottom-left + bottom-right.
+        CGContextClearRect(
+            env,
+            ctx,
+            CGRect {
+                origin: CGPoint {
+                    x: rect.origin.x,
+                    y: bottom_y - y - 1.0,
+                },
+                size: CGSize {
+                    width: inset,
+                    height: 1.0,
+                },
+            },
+        );
+        CGContextClearRect(
+            env,
+            ctx,
+            CGRect {
+                origin: CGPoint {
+                    x: right_x - inset,
+                    y: bottom_y - y - 1.0,
+                },
+                size: CGSize {
+                    width: inset,
+                    height: 1.0,
+                },
+            },
+        );
+    }
+}
+
+/// Draw an iOS 5 glossy, rounded button/pill fully inside `rect`: a 1px darker
+/// bezel, the glossy body and rounded corners. `base` is the button's fill
+/// colour; pass `highlighted = true` for the pressed (darkened) state.
+pub fn draw_rounded_glossy_button(
+    env: &mut Environment,
+    ctx: CGContextRef,
+    rect: CGRect,
+    base: Rgba,
+    radius: CGFloat,
+    highlighted: bool,
+) {
+    if ctx.is_null() || rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+        return;
+    }
+    CGContextSaveGState(env, ctx);
+
+    // Darker bezel underneath.
+    fill_solid(env, ctx, rect, scale_brightness(base, 0.5));
+    // Glossy body inset by the 1px bezel.
+    let body = inset_rect(rect, 1.0, 1.0);
+    draw_glossy_button(env, ctx, body, base, highlighted);
+
+    // Round the bezel, then round the (slightly smaller) body to leave a
+    // 1px darker outline around the glossy face.
+    clear_rounded_corners(env, ctx, rect, radius);
+    CGContextRestoreGState(env, ctx);
+}
+
+/// Draw a recessed (inset) rounded track, as used by `UISlider`,
+/// `UIProgressView` grooves and search fields. `fill` is the groove colour.
+pub fn draw_recessed_track(
+    env: &mut Environment,
+    ctx: CGContextRef,
+    rect: CGRect,
+    fill: Rgba,
+    radius: CGFloat,
+) {
+    if ctx.is_null() || rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+        return;
+    }
+    CGContextSaveGState(env, ctx);
+    // Subtle darker top / lighter bottom to sell the "sunken" look.
+    let top = scale_brightness(fill, 0.86);
+    let bottom = scale_brightness(fill, 1.08);
+    fill_vertical_gradient(env, ctx, rect, top, bottom);
+    // Bright 1px bottom bevel highlight.
+    horizontal_line(
+        env,
+        ctx,
+        rect,
+        rect.origin.y + rect.size.height - 1.0,
+        (1.0, 1.0, 1.0, 0.35),
+        1.0,
+    );
+    clear_rounded_corners(env, ctx, rect, radius);
+    CGContextRestoreGState(env, ctx);
+}
+
+/// Palette + renderer for the iOS 5 dark, glossy rounded panel shared by
+/// `UIAlertView` and `UIActionSheet`.
+pub fn draw_alert_panel(env: &mut Environment, ctx: CGContextRef, rect: CGRect, radius: CGFloat) {
+    if ctx.is_null() || rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+        return;
+    }
+    CGContextSaveGState(env, ctx);
+
+    // Light outer stroke ("rim light") around the panel.
+    fill_solid(env, ctx, rect, (0.72, 0.74, 0.78, 0.95));
+    let body = inset_rect(rect, 1.0, 1.0);
+
+    // Dark blue-charcoal glossy body: brighter glassy upper third, darker
+    // lower body, matching the classic iOS 5 alert.
+    let upper_h = (body.size.height * 0.5).floor();
+    let upper = CGRect {
+        origin: body.origin,
+        size: CGSize {
+            width: body.size.width,
+            height: upper_h,
+        },
+    };
+    let lower = CGRect {
+        origin: CGPoint {
+            x: body.origin.x,
+            y: body.origin.y + upper_h,
+        },
+        size: CGSize {
+            width: body.size.width,
+            height: body.size.height - upper_h,
+        },
+    };
+    fill_vertical_gradient(
+        env,
+        ctx,
+        upper,
+        (0.30, 0.34, 0.42, 0.98),
+        (0.16, 0.19, 0.26, 0.98),
+    );
+    fill_vertical_gradient(
+        env,
+        ctx,
+        lower,
+        (0.13, 0.15, 0.21, 0.98),
+        (0.07, 0.08, 0.12, 0.98),
+    );
+    // Glass shine on the very top.
+    horizontal_line(env, ctx, body, body.origin.y, (0.5, 0.54, 0.62, 0.9), 1.0);
+
+    clear_rounded_corners(env, ctx, rect, radius);
     CGContextRestoreGState(env, ctx);
 }

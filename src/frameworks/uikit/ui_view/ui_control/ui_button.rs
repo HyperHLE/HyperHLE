@@ -7,12 +7,15 @@
 //! `UIButton`.
 
 use super::{UIControlState, UIControlStateNormal};
+use crate::frameworks::core_graphics::cg_context::CGContextRef;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str, to_rust_string};
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::frameworks::uikit::ui_font::{
     UITextAlignmentCenter, UITextAlignmentLeft, UITextAlignmentRight,
 };
+use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
+use crate::frameworks::uikit::ui_view::ios5_theme;
 use crate::mem::SafeRead;
 use crate::objc::{
     autorelease, id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes,
@@ -186,12 +189,15 @@ fn set_type(env: &mut Environment, button: id, type_: UIButtonType) {
     match type_ {
         UIButtonTypeCustom => (),
         UIButtonTypeRoundedRect => {
-            let bg_color: id = msg_class![env; UIColor whiteColor];
+            // iOS 5: the glossy body is drawn in -drawRect:; keep the layer
+            // background clear so only the gloss (with rounded corners cut into
+            // the drawn contents) is visible.
+            let bg_color: id = msg_class![env; UIColor clearColor];
             () = msg![env; button setBackgroundColor:bg_color];
-            let text_color: id = msg_class![env; UIColor blackColor];
+            // Rounded-rect buttons use the system blue tint for their title.
+            let text_color: id = msg_class![env; UIColor colorWithRed:(0.20f32) green:(0.31f32) blue:(0.52f32) alpha:1.0f32];
             () = msg![env; button setTitleColor:text_color forState:UIControlStateNormal];
-            let layer: id = msg![env; button layer];
-            () = msg![env; layer setCornerRadius:(10.0 as CGFloat)];
+            () = msg![env; button setNeedsDisplay];
         }
         UIButtonTypeDetailDisclosure | UIButtonTypeInfoLight | UIButtonTypeInfoDark => {
             // System "info" buttons (types 2, 3, 4).
