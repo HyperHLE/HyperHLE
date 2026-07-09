@@ -4571,6 +4571,64 @@ fn glVertexAttribI4uiv(env: &mut Environment, index: GLuint, v: ConstPtr<GLuint>
     });
 }
 
+// -- Vertex attribute queries (OpenGL ES 2.0 §6.1.8) --
+// The largest query (GL_CURRENT_VERTEX_ATTRIB) returns four values, so the
+// out-buffer is always mapped as 4 elements, matching Apple's headers.
+
+fn glGetVertexAttribfv(
+    env: &mut Environment,
+    index: GLuint,
+    pname: GLenum,
+    params: MutPtr<GLfloat>,
+) {
+    let params = env.mem.ptr_at_mut(params, 4);
+    with_ctx_and_mem(env, |gles, _mem| unsafe {
+        gles.GetVertexAttribfv(index, pname, params)
+    });
+}
+
+fn glGetVertexAttribiv(env: &mut Environment, index: GLuint, pname: GLenum, params: MutPtr<GLint>) {
+    let params = env.mem.ptr_at_mut(params, 4);
+    with_ctx_and_mem(env, |gles, _mem| unsafe {
+        gles.GetVertexAttribiv(index, pname, params)
+    });
+}
+
+/// `void glGetVertexAttribPointerv(GLuint index, GLenum pname, void **pointer)`
+/// — OpenGL ES 2.0 §6.1.8. The result is either a buffer offset (when a
+/// buffer object is bound to the attribute) or a client-side array pointer,
+/// which must be translated from a host address back to a guest address.
+fn glGetVertexAttribPointerv(
+    env: &mut Environment,
+    index: GLuint,
+    pname: GLenum,
+    pointer: MutPtr<ConstVoidPtr>,
+) {
+    const VERTEX_ATTRIB_ARRAY_BUFFER_BINDING: GLenum = 0x889F;
+    with_ctx_and_mem(env, |gles, mem| {
+        let mut buffer_binding: GLint = 0;
+        let mut host_pointer_or_offset: *mut GLvoid = std::ptr::null_mut();
+        let guest_pointer_or_offset = unsafe {
+            gles.GetVertexAttribiv(
+                index,
+                VERTEX_ATTRIB_ARRAY_BUFFER_BINDING,
+                &mut buffer_binding,
+            );
+            gles.GetVertexAttribPointerv(index, pname, &mut host_pointer_or_offset);
+            if buffer_binding != 0 {
+                // A buffer object is bound: the "pointer" is really an offset
+                // and must be passed through unchanged.
+                Ptr::from_bits(u32::try_from(host_pointer_or_offset as usize).unwrap_or(0))
+            } else if host_pointer_or_offset.is_null() {
+                Ptr::null()
+            } else {
+                mem.host_ptr_to_guest_ptr(host_pointer_or_offset)
+            }
+        };
+        mem.write(pointer, guest_pointer_or_offset);
+    });
+}
+
 fn glGetVertexAttribIiv(
     env: &mut Environment,
     index: GLuint,
@@ -5439,6 +5497,9 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glGetInternalformativ(_, _, _, _, _)),
     export_c_func!(glVertexAttribI4iv(_, _)),
     export_c_func!(glVertexAttribI4uiv(_, _)),
+    export_c_func!(glGetVertexAttribfv(_, _, _)),
+    export_c_func!(glGetVertexAttribiv(_, _, _)),
+    export_c_func!(glGetVertexAttribPointerv(_, _, _)),
     export_c_func!(glGetVertexAttribIiv(_, _, _)),
     export_c_func!(glGetVertexAttribIuiv(_, _, _)),
     export_c_func!(glGetUniformuiv(_, _, _)),
