@@ -443,6 +443,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     env.objc.borrow_mut::<UITextFieldHostObject>(this).editing = true;
 
+    // Show the drawn on-screen iOS 5 keyboard for this field.
+    crate::frameworks::uikit::ui_keyboard::show_keyboard(env, this);
+
     let name = ns_string::get_static_str(env, UITextFieldTextDidBeginEditingNotification);
     let _: () = msg![env; center postNotificationName:name object:this userInfo:nil];
 
@@ -473,6 +476,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     let _: () = msg![env; center postNotificationName:name object:this userInfo:nil];
 
     env.framework_state.uikit.ui_responder.first_responder = nil;
+    // Hide the drawn on-screen iOS 5 keyboard.
+    crate::frameworks::uikit::ui_keyboard::hide_keyboard(env);
     env.on_parent_stack_in_coroutine(|window, _| window.stop_text_input());
 
     let name = ns_string::get_static_str(env, UIKeyboardDidHideNotification);
