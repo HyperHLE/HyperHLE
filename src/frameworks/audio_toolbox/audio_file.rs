@@ -722,12 +722,14 @@ pub fn AudioFileReadPackets(
         };
     }
 
-    if !out_packet_descriptions.is_null() {
-        log!(
-            "Внимание: игнорирование не-null out_packet_descriptions \
-             в AudioFileReadPackets()"
-        );
-    }
+    // Per Apple's Audio File Services Reference, when the caller supplies an
+    // `outPacketDescriptions` array it must be filled in even for constant
+    // bitrate (CBR) formats such as IMA4/ADPCM (used by many games). For CBR
+    // data every packet has a fixed size, so each description is trivially
+    // derived from `packet_size`. We fill the array below, after we know how
+    // many packets were actually read. Previously this path silently ignored
+    // the array, which broke AudioQueue/AudioConverter clients that rely on
+    // the descriptions to decode packetized CBR audio.
 
     let starting_byte = match i64::from(packet_size).checked_mul(in_starting_packet) {
         Some(v) => v,
@@ -775,6 +777,23 @@ pub fn AudioFileReadPackets(
 
     let short_read = (bytes_read as u32) < bytes_to_read;
     let packets_read = (bytes_read as u32) / packet_size;
+
+    // Fill in the caller-supplied packet descriptions for CBR data. Each
+    // packet is `packet_size` bytes; mVariableFramesInPacket is 0 for CBR
+    // (per Apple's Audio File Services Reference).
+    if !out_packet_descriptions.is_null() && packets_read > 0 {
+        let descriptions: MutPtr<AudioStreamPacketDescription> = out_packet_descriptions.cast();
+        for i in 0..packets_read {
+            env.mem.write(
+                descriptions + i as GuestUSize,
+                AudioStreamPacketDescription {
+                    mStartOffset: i64::from(i) * i64::from(packet_size),
+                    mVariableFramesInPacket: 0,
+                    mDataByteSize: packet_size,
+                },
+            );
+        }
+    }
 
     if short_read && audiofile_soft_eof_enabled() {
         // Do NOT pretend EOF produced a full buffer. That can make games loop

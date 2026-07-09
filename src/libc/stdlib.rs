@@ -137,7 +137,35 @@ fn malloc_size(env: &mut Environment, ptr: ConstVoidPtr) -> GuestUSize {
 
 fn calloc(env: &mut Environment, count: GuestUSize, size: GuestUSize) -> MutVoidPtr {
     set_errno(env, 0);
-    let mut total = size.checked_mul(count).unwrap();
+
+    // Per the C standard (and Apple's calloc(3) man page), calloc must return
+    // NULL if `count * size` would overflow, rather than aborting. Using
+    // `.unwrap()` here previously panicked and killed the whole emulator when
+    // a buggy game computed a bogus element count. Handle overflow gracefully.
+    let mut total = match size.checked_mul(count) {
+        Some(v) => v,
+        None => {
+            log!(
+                "TouchHLE::libc::stdlib: calloc({:#x}, {:#x}) overflowed — returning NULL",
+                count,
+                size
+            );
+            set_errno(env, crate::libc::errno::ENOMEM);
+            return MutVoidPtr::null();
+        }
+    };
+
+    // Same out-of-range guard as malloc: refuse obviously-corrupted sizes
+    // instead of exhausting the guest heap.
+    if total > 0x2000_0000 {
+        log!(
+            "TouchHLE::libc::stdlib: calloc total {:#x} refused as out of range — returning NULL",
+            total
+        );
+        set_errno(env, crate::libc::errno::ENOMEM);
+        return MutVoidPtr::null();
+    }
+
     if total == 0 {
         total = 1;
         // Защита от падения
