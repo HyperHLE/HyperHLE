@@ -5,9 +5,9 @@
  */
 //! UISearchBar.
 
-use crate::frameworks::core_graphics::cg_color;
 use crate::frameworks::core_graphics::cg_context::CGContextRef;
 use crate::frameworks::core_graphics::CGRect;
+use crate::frameworks::uikit::ui_color;
 use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
 use crate::frameworks::uikit::ui_view::ios5_theme::{self, BarPalette};
 use crate::objc::{
@@ -124,8 +124,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         (host.bar_tint_color, host.translucent)
     };
     let mut palette = if bar_tint != nil {
-        let cg: id = msg![env; bar_tint CGColor];
-        let rgba = cg_color::to_rgba(&env.objc, cg);
+        let rgba = ui_color::get_rgba(&env.objc, bar_tint);
         BarPalette::from_tint(rgba)
     } else {
         BarPalette::search_bar()
