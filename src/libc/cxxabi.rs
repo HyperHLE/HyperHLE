@@ -148,6 +148,34 @@ fn unwind_to_app_frame(env: &mut Environment) -> bool {
     false
 }
 
+// === Exception-loop detection (shared) ===
+//
+// touchHLE's exception "bypass" can return control to a caller that
+// immediately re-throws (classic example: `operator new` in a loop that
+// keeps getting NULL from a refused huge `malloc`, throwing `bad_alloc`
+// every iteration — see P. Harvest, which spins on malloc(0x4420000c)).
+// Both the Itanium (`__cxa_throw`) and the SjLj (`_Unwind_SjLj_*`) entry
+// points funnel through here so neither can hang the emulator forever.
+//
+// Returns the number of consecutive throws that share the same `key`.
+
+const THROW_LOOP_LIMIT: u32 = 512;
+
+fn note_exception_throw(key: &str) -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static LAST_THROW_KEY: Mutex<String> = Mutex::new(String::new());
+    static SAME_KEY_COUNT: AtomicU32 = AtomicU32::new(0);
+
+    let mut last = LAST_THROW_KEY.lock().unwrap();
+    if *last == key {
+        SAME_KEY_COUNT.fetch_add(1, Ordering::Relaxed) + 1
+    } else {
+        *last = key.to_owned();
+        SAME_KEY_COUNT.store(1, Ordering::Relaxed);
+        1
+    }
+}
+
 // === C++ Itanium ABI: exception machinery ===
 //
 // We allocate the requested storage prefixed by a fake __cxa_exception
@@ -191,21 +219,7 @@ fn __cxa_throw(env: &mut Environment, _exc: MutVoidPtr, tinfo: ConstVoidPtr, _dt
     // again the next iteration), we'll silently burn CPU forever. Track the
     // rate of throws of the same type and abort after a reasonable ceiling so
     // the emulator stays responsive.
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Mutex;
-    static LAST_THROW_TYPE: Mutex<String> = Mutex::new(String::new());
-    static SAME_TYPE_COUNT: AtomicU32 = AtomicU32::new(0);
-    const THROW_LOOP_LIMIT: u32 = 512;
-    let count = {
-        let mut last = LAST_THROW_TYPE.lock().unwrap();
-        if *last == type_name {
-            SAME_TYPE_COUNT.fetch_add(1, Ordering::Relaxed) + 1
-        } else {
-            *last = type_name.clone();
-            SAME_TYPE_COUNT.store(1, Ordering::Relaxed);
-            1
-        }
-    };
+    let count = note_exception_throw(&type_name);
 
     if count <= 3 || count.is_multiple_of(64) {
         log!(
@@ -334,7 +348,29 @@ fn _Unwind_SjLj_Unregister(_env: &mut Environment, _jmpbuf: MutVoidPtr) {}
 
 #[allow(non_snake_case)]
 fn _Unwind_SjLj_RaiseException(env: &mut Environment, _exc: MutVoidPtr) -> i32 {
-    log!("_Unwind_SjLj_RaiseException — bypassing");
+    // Break runaway exception loops (e.g. `operator new` retrying a refused
+    // huge allocation and re-throwing bad_alloc every iteration). Key on the
+    // throwing call site (LR) so unrelated throws don't share a counter.
+    let site = env.cpu.regs()[Cpu::LR];
+    let count = note_exception_throw(&format!("sjlj:{:#x}", site));
+    if count <= 3 || count.is_multiple_of(64) {
+        log!(
+            "_Unwind_SjLj_RaiseException — bypassing (site={:#x}, consecutive #{})",
+            site,
+            count
+        );
+    }
+    if count >= THROW_LOOP_LIMIT {
+        log!(
+            "Warning: SjLj exception loop detected (site={:#x} raised {} times \
+             in a row). Returning _URC_FATAL_PHASE1_ERROR to break the loop; \
+             the guest will likely abort on its own shortly.",
+            site,
+            count
+        );
+        // _URC_FATAL_PHASE1_ERROR
+        return 3;
+    }
     if !unwind_to_app_frame(env) {
         log!(
             "Warning: _Unwind_SjLj_RaiseException with no recoverable frame; \
