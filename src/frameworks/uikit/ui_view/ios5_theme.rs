@@ -22,8 +22,8 @@
 //! resolution is handled transparently by the context).
 
 use crate::frameworks::core_graphics::cg_context::{
-    CGContextClearRect, CGContextFillRect, CGContextRef, CGContextRestoreGState,
-    CGContextSaveGState, CGContextSetRGBFillColor,
+    CGContextClearRect, CGContextFillEllipseInRect, CGContextFillRect, CGContextRef,
+    CGContextRestoreGState, CGContextSaveGState, CGContextSetRGBFillColor,
 };
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::Environment;
@@ -553,5 +553,71 @@ pub fn draw_alert_panel(env: &mut Environment, ctx: CGContextRef, rect: CGRect, 
     horizontal_line(env, ctx, body, body.origin.y, (0.5, 0.54, 0.62, 0.9), 1.0);
 
     clear_rounded_corners(env, ctx, rect, radius);
+    CGContextRestoreGState(env, ctx);
+}
+
+/// Draw an iOS-style circular activity indicator ("spinner", as used by
+/// `UIActivityIndicatorView`) centred inside `rect`.
+///
+/// Twelve spokes are arranged evenly around a circle. The spoke selected by
+/// `phase` (a value in `0.0..1.0`; advance it over time to animate the
+/// rotation) is drawn at full brightness and the spokes trailing behind it
+/// fade out, reproducing the classic rotating look. `color` is the spoke
+/// colour at full opacity — its alpha is modulated per spoke.
+///
+/// Each spoke is rendered as a small round dot (an axis-aligned ellipse), which
+/// the rasteriser handles reliably regardless of rotation, so no CTM rotation
+/// is required (see the module docs for why that matters).
+pub fn draw_activity_indicator(
+    env: &mut Environment,
+    ctx: CGContextRef,
+    rect: CGRect,
+    color: Rgba,
+    phase: CGFloat,
+) {
+    if ctx.is_null() || rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+        return;
+    }
+    const SPOKES: i32 = 12;
+    let cx = rect.origin.x + rect.size.width / 2.0;
+    let cy = rect.origin.y + rect.size.height / 2.0;
+    let radius = rect.size.width.min(rect.size.height) / 2.0;
+    // Distance of each dot's centre from the middle, and the dot diameter.
+    let orbit = radius * 0.72;
+    let dot = (radius * 0.30).max(1.5);
+
+    CGContextSaveGState(env, ctx);
+    // The (fractional) index of the currently-leading spoke.
+    let lead = phase.fract() * SPOKES as CGFloat;
+    for i in 0..SPOKES {
+        // Angle for this spoke, starting at the top (12 o'clock) going
+        // clockwise.
+        let ang = -std::f32::consts::FRAC_PI_2
+            + (i as CGFloat) / (SPOKES as CGFloat) * std::f32::consts::TAU;
+        // How many spoke-steps this spoke trails behind the leading one.
+        let mut trail = lead - i as CGFloat;
+        while trail < 0.0 {
+            trail += SPOKES as CGFloat;
+        }
+        let t = trail / SPOKES as CGFloat; // 0 = brightest .. ~1 = faintest
+        let alpha = color.3 * (0.20 + 0.80 * (1.0 - t));
+        let px = cx + orbit * ang.cos();
+        let py = cy + orbit * ang.sin();
+        CGContextSetRGBFillColor(env, ctx, color.0, color.1, color.2, alpha);
+        CGContextFillEllipseInRect(
+            env,
+            ctx,
+            CGRect {
+                origin: CGPoint {
+                    x: px - dot / 2.0,
+                    y: py - dot / 2.0,
+                },
+                size: CGSize {
+                    width: dot,
+                    height: dot,
+                },
+            },
+        );
+    }
     CGContextRestoreGState(env, ctx);
 }
