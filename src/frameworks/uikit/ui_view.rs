@@ -10,6 +10,7 @@
 //! Useful resources:
 //! - Apple's [View Programming Guide for iOS](https://developer.apple.com/library/archive/documentation/WindowsViews/Conceptual/ViewPG_iPhoneOS/Introduction/Introduction.html)
 
+pub mod ios5_theme;
 pub mod ui_alert_view;
 pub mod ui_collection_view;
 pub mod ui_control;

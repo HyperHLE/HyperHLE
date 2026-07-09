@@ -5,8 +5,12 @@
  */
 //! `UINavigationBar`.
 
+use crate::frameworks::core_graphics::cg_color;
+use crate::frameworks::core_graphics::cg_context::CGContextRef;
 use crate::frameworks::core_graphics::{CGRect, CGSize};
 use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
+use crate::frameworks::uikit::ui_view::ios5_theme::{self, BarPalette};
 use crate::frameworks::uikit::ui_view::UIViewHostObject;
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes, release,
@@ -84,15 +88,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)init {
     // Run UIView's initializer so the backing layer and view state are set up.
-    msg_super![env; this init]
+    let this: id = msg_super![env; this init];
+    () = msg![env; this setNeedsDisplay];
+    this
 }
 
 - (id)initWithFrame:(CGRect)frame {
-    msg_super![env; this initWithFrame:frame]
+    let this: id = msg_super![env; this initWithFrame:frame];
+    () = msg![env; this setNeedsDisplay];
+    this
 }
 
 - (id)initWithCoder:(id)coder {
-    msg_super![env; this initWithCoder:coder]
+    let this: id = msg_super![env; this initWithCoder:coder];
+    () = msg![env; this setNeedsDisplay];
+    this
 }
 
 - (())dealloc {
@@ -134,6 +144,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setBarStyle:(UIBarStyle)style {
     env.objc.borrow_mut::<UINavigationBarHostObject>(this).bar_style = style;
+    () = msg![env; this setNeedsDisplay];
 }
 
 - (bool)isTranslucent {
@@ -142,6 +153,44 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setTranslucent:(bool)value {
     env.objc.borrow_mut::<UINavigationBarHostObject>(this).translucent = value;
+    () = msg![env; this setNeedsDisplay];
+}
+
+// MARK: - iOS 5 skeuomorphic rendering
+
+- (())drawRect:(CGRect)_rect {
+    let bounds: CGRect = msg![env; this bounds];
+    let ctx: CGContextRef = UIGraphicsGetCurrentContext(env);
+    if ctx.is_null() {
+        return;
+    }
+
+    let (bar_style, translucent, bar_tint) = {
+        let host = env.objc.borrow::<UINavigationBarHostObject>(this);
+        (host.bar_style, host.translucent, host.bar_tint_color)
+    };
+
+    let mut palette = if bar_tint != nil {
+        let cg_color: id = msg![env; bar_tint CGColor];
+        let rgba = cg_color::to_rgba(&env.objc, cg_color);
+        BarPalette::from_tint(rgba)
+    } else if bar_style == UIBarStyleBlack
+        || bar_style == UIBarStyleBlackOpaque
+        || bar_style == UIBarStyleBlackTranslucent
+    {
+        BarPalette::black()
+    } else {
+        BarPalette::navigation_default()
+    };
+
+    // Translucent bars let a little of the content behind show through.
+    let is_translucent = translucent
+        && bar_style != UIBarStyleBlackOpaque;
+    if is_translucent {
+        palette = palette.with_alpha(0.9);
+    }
+
+    ios5_theme::draw_bar_background(env, ctx, bounds, palette);
 }
 
 // MARK: - Colors
@@ -166,6 +215,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, old);
     retain(env, color);
     env.objc.borrow_mut::<UINavigationBarHostObject>(this).bar_tint_color = color;
+    () = msg![env; this setNeedsDisplay];
 }
 
 // MARK: - Title attributes

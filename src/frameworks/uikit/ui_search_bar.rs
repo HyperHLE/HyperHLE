@@ -5,9 +5,13 @@
  */
 //! UISearchBar.
 
+use crate::frameworks::core_graphics::cg_color;
+use crate::frameworks::core_graphics::cg_context::CGContextRef;
 use crate::frameworks::core_graphics::CGRect;
+use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
+use crate::frameworks::uikit::ui_view::ios5_theme::{self, BarPalette};
 use crate::objc::{
-    id, msg_super, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
+    id, msg, msg_super, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
 };
 
 #[derive(Default)]
@@ -95,12 +99,59 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithFrame:(CGRect)frame {
-    msg_super![env; this initWithFrame:frame]
+    let this: id = msg_super![env; this initWithFrame:frame];
+    () = msg![env; this setNeedsDisplay];
+    this
 }
 
 // Исправление для NIB-парсера (UIClassSwapper)
 - (id)initWithCoder:(id)coder {
-    msg_super![env; this initWithCoder:coder]
+    let this: id = msg_super![env; this initWithCoder:coder];
+    () = msg![env; this setNeedsDisplay];
+    this
+}
+
+// MARK: - iOS 5 skeuomorphic rendering
+
+- (())drawRect:(CGRect)_rect {
+    let bounds: CGRect = msg![env; this bounds];
+    let ctx: CGContextRef = UIGraphicsGetCurrentContext(env);
+    if ctx.is_null() {
+        return;
+    }
+    let (bar_tint, translucent) = {
+        let host = env.objc.borrow::<UISearchBarHostObject>(this);
+        (host.bar_tint_color, host.translucent)
+    };
+    let mut palette = if bar_tint != nil {
+        let cg: id = msg![env; bar_tint CGColor];
+        let rgba = cg_color::to_rgba(&env.objc, cg);
+        BarPalette::from_tint(rgba)
+    } else {
+        BarPalette::search_bar()
+    };
+    if translucent {
+        palette = palette.with_alpha(0.92);
+    }
+    ios5_theme::draw_bar_background(env, ctx, bounds, palette);
+
+    // Recessed (inset) rounded search text field: a light near-white pill with
+    // a subtle dark top edge, matching iOS 5.
+    let inset_x = 8.0;
+    let inset_y = 7.0;
+    let field = CGRect {
+        origin: crate::frameworks::core_graphics::CGPoint {
+            x: bounds.origin.x + inset_x,
+            y: bounds.origin.y + inset_y,
+        },
+        size: crate::frameworks::core_graphics::CGSize {
+            width: (bounds.size.width - inset_x * 2.0).max(0.0),
+            height: (bounds.size.height - inset_y * 2.0).max(0.0),
+        },
+    };
+    // Dark inner-shadow line along the top of the field.
+    ios5_theme::fill_solid(env, ctx, field, (1.0, 1.0, 1.0, 1.0));
+    ios5_theme::horizontal_line(env, ctx, field, field.origin.y, (0.55, 0.57, 0.60, 1.0), 1.0);
 }
 
 - (id)delegate {

@@ -15,6 +15,10 @@
 //! that view as the subview instead.
 
 use crate::abi::{GuestArg, GuestRet};
+use crate::frameworks::core_graphics::cg_color;
+use crate::frameworks::core_graphics::cg_context::CGContextRef;
+use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
+use crate::frameworks::uikit::ui_view::ios5_theme::{self, BarPalette};
 use crate::frameworks::uikit::ui_view::ui_control::ui_bar_button_item::UIBarButtonSystemItem;
 use crate::frameworks::{
     core_graphics::{CGFloat, CGPoint, CGRect, CGSize},
@@ -88,6 +92,8 @@ pub struct UIToolbarHostObject {
     bar_style: UIBarStyle,
     /// Whether the toolbar background is translucent (default: true).
     is_translucent: bool,
+    /// Explicit `barTintColor` (UIColor*), retained. `nil` = use bar style.
+    bar_tint_color: id,
     /// Weak reference — not retained, matches UIKit convention.
     delegate: id,
 }
@@ -101,6 +107,7 @@ impl Default for UIToolbarHostObject {
             button_views: Vec::new(),
             bar_style: UIBarStyle::UIBarStyleDefault,
             is_translucent: true,
+            bar_tint_color: nil,
             delegate: nil,
         }
     }
@@ -123,31 +130,41 @@ fn button_view_for_item(env: &mut crate::Environment, item: id) -> id {
     }
 }
 
-/// Apply a background color with the appropriate alpha for the given style
-/// and translucency flag.
+/// Reset the toolbar background so the iOS 5 gloss drawn in `-drawRect:` is
+/// visible, and mark the view as needing a redraw. The actual skeuomorphic
+/// rendering happens in `-drawRect:` (see `ios5_theme`).
 fn apply_toolbar_background(
     env: &mut crate::Environment,
     this: id,
+    _style: UIBarStyle,
+    _is_translucent: bool,
+) {
+    let clear: id = msg_class![env; UIColor clearColor];
+    () = msg![env; this setBackgroundColor:clear];
+    () = msg![env; this setNeedsDisplay];
+}
+
+/// Compute the iOS 5 bar palette for a toolbar's current configuration.
+fn toolbar_palette(
+    env: &mut crate::Environment,
     style: UIBarStyle,
     is_translucent: bool,
-) {
-    let (base_color, opaque_alpha, translucent_alpha): (id, CGFloat, CGFloat) = match style {
-        UIBarStyle::UIBarStyleDefault => {
-            let c: id = msg_class![env; UIColor darkGrayColor];
-            (c, 1.0, 0.85)
-        }
-        UIBarStyle::UIBarStyleBlack => {
-            let c: id = msg_class![env; UIColor blackColor];
-            (c, 1.0, 0.90)
-        }
-    };
-    let alpha = if is_translucent {
-        translucent_alpha
+    bar_tint_color: id,
+) -> BarPalette {
+    let mut palette = if bar_tint_color != nil {
+        let cg_color: id = msg![env; bar_tint_color CGColor];
+        let rgba = cg_color::to_rgba(&env.objc, cg_color);
+        BarPalette::from_tint(rgba)
     } else {
-        opaque_alpha
+        match style {
+            UIBarStyle::UIBarStyleDefault => BarPalette::navigation_default(),
+            UIBarStyle::UIBarStyleBlack => BarPalette::black(),
+        }
     };
-    let colored: id = msg![env; base_color colorWithAlphaComponent:alpha];
-    () = msg![env; this setBackgroundColor:colored];
+    if is_translucent {
+        palette = palette.with_alpha(0.9);
+    }
+    palette
 }
 
 // ---------------------------------------------------------------------------
@@ -201,8 +218,11 @@ pub const CLASSES: ClassExports = objc_classes! {
         button_views,
         bar_style: _,
         is_translucent: _,
+        bar_tint_color,
         delegate: _,  // weak — not released
     } = std::mem::take(env.objc.borrow_mut(this));
+
+    release(env, bar_tint_color);
 
     // Release button_views first (they may be the same objects as items or
     // may be separate customView objects).
@@ -375,7 +395,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())drawRect:(CGRect)_rect {
-    // Background is set in initWithFrame: / setBarStyle: / setTranslucent:.
+    let bounds: CGRect = msg![env; this bounds];
+    let ctx: CGContextRef = UIGraphicsGetCurrentContext(env);
+    if ctx.is_null() {
+        return;
+    }
+    let (style, is_translucent, bar_tint) = {
+        let host = env.objc.borrow::<UIToolbarHostObject>(this);
+        (host.bar_style, host.is_translucent, host.bar_tint_color)
+    };
+    let palette = toolbar_palette(env, style, is_translucent, bar_tint);
+    ios5_theme::draw_bar_background(env, ctx, bounds, palette);
 }
 
 // MARK: Bar style
@@ -417,17 +447,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setNeedsDisplay];
 }
 
-// barTintColor overrides the entire toolbar background color.
+// barTintColor overrides the toolbar's glossy gradient tint.
 - (())setBarTintColor:(id)color {
-    if color != nil {
-        () = msg![env; this setBackgroundColor:color];
-        () = msg![env; this setNeedsDisplay];
-    }
+    let old = env.objc.borrow::<UIToolbarHostObject>(this).bar_tint_color;
+    retain(env, color);
+    release(env, old);
+    env.objc.borrow_mut::<UIToolbarHostObject>(this).bar_tint_color = color;
+    () = msg![env; this setNeedsDisplay];
 }
 
 - (id)barTintColor {
-    // Expose the current background color as barTintColor.
-    msg![env; this backgroundColor]
+    env.objc.borrow::<UIToolbarHostObject>(this).bar_tint_color
 }
 
 // MARK: Delegate (weak reference — not retained)

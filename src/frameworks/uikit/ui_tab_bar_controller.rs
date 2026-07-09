@@ -5,7 +5,12 @@
  */
 //! `UITabBarController` and `UITabBar`.
 
+use crate::frameworks::core_graphics::cg_color;
+use crate::frameworks::core_graphics::cg_context::CGContextRef;
+use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::NSUInteger;
+use crate::frameworks::uikit::ui_graphics::UIGraphicsGetCurrentContext;
+use crate::frameworks::uikit::ui_view::ios5_theme::{self, BarPalette};
 use crate::frameworks::uikit::ui_view_controller::UIViewControllerHostObject;
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, msg_class, nil, objc_classes, release, retain,
@@ -67,7 +72,36 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)init {
     let items = msg_class![env; NSArray new];
     env.objc.borrow_mut::<UITabBarHostObject>(this).items = items;
+    // Let the iOS 5 skeuomorphic gloss drawn in -drawRect: show through.
+    let clear: id = msg_class![env; UIColor clearColor];
+    () = msg![env; this setBackgroundColor:clear];
+    () = msg![env; this setNeedsDisplay];
     this
+}
+
+// MARK: iOS 5 skeuomorphic rendering
+
+- (())drawRect:(CGRect)_rect {
+    let bounds: CGRect = msg![env; this bounds];
+    let ctx: CGContextRef = UIGraphicsGetCurrentContext(env);
+    if ctx.is_null() {
+        return;
+    }
+    let (bar_tint, translucent) = {
+        let host = env.objc.borrow::<UITabBarHostObject>(this);
+        (host.bar_tint_color, host.translucent)
+    };
+    let mut palette = if bar_tint != nil {
+        let cg: id = msg![env; bar_tint CGColor];
+        let rgba = cg_color::to_rgba(&env.objc, cg);
+        BarPalette::from_tint(rgba)
+    } else {
+        BarPalette::tab_bar()
+    };
+    if translucent {
+        palette = palette.with_alpha(0.92);
+    }
+    ios5_theme::draw_bar_background(env, ctx, bounds, palette);
 }
 
 - (())dealloc {
@@ -166,6 +200,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, old);
     retain(env, color);
     env.objc.borrow_mut::<UITabBarHostObject>(this).bar_tint_color = color;
+    () = msg![env; this setNeedsDisplay];
 }
 
 - (id)tintColor { // UIColor*
@@ -185,6 +220,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setTranslucent:(bool)translucent {
     env.objc.borrow_mut::<UITabBarHostObject>(this).translucent = translucent;
+    () = msg![env; this setNeedsDisplay];
 }
 
 // MARK: Background / shadow image stubs
