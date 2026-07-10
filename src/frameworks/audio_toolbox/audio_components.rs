@@ -26,6 +26,21 @@ const kAudioUnitSubType_RemoteIO: u32 = fourcc(b"rioc");
 const kAudioUnitManufacturer_Apple: u32 = fourcc(b"appl");
 const kAudioUnitType_Mixer: u32 = fourcc(b"aumx");
 const kAudioUnitSubType_3DMixer: u32 = fourcc(b"3dem");
+// Apple `AUComponent.h`:
+//   kAudioUnitSubType_MultiChannelMixer = 'mcmx'
+//   kAudioUnitType_FormatConverter      = 'aufc'
+//   kAudioUnitSubType_AUConverter       = 'conv'
+// The MultiChannelMixer mixes several input buses (each driven by a render
+// callback) down to one output, exactly like the 3D Mixer path we already
+// implement via `mixer_buses`. The format converter simply adapts a stream
+// format between two units; for HLE purposes it behaves as a pass-through
+// unit that pulls from its input render callback and hands samples on.
+// Games such as Plants vs. Zombies build an AUGraph out of a
+// MultiChannelMixer plus AUConverter units, so both must be instantiable or
+// no sound is ever produced.
+const kAudioUnitSubType_MultiChannelMixer: u32 = fourcc(b"mcmx");
+const kAudioUnitType_FormatConverter: u32 = fourcc(b"aufc");
+const kAudioUnitSubType_AUConverter: u32 = fourcc(b"conv");
 
 // --- 3D Mixer Structures ---
 #[repr(C, packed)]
@@ -185,7 +200,19 @@ fn AudioComponentFindNext(
         && comp_sub_type == kAudioUnitSubType_3DMixer
         && comp_manufacturer == kAudioUnitManufacturer_Apple;
 
-    if !is_remote_io && !is_3d_mixer {
+    // The MultiChannelMixer uses the same input-bus + render-callback model as
+    // the 3D Mixer, so it flows through our existing `mixer_buses` render path.
+    let is_multichannel_mixer = comp_type == kAudioUnitType_Mixer
+        && comp_sub_type == kAudioUnitSubType_MultiChannelMixer
+        && comp_manufacturer == kAudioUnitManufacturer_Apple;
+
+    // The format converter (AUConverter) is treated as a pass-through unit; it
+    // pulls from its input render callback just like a mixer bus.
+    let is_format_converter = comp_type == kAudioUnitType_FormatConverter
+        && comp_sub_type == kAudioUnitSubType_AUConverter
+        && comp_manufacturer == kAudioUnitManufacturer_Apple;
+
+    if !is_remote_io && !is_3d_mixer && !is_multichannel_mixer && !is_format_converter {
         log!(
             "AudioComponentFindNext: unsupported component type={:#010x} sub_type={:#010x} manufacturer={:#010x}, returning null",
             comp_type,
