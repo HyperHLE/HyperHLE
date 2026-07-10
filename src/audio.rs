@@ -218,6 +218,20 @@ impl AudioFile {
             }
         }
 
+        // Attempt to decode WAV files with µ-law (WAVE_FORMAT_MULAW=7) or
+        // A-law (WAVE_FORMAT_ALAW=6) encoding, which Symphonia's RIFF demuxer
+        // does not support. These are common in older iPhone OS games.
+        // WAV header layout (RIFF): bytes 20-21 = wFormatTag (little-endian u16).
+        // Reference: Microsoft WAVE PCM soundfile format specification.
+        if bytes.len() >= 22 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
+            let format_tag = u16::from_le_bytes([bytes[20], bytes[21]]);
+            if format_tag == 0x0006 || format_tag == 0x0007 {
+                if let Ok(pcm) = decode_wav_companded(&bytes, format_tag) {
+                    return Ok(AudioFileInner::Symphonia(pcm));
+                }
+            }
+        }
+
         if let Ok(pcm) = symphonia_formats::decode_symphonia_to_pcm(Cursor::new(bytes)) {
             Ok(AudioFileInner::Symphonia(pcm))
         } else {
@@ -588,4 +602,143 @@ fn parse_adts_aac(bytes: Vec<u8>) -> Result<AacPackets, ()> {
         packet_offsets,
         magic_cookie: Vec::new(),
     })
+}
+
+/// Decode a WAV file with µ-law (format_tag=7) or A-law (format_tag=6)
+/// encoding to 16-bit little-endian interleaved PCM.
+///
+/// These companded formats are not supported by Symphonia's RIFF demuxer but
+/// are common in older iPhone OS game sound assets.
+///
+/// WAV header parsing follows the Microsoft WAVE specification:
+/// <https://docs.microsoft.com/en-us/windows/win32/xaudio2/resource-interchange-file-format--riff->
+/// and Apple's iPhone OS audio format documentation:
+/// <https://developer.apple.com/library/archive/documentation/MusicAudio/Reference/CAFSpec/CAF_chunks/CAF_chunks.html>
+fn decode_wav_companded(
+    bytes: &[u8],
+    format_tag: u16,
+) -> Result<symphonia_formats::SymphoniaDecodedToPcm, ()> {
+    // Minimum RIFF/WAV header: RIFF(4)+size(4)+WAVE(4)+fmt (4)+fmtsize(4)+
+    // wFormatTag(2)+nChannels(2)+nSamplesPerSec(4)+... = at least 44 bytes.
+    if bytes.len() < 44 {
+        return Err(());
+    }
+
+    // Parse the fmt chunk fields.
+    // nChannels is at offset 22 (2 bytes LE)
+    let channels = u16::from_le_bytes([bytes[22], bytes[23]]) as u32;
+    // nSamplesPerSec at offset 24 (4 bytes LE)
+    let sample_rate = u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]);
+
+    if channels == 0 || sample_rate == 0 {
+        return Err(());
+    }
+
+    // Find the "data" sub-chunk by scanning past the fmt chunk.
+    // fmt chunk size is at bytes[16..20] (LE u32).
+    let fmt_size = u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]) as usize;
+    // fmt chunk body starts at offset 20; the next chunk starts after it.
+    let mut pos = 12usize; // skip RIFF header (4 + 4 + WAVE fourcc = 12)
+    let mut data_offset: Option<usize> = None;
+    let mut data_size: usize = 0;
+
+    while pos + 8 <= bytes.len() {
+        let chunk_id = &bytes[pos..pos + 4];
+        let chunk_size =
+            u32::from_le_bytes([bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]])
+                as usize;
+        if chunk_id == b"data" {
+            data_offset = Some(pos + 8);
+            data_size = chunk_size;
+            break;
+        }
+        // Advance past this chunk (plus padding byte for odd-sized chunks).
+        pos += 8 + chunk_size + (chunk_size & 1);
+        let _ = fmt_size; // suppress unused warning
+    }
+
+    let data_start = data_offset.ok_or(())?;
+    let data_end = (data_start + data_size).min(bytes.len());
+    let raw = &bytes[data_start..data_end];
+
+    if raw.is_empty() {
+        return Err(());
+    }
+
+    let mut out_pcm: Vec<u8> = Vec::with_capacity(raw.len() * 2);
+
+    match format_tag {
+        0x0007 => {
+            // WAVE_FORMAT_MULAW — ITU-T G.711 µ-law
+            // Per Apple documentation on the µ-law WAVE variant and the
+            // standard ITU-T G.711 specification (11/88).
+            for &byte in raw {
+                let s16 = ulaw_to_linear_wav(byte);
+                out_pcm.extend_from_slice(&s16.to_le_bytes());
+            }
+        }
+        0x0006 => {
+            // WAVE_FORMAT_ALAW — ITU-T G.711 A-law
+            for &byte in raw {
+                let s16 = alaw_to_linear_wav(byte);
+                out_pcm.extend_from_slice(&s16.to_le_bytes());
+            }
+        }
+        _ => return Err(()),
+    }
+
+    log!(
+        "decode_wav_companded: decoded {} bytes of WAV format={:#06x} ({} Hz, {} ch) \
+         to {} bytes of 16-bit LE PCM",
+        raw.len(),
+        format_tag,
+        sample_rate,
+        channels,
+        out_pcm.len()
+    );
+
+    Ok(symphonia_formats::SymphoniaDecodedToPcm {
+        bytes: out_pcm,
+        sample_rate,
+        channels,
+    })
+}
+
+/// Decode a single 8-bit µ-law (G.711) sample to 16-bit signed linear PCM.
+///
+/// This mirrors `caf_decoder::ulaw_to_linear` but is a standalone copy so
+/// the WAV decoder does not depend on the CAF module's private API.
+///
+/// Reference: ITU-T Rec. G.711 (11/88); Sun Microsystems g711.c (public domain).
+fn ulaw_to_linear_wav(u_val: u8) -> i16 {
+    let u_val = !u_val;
+    let segment = ((u_val & 0x70) >> 4) as i32;
+    let quantization = (u_val & 0x0F) as i32;
+    const BIAS: i32 = 0x84;
+    let mut t = (quantization << 3) + BIAS;
+    t <<= segment;
+    if (u_val & 0x80) != 0 {
+        (t - BIAS) as i16
+    } else {
+        (BIAS - t) as i16
+    }
+}
+
+/// Decode a single 8-bit A-law (G.711) sample to 16-bit signed linear PCM.
+///
+/// Reference: ITU-T Rec. G.711 (11/88).
+fn alaw_to_linear_wav(a_val: u8) -> i16 {
+    let a_val = a_val ^ 0x55;
+    let segment = ((a_val & 0x70) >> 4) as i32;
+    let quantization = (a_val & 0x0F) as i32;
+    let t = if segment == 0 {
+        (quantization << 4) + 8
+    } else {
+        ((quantization << 4) + 0x108) << (segment - 1)
+    };
+    if (a_val & 0x80) != 0 {
+        t as i16
+    } else {
+        -(t as i16)
+    }
 }

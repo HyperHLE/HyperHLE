@@ -54,6 +54,85 @@ struct NSNumberFormatterHostObject {
     /// `NSDecimalNumber` rather than plain `NSNumber`.  Most apps leave this
     /// `false`.
     generates_decimal_numbers: bool,
+    // -----------------------------------------------------------------------
+    // Currency / symbol properties
+    // Per Apple's NSNumberFormatter documentation:
+    // https://developer.apple.com/documentation/foundation/nsnumberformatter
+    // -----------------------------------------------------------------------
+    /// `currencySymbol` — e.g. "$". Default nil means use the locale's symbol.
+    currency_symbol: id,
+    /// `currencyCode` — ISO 4217 code, e.g. "USD".
+    currency_code: id,
+    /// `internationalCurrencySymbol` — e.g. "USD".
+    international_currency_symbol: id,
+    /// `currencyDecimalSeparator` — decimal separator used in currency style.
+    currency_decimal_separator: id,
+    /// `currencyGroupingSeparator` — grouping separator used in currency style.
+    currency_grouping_separator: id,
+    // -----------------------------------------------------------------------
+    // Decimal / sign symbols
+    // -----------------------------------------------------------------------
+    /// `decimalSeparator` — e.g. ".".
+    decimal_separator: id,
+    /// `alwaysShowsDecimalSeparator` — if true, always show the decimal point.
+    always_shows_decimal_separator: bool,
+    /// `notANumberSymbol` — symbol used for NaN.
+    not_a_number_symbol: id,
+    /// `plusSign` — the "+" sign character.
+    plus_sign: id,
+    /// `minusSign` — the "−" sign character.
+    minus_sign: id,
+    /// `paddingCharacter` — character used to pad the formatted string.
+    padding_character: id,
+    /// `percentSymbol` — symbol used for percent style.
+    percent_symbol: id,
+    /// `perMillSymbol` — symbol used for per-mille (‰).
+    per_mill_symbol: id,
+    /// `zeroSymbol` — symbol substituted for the value zero.
+    zero_symbol: id,
+    /// `nilSymbol` — symbol substituted for nil.
+    nil_symbol: id,
+    // -----------------------------------------------------------------------
+    // Integer digit counts
+    // -----------------------------------------------------------------------
+    /// `maximumIntegerDigits`
+    maximum_integer_digits: NSUInteger,
+    /// `minimumIntegerDigits`
+    minimum_integer_digits: NSUInteger,
+    /// `maximumSignificantDigits`
+    maximum_significant_digits: NSUInteger,
+    /// `minimumSignificantDigits`
+    minimum_significant_digits: NSUInteger,
+    /// `usesSignificantDigits`
+    uses_significant_digits: bool,
+    // -----------------------------------------------------------------------
+    // Rounding / multiplier
+    // -----------------------------------------------------------------------
+    /// `roundingMode` — NSNumberFormatterRoundingMode (0–7).
+    rounding_mode: NSUInteger,
+    /// `roundingIncrement` — value to which results are rounded, or nil.
+    rounding_increment: id,
+    /// `multiplier` — applied before formatting; nil means no multiplier.
+    multiplier: id,
+    // -----------------------------------------------------------------------
+    // Grouping
+    // -----------------------------------------------------------------------
+    /// `groupingSize` — number of digits per group.
+    grouping_size: NSUInteger,
+    /// `secondaryGroupingSize`
+    secondary_grouping_size: NSUInteger,
+    // -----------------------------------------------------------------------
+    // Padding
+    // -----------------------------------------------------------------------
+    /// `paddingPosition` — NSNumberFormatterPadPosition (0–3).
+    padding_position: NSUInteger,
+    // -----------------------------------------------------------------------
+    // Miscellaneous
+    // -----------------------------------------------------------------------
+    /// `isLenient` — whether the formatter is lenient when parsing.
+    is_lenient: bool,
+    /// `isPartialStringValidationEnabled`
+    partial_string_validation_enabled: bool,
 }
 impl HostObject for NSNumberFormatterHostObject {}
 
@@ -83,6 +162,34 @@ pub const CLASSES: ClassExports = objc_classes! {
         negative_prefix: nil,
         negative_suffix: nil,
         generates_decimal_numbers: false,
+        currency_symbol: nil,
+        currency_code: nil,
+        international_currency_symbol: nil,
+        currency_decimal_separator: nil,
+        currency_grouping_separator: nil,
+        decimal_separator: nil,
+        always_shows_decimal_separator: false,
+        not_a_number_symbol: nil,
+        plus_sign: nil,
+        minus_sign: nil,
+        padding_character: nil,
+        percent_symbol: nil,
+        per_mill_symbol: nil,
+        zero_symbol: nil,
+        nil_symbol: nil,
+        maximum_integer_digits: 42,
+        minimum_integer_digits: 1,
+        maximum_significant_digits: 0,
+        minimum_significant_digits: 0,
+        uses_significant_digits: false,
+        rounding_mode: 0,
+        rounding_increment: nil,
+        multiplier: nil,
+        grouping_size: 3,
+        secondary_grouping_size: 0,
+        padding_position: 0,
+        is_lenient: false,
+        partial_string_validation_enabled: false,
     };
     env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
 }
@@ -117,6 +224,22 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.positive_suffix,
         host.negative_prefix,
         host.negative_suffix,
+        host.currency_symbol,
+        host.currency_code,
+        host.international_currency_symbol,
+        host.currency_decimal_separator,
+        host.currency_grouping_separator,
+        host.decimal_separator,
+        host.not_a_number_symbol,
+        host.plus_sign,
+        host.minus_sign,
+        host.padding_character,
+        host.percent_symbol,
+        host.per_mill_symbol,
+        host.zero_symbol,
+        host.nil_symbol,
+        host.rounding_increment,
+        host.multiplier,
     ];
     drop(host);
     for id in ids_to_release {
@@ -323,6 +446,289 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setGeneratesDecimalNumbers:(bool)flag {
     env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).generates_decimal_numbers = flag;
+}
+
+// =========================================================================
+// MARK: - Currency symbols
+// Per Apple: https://developer.apple.com/documentation/foundation/nsnumberformatter
+// =========================================================================
+
+// `- (NSString *)currencySymbol`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1407931-currencysymbol>
+- (id)currencySymbol {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).currency_symbol
+}
+// `- (void)setCurrencySymbol:(NSString *)symbol`
+- (())setCurrencySymbol:(id)symbol {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).currency_symbol = symbol;
+}
+
+// `- (NSString *)currencyCode`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1416145-currencycode>
+- (id)currencyCode {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).currency_code
+}
+// `- (void)setCurrencyCode:(NSString *)code`
+- (())setCurrencyCode:(id)code {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).currency_code = code;
+}
+
+// `- (NSString *)internationalCurrencySymbol`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1418485-internationalcurrencysymbol>
+- (id)internationalCurrencySymbol {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).international_currency_symbol
+}
+- (())setInternationalCurrencySymbol:(id)symbol {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).international_currency_symbol = symbol;
+}
+
+// `- (NSString *)currencyDecimalSeparator`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1412167-currencydecimalseparator>
+- (id)currencyDecimalSeparator {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).currency_decimal_separator
+}
+- (())setCurrencyDecimalSeparator:(id)sep {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).currency_decimal_separator = sep;
+}
+
+// `- (NSString *)currencyGroupingSeparator`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1416533-currencygroupingseparator>
+- (id)currencyGroupingSeparator {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).currency_grouping_separator
+}
+- (())setCurrencyGroupingSeparator:(id)sep {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).currency_grouping_separator = sep;
+}
+
+// =========================================================================
+// MARK: - Decimal separator / sign symbols
+// =========================================================================
+
+// `- (NSString *)decimalSeparator`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1411567-decimalseparator>
+- (id)decimalSeparator {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).decimal_separator
+}
+- (())setDecimalSeparator:(id)sep {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).decimal_separator = sep;
+}
+
+// `- (BOOL)alwaysShowsDecimalSeparator`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1407941-alwaysshowsdecimalseparator>
+- (bool)alwaysShowsDecimalSeparator {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).always_shows_decimal_separator
+}
+- (())setAlwaysShowsDecimalSeparator:(bool)flag {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).always_shows_decimal_separator = flag;
+}
+
+// `- (NSString *)notANumberSymbol`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1411229-notanumbersymbol>
+- (id)notANumberSymbol {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).not_a_number_symbol
+}
+- (())setNotANumberSymbol:(id)sym {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).not_a_number_symbol = sym;
+}
+
+// `- (NSString *)plusSign`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1414467-plussign>
+- (id)plusSign {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).plus_sign
+}
+- (())setPlusSign:(id)sign {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).plus_sign = sign;
+}
+
+// `- (NSString *)minusSign`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1415845-minussign>
+- (id)minusSign {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).minus_sign
+}
+- (())setMinusSign:(id)sign {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).minus_sign = sign;
+}
+
+// `- (NSString *)paddingCharacter`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1408530-paddingcharacter>
+- (id)paddingCharacter {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).padding_character
+}
+- (())setPaddingCharacter:(id)ch {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).padding_character = ch;
+}
+
+// `- (NSString *)percentSymbol`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1408168-percentsymbol>
+- (id)percentSymbol {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).percent_symbol
+}
+- (())setPercentSymbol:(id)sym {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).percent_symbol = sym;
+}
+
+// `- (NSString *)perMillSymbol`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1418661-permillsymbol>
+- (id)perMillSymbol {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).per_mill_symbol
+}
+- (())setPerMillSymbol:(id)sym {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).per_mill_symbol = sym;
+}
+
+// `- (NSString *)zeroSymbol`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1414149-zerosymbol>
+- (id)zeroSymbol {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).zero_symbol
+}
+- (())setZeroSymbol:(id)sym {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).zero_symbol = sym;
+}
+
+// `- (NSString *)nilSymbol`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1415353-nilsymbol>
+- (id)nilSymbol {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).nil_symbol
+}
+- (())setNilSymbol:(id)sym {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).nil_symbol = sym;
+}
+
+// =========================================================================
+// MARK: - Integer digit counts
+// =========================================================================
+
+// `- (NSUInteger)maximumIntegerDigits`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1415045-maximumintegerdigits>
+- (NSUInteger)maximumIntegerDigits {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).maximum_integer_digits
+}
+- (())setMaximumIntegerDigits:(NSUInteger)digits {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).maximum_integer_digits = digits;
+}
+
+// `- (NSUInteger)minimumIntegerDigits`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1417149-minimumintegerdigits>
+- (NSUInteger)minimumIntegerDigits {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).minimum_integer_digits
+}
+- (())setMinimumIntegerDigits:(NSUInteger)digits {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).minimum_integer_digits = digits;
+}
+
+// `- (NSUInteger)maximumSignificantDigits`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1415672-maximumsignificantdigits>
+- (NSUInteger)maximumSignificantDigits {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).maximum_significant_digits
+}
+- (())setMaximumSignificantDigits:(NSUInteger)digits {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).maximum_significant_digits = digits;
+}
+
+// `- (NSUInteger)minimumSignificantDigits`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1416365-minimumsignificantdigits>
+- (NSUInteger)minimumSignificantDigits {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).minimum_significant_digits
+}
+- (())setMinimumSignificantDigits:(NSUInteger)digits {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).minimum_significant_digits = digits;
+}
+
+// `- (BOOL)usesSignificantDigits`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1408598-usessignificantdigits>
+- (bool)usesSignificantDigits {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).uses_significant_digits
+}
+- (())setUsesSignificantDigits:(bool)flag {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).uses_significant_digits = flag;
+}
+
+// =========================================================================
+// MARK: - Rounding
+// =========================================================================
+
+// `- (NSNumberFormatterRoundingMode)roundingMode`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1413368-roundingmode>
+- (NSUInteger)roundingMode {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).rounding_mode
+}
+- (())setRoundingMode:(NSUInteger)mode {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).rounding_mode = mode;
+}
+
+// `- (NSNumber *)roundingIncrement`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1412444-roundingincrement>
+- (id)roundingIncrement {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).rounding_increment
+}
+- (())setRoundingIncrement:(id)inc {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).rounding_increment = inc;
+}
+
+// `- (NSNumber *)multiplier`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1410128-multiplier>
+- (id)multiplier {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).multiplier
+}
+- (())setMultiplier:(id)mul {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).multiplier = mul;
+}
+
+// =========================================================================
+// MARK: - Grouping
+// =========================================================================
+
+// `- (NSUInteger)groupingSize`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1416308-groupingsize>
+- (NSUInteger)groupingSize {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).grouping_size
+}
+- (())setGroupingSize:(NSUInteger)size {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).grouping_size = size;
+}
+
+// `- (NSUInteger)secondaryGroupingSize`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1408618-secondarygroupingsize>
+- (NSUInteger)secondaryGroupingSize {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).secondary_grouping_size
+}
+- (())setSecondaryGroupingSize:(NSUInteger)size {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).secondary_grouping_size = size;
+}
+
+// =========================================================================
+// MARK: - Padding
+// =========================================================================
+
+// `- (NSNumberFormatterPadPosition)paddingPosition`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1413029-paddingposition>
+- (NSUInteger)paddingPosition {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).padding_position
+}
+- (())setPaddingPosition:(NSUInteger)pos {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).padding_position = pos;
+}
+
+// =========================================================================
+// MARK: - Leniency / validation
+// =========================================================================
+
+// `- (BOOL)isLenient`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1413563-islenient>
+- (bool)isLenient {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).is_lenient
+}
+- (())setLenient:(bool)flag {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).is_lenient = flag;
+}
+
+// `- (BOOL)isPartialStringValidationEnabled`
+// <https://developer.apple.com/documentation/foundation/nsnumberformatter/1416914-ispartialstringvalidationenabled>
+- (bool)isPartialStringValidationEnabled {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).partial_string_validation_enabled
+}
+- (())setPartialStringValidationEnabled:(bool)flag {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).partial_string_validation_enabled = flag;
 }
 
 @end

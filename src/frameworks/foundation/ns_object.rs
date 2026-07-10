@@ -65,24 +65,6 @@ const NSKeyValueObservingOptionInitial: NSUInteger = 0x04;
 /// (`NSKeyValueChangeSetting`).
 const NSKeyValueChangeSetting: i32 = 1;
 
-// ДОБАВЛЕНА РЕАЛИЗАЦИЯ NSAllocateObject
-fn NSAllocateObject(
-    env: &mut Environment,
-    class: Class,
-    extra_bytes: NSUInteger,
-    _zone: NSZonePtr,
-) -> id {
-    if extra_bytes > 0 {
-        log!(
-            "Warning: NSAllocateObject called with extra_bytes={}, which is currently unhandled!",
-            extra_bytes
-        );
-    }
-
-    // Перенаправляем вызов в стандартный метод alloc данного класса
-    msg![env; class alloc]
-}
-
 /// `NSCopyObject(id object, NSUInteger extraBytes, NSZone *zone)`.
 ///
 /// Per Apple's Objective-C Runtime Utilities documentation, NSCopyObject
@@ -104,9 +86,10 @@ fn NSCopyObject(
     env.objc.object_copy(object, extra_bytes, &mut env.mem)
 }
 
-// ДОБАВЛЕН ЭКСПОРТ ФУНКЦИЙ ДЛЯ ДИНАМИЧЕСКОГО ЛИНКЕРА
+/// Exports `NSCopyObject` for the dynamic linker. `NSAllocateObject` is
+/// already exported from `ns_file_manager::FUNCTIONS` — do not duplicate it
+/// here or the linker will see two definitions for the same symbol.
 pub const FUNCTIONS: FunctionExports = &[
-    export_c_func!(NSAllocateObject(_, _, _)),
     export_c_func!(NSCopyObject(_, _, _)),
 ];
 
