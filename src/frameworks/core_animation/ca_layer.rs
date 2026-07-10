@@ -452,6 +452,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)superlayer { env.objc.borrow::<CALayerHostObject>(this).superlayer }
 
+// https://developer.apple.com/documentation/quartzcore/calayer/1410744-presentationlayer
+// Apple returns a copy of the layer holding the values that are currently
+// "in flight" (i.e. the state as displayed on screen mid-animation), or nil if
+// the layer has not yet been committed for rendering. touchHLE has no separate
+// presentation-layer tree — the model layer doubles as the render/presentation
+// layer (see core_animation::composition) — so the correct approximation is to
+// return the layer itself rather than nil. Games query this (e.g. to read
+// `[[layer presentationLayer] position]` for hit-testing during a move
+// animation), and returning nil would make them dereference a null object.
+- (id)presentationLayer { this }
+
+// https://developer.apple.com/documentation/quartzcore/calayer/1410631-modellayer
+// When sent to a presentation layer this returns the underlying model layer;
+// when sent to a model layer it returns the layer itself. Since our model
+// layer is its own presentation layer, returning `this` is correct in both
+// cases.
+- (id)modelLayer { this }
+
 - (())addSublayer:(id)layer {
     if layer == nil { return; }
     if env.objc.borrow::<CALayerHostObject>(layer).superlayer == this {
