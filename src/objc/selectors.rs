@@ -82,6 +82,18 @@ impl SEL {
     pub const fn null() -> Self {
         SEL(Ptr::null())
     }
+    /// The raw guest address backing this selector. Selectors are uniqued
+    /// pointers into the emulated address space, so this doubles as a stable
+    /// identity that can be stored and later reconstructed with
+    /// [SEL::from_bits] (used when synthesising opaque `Method` handles).
+    pub fn to_bits(self) -> crate::mem::GuestUSize {
+        self.0.to_bits()
+    }
+    /// Reconstruct a [SEL] from a raw guest address previously obtained via
+    /// [SEL::to_bits].
+    pub fn from_bits(bits: crate::mem::GuestUSize) -> Self {
+        SEL(Ptr::from_bits(bits))
+    }
 }
 
 unsafe impl SafeRead for SEL {}

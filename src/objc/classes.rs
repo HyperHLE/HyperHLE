@@ -1470,7 +1470,7 @@ fn method_handle_decode(env: &crate::Environment, m: ConstVoidPtr) -> Option<(Cl
     }
     let base: ConstPtr<u32> = m.cast();
     let cls: Class = Ptr::from_bits(env.mem.read(base));
-    let sel: SEL = Ptr::from_bits(env.mem.read(base + 1));
+    let sel: SEL = SEL::from_bits(env.mem.read(base + 1));
     Some((cls, sel))
 }
 
@@ -1669,7 +1669,7 @@ pub fn method_getTypeEncoding(env: &mut crate::Environment, m: ConstVoidPtr) -> 
 pub fn method_getName(env: &mut crate::Environment, m: ConstVoidPtr) -> SEL {
     match method_handle_decode(env, m) {
         Some((_cls, sel)) => sel,
-        None => Ptr::null(),
+        None => SEL::null(),
     }
 }
 
