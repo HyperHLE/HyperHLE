@@ -94,26 +94,30 @@ impl State {
             }
 
             let repeat_count: f32 = msg![env; animation repeatCount];
-            // A negative `repeatCount` is technically undefined per the
-            // CABasicAnimation docs; clamp to 0 (i.e. no repeats) instead of
-            // crashing the host.
-            let repeat_count = if repeat_count.is_finite() && repeat_count >= 0.0 {
-                repeat_count
-            } else {
-                log!(
-                    "Warning: CABasicAnimation: invalid repeatCount {}; clamping to 0.",
-                    repeat_count
-                );
-                0.0
-            };
-            // Setting [repeatCount] to greatestFiniteMagnitude will cause
-            // the animation to repeat forever.
-            let effective_repeat_count = if repeat_count == f32::MAX {
+            // Per Apple's docs, setting `repeatCount` to a very large number
+            // (idiomatically `HUGE_VALF`, i.e. +infinity, or
+            // `greatestFiniteMagnitude`, i.e. f32::MAX) makes the animation
+            // repeat forever. A positive infinity is the most common value
+            // games use, so it must be treated as "forever" rather than being
+            // rejected as invalid (which would clamp it to a single play-through
+            // and stop looping animations after one cycle).
+            let effective_repeat_count = if repeat_count == f32::INFINITY
+                || repeat_count == f32::MAX
+            {
                 f32::INFINITY
-            } else if repeat_count == 0.0 {
-                1.0
-            } else {
+            } else if repeat_count.is_finite() && repeat_count > 0.0 {
                 repeat_count
+            } else {
+                // 0 means "no explicit repeat" (play once); a negative or NaN
+                // value is undefined per the docs, so also fall back to one
+                // play-through instead of crashing the host.
+                if repeat_count.is_nan() || repeat_count < 0.0 {
+                    log!(
+                        "Warning: CABasicAnimation: invalid repeatCount {}; treating as 1.",
+                        repeat_count
+                    );
+                }
+                1.0
             };
 
             let duration: CFTimeInterval = msg![env; animation duration];
