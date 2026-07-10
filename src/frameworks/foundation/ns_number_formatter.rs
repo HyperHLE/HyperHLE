@@ -138,7 +138,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.currency_code,
         host.international_currency_symbol,
     ];
-    drop(host);
+    let _ = host;
     for id in ids_to_release {
         release(env, id);
     }
