@@ -232,6 +232,19 @@ impl AudioFile {
             }
         }
 
+        // Sun/NeXT ".au" (a.k.a. ".snd") audio files. Symphonia has no demuxer
+        // for this format, so guest apps that ship `.au` sound effects (e.g.
+        // "Digga", which loads `audio/stone.au`, `audio/step.au`, …) would get
+        // silent/dummy sounds. The header magic is the ASCII ".snd"
+        // (0x2E534E44) big-endian word. See the format description in Sun's
+        // audio interfaces and the widely mirrored `au.h`:
+        // <https://en.wikipedia.org/wiki/Au_file_format>.
+        if bytes.len() >= 4 && &bytes[..4] == b".snd" {
+            if let Ok(pcm) = decode_au_to_pcm(&bytes) {
+                return Ok(AudioFileInner::Symphonia(pcm));
+            }
+        }
+
         if let Ok(pcm) = symphonia_formats::decode_symphonia_to_pcm(Cursor::new(bytes)) {
             Ok(AudioFileInner::Symphonia(pcm))
         } else {
@@ -692,6 +705,118 @@ fn decode_wav_companded(
          to {} bytes of 16-bit LE PCM",
         raw.len(),
         format_tag,
+        sample_rate,
+        channels,
+        out_pcm.len()
+    );
+
+    Ok(symphonia_formats::SymphoniaDecodedToPcm {
+        bytes: out_pcm,
+        sample_rate,
+        channels,
+    })
+}
+
+/// Decode a Sun/NeXT ".au" (".snd") audio file to 16-bit little-endian
+/// interleaved PCM.
+///
+/// The `.au` header is six big-endian 32-bit words:
+///   0: magic number, always the ASCII ".snd" (0x2E534E44)
+///   1: data offset (bytes from start of file to the audio data)
+///   2: data size in bytes (0xFFFFFFFF means "unknown / until EOF")
+///   3: encoding
+///   4: sample rate (Hz)
+///   5: channel count
+/// The audio samples themselves are stored big-endian.
+///
+/// Reference: the Sun/NeXT audio file format, as documented in Sun's
+/// `multimedia/audio_filehdr.h` and summarised at
+/// <https://en.wikipedia.org/wiki/Au_file_format>. The encoding constants
+/// match Sun's `AUDIO_FILE_ENCODING_*` values.
+fn decode_au_to_pcm(bytes: &[u8]) -> Result<symphonia_formats::SymphoniaDecodedToPcm, ()> {
+    if bytes.len() < 24 || &bytes[..4] != b".snd" {
+        return Err(());
+    }
+    let read_u32_be = |off: usize| u32::from_be_bytes(bytes[off..off + 4].try_into().unwrap());
+
+    let mut data_offset = read_u32_be(4) as usize;
+    let data_size = read_u32_be(8);
+    let encoding = read_u32_be(12);
+    let sample_rate = read_u32_be(16);
+    let channels = read_u32_be(20);
+
+    // The header (with optional annotation/info field) must be at least 24
+    // bytes; some writers set a smaller value, in which case clamp it.
+    if data_offset < 24 {
+        data_offset = 24;
+    }
+    if data_offset > bytes.len() || channels == 0 || sample_rate == 0 {
+        return Err(());
+    }
+
+    // A data size of 0xFFFFFFFF (or one that overruns the file) means "read to
+    // the end of the file".
+    let available = bytes.len() - data_offset;
+    let data_len = if data_size == 0xFFFF_FFFF || data_size as usize > available {
+        available
+    } else {
+        data_size as usize
+    };
+    let raw = &bytes[data_offset..data_offset + data_len];
+    if raw.is_empty() {
+        return Err(());
+    }
+
+    let mut out_pcm: Vec<u8> = Vec::with_capacity(raw.len() * 2);
+    match encoding {
+        // 1: 8-bit G.711 µ-law
+        1 => {
+            for &byte in raw {
+                out_pcm.extend_from_slice(&ulaw_to_linear_wav(byte).to_le_bytes());
+            }
+        }
+        // 2: 8-bit signed linear PCM
+        2 => {
+            for &byte in raw {
+                let s16 = (byte as i8 as i16) << 8;
+                out_pcm.extend_from_slice(&s16.to_le_bytes());
+            }
+        }
+        // 3: 16-bit signed linear PCM, big-endian
+        3 => {
+            for frame in raw.chunks_exact(2) {
+                let s16 = i16::from_be_bytes([frame[0], frame[1]]);
+                out_pcm.extend_from_slice(&s16.to_le_bytes());
+            }
+        }
+        // 6: 32-bit IEEE floating point, big-endian
+        6 => {
+            for frame in raw.chunks_exact(4) {
+                let f = f32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]);
+                let s16 = (f.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+                out_pcm.extend_from_slice(&s16.to_le_bytes());
+            }
+        }
+        // 27: 8-bit G.711 A-law
+        27 => {
+            for &byte in raw {
+                out_pcm.extend_from_slice(&alaw_to_linear_wav(byte).to_le_bytes());
+            }
+        }
+        other => {
+            log!(
+                "decode_au_to_pcm: unsupported .au encoding {}; cannot decode.",
+                other
+            );
+            return Err(());
+        }
+    }
+
+    log!(
+        "decode_au_to_pcm: decoded {} bytes of .au encoding={} ({} Hz, {} ch) \
+         to {} bytes of 16-bit LE PCM",
+        raw.len(),
+        encoding,
         sample_rate,
         channels,
         out_pcm.len()

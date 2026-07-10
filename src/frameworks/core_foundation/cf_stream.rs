@@ -80,6 +80,28 @@ pub const kCFStreamSocketSecurityLevelTLSv1: &str = "kCFStreamSocketSecurityLeve
 pub const kCFStreamSocketSecurityLevelNegotiatedSSL: &str =
     "kCFStreamSocketSecurityLevelNegotiatedSSL";
 
+// CFFTPStream property keys, per Apple's CFFTPStream reference:
+// <https://developer.apple.com/documentation/cfnetwork/cfftpstream>.
+// These are CFString constants used to configure FTP read/write streams
+// (e.g. via `CFReadStreamSetProperty`). touchHLE does not implement real FTP
+// networking, but exporting the constants keeps guest apps that merely
+// reference these symbols (e.g. "PotaTossSocial", whose networking layer links
+// against `kCFStreamPropertyFTPAttemptPersistentConnection`) from hitting an
+// unresolved non-lazy symbol at load time.
+pub const kCFStreamPropertyFTPUserName: &str = "kCFStreamPropertyFTPUserName";
+pub const kCFStreamPropertyFTPPassword: &str = "kCFStreamPropertyFTPPassword";
+pub const kCFStreamPropertyFTPUsePassiveMode: &str = "kCFStreamPropertyFTPUsePassiveMode";
+pub const kCFStreamPropertyFTPResourceSize: &str = "kCFStreamPropertyFTPResourceSize";
+pub const kCFStreamPropertyFTPFetchResourceInfo: &str = "kCFStreamPropertyFTPFetchResourceInfo";
+pub const kCFStreamPropertyFTPFileTransferOffset: &str = "kCFStreamPropertyFTPFileTransferOffset";
+pub const kCFStreamPropertyFTPAttemptPersistentConnection: &str =
+    "kCFStreamPropertyFTPAttemptPersistentConnection";
+pub const kCFStreamPropertyFTPProxy: &str = "kCFStreamPropertyFTPProxy";
+pub const kCFStreamPropertyFTPProxyHost: &str = "kCFStreamPropertyFTPProxyHost";
+pub const kCFStreamPropertyFTPProxyPort: &str = "kCFStreamPropertyFTPProxyPort";
+pub const kCFStreamPropertyFTPProxyUser: &str = "kCFStreamPropertyFTPProxyUser";
+pub const kCFStreamPropertyFTPProxyPassword: &str = "kCFStreamPropertyFTPProxyPassword";
+
 pub const CONSTANTS: ConstantExports = &[
     (
         "_kCFStreamPropertyDataWritten",
@@ -203,6 +225,55 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_kCFStreamSocketSecurityLevelNegotiatedSSL",
         HostConstant::NSString(kCFStreamSocketSecurityLevelNegotiatedSSL),
+    ),
+    // CFFTPStream property keys.
+    (
+        "_kCFStreamPropertyFTPUserName",
+        HostConstant::NSString(kCFStreamPropertyFTPUserName),
+    ),
+    (
+        "_kCFStreamPropertyFTPPassword",
+        HostConstant::NSString(kCFStreamPropertyFTPPassword),
+    ),
+    (
+        "_kCFStreamPropertyFTPUsePassiveMode",
+        HostConstant::NSString(kCFStreamPropertyFTPUsePassiveMode),
+    ),
+    (
+        "_kCFStreamPropertyFTPResourceSize",
+        HostConstant::NSString(kCFStreamPropertyFTPResourceSize),
+    ),
+    (
+        "_kCFStreamPropertyFTPFetchResourceInfo",
+        HostConstant::NSString(kCFStreamPropertyFTPFetchResourceInfo),
+    ),
+    (
+        "_kCFStreamPropertyFTPFileTransferOffset",
+        HostConstant::NSString(kCFStreamPropertyFTPFileTransferOffset),
+    ),
+    (
+        "_kCFStreamPropertyFTPAttemptPersistentConnection",
+        HostConstant::NSString(kCFStreamPropertyFTPAttemptPersistentConnection),
+    ),
+    (
+        "_kCFStreamPropertyFTPProxy",
+        HostConstant::NSString(kCFStreamPropertyFTPProxy),
+    ),
+    (
+        "_kCFStreamPropertyFTPProxyHost",
+        HostConstant::NSString(kCFStreamPropertyFTPProxyHost),
+    ),
+    (
+        "_kCFStreamPropertyFTPProxyPort",
+        HostConstant::NSString(kCFStreamPropertyFTPProxyPort),
+    ),
+    (
+        "_kCFStreamPropertyFTPProxyUser",
+        HostConstant::NSString(kCFStreamPropertyFTPProxyUser),
+    ),
+    (
+        "_kCFStreamPropertyFTPProxyPassword",
+        HostConstant::NSString(kCFStreamPropertyFTPProxyPassword),
     ),
 ];
 

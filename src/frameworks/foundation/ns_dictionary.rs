@@ -1000,6 +1000,25 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, res)
 }
 
+// Returns every key mapped to a value equal to `obj`. See:
+// https://developer.apple.com/documentation/foundation/nsdictionary/1408301-allkeysforobject
+- (id)allKeysForObject:(id)obj {
+    let res: id = msg_class![env; NSMutableArray new];
+
+    let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    host_obj.map.values().flatten().for_each(|&(key, value)| {
+        let equal = value == obj || msg![env; obj isEqual:value];
+        if equal {
+            () = msg![env; res addObject:key];
+        }
+    });
+    *env.objc.borrow_mut(this) = host_obj;
+
+    let res_imm: id = msg![env; res copy];
+    release(env, res);
+    autorelease(env, res_imm)
+}
+
 // NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf

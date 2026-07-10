@@ -8,7 +8,7 @@
 //! Resources:
 //! - Apple's [Threading Programming Guide](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/Introduction/Introduction.html)
 
-use super::{ns_string, ns_timer, NSTimeInterval};
+use super::{ns_port, ns_string, ns_timer, NSTimeInterval};
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::environment::ThreadId;
 use crate::frameworks::audio_toolbox::audio_queue::{handle_audio_queue, AudioQueueRef};
@@ -58,6 +58,13 @@ pub(crate) struct NSRunLoopHostObject {
     /// via `_touchHLE_CFRunLoopSource`) currently registered in this run
     /// loop, per Apple's CFRunLoopAddSource semantics.
     pub(crate) sources: Vec<id>,
+    /// Strong references to `NSPort*` objects registered via
+    /// `-[NSRunLoop addPort:forMode:]`. The run loop owns its scheduled ports
+    /// (per Apple's docs), so we retain them here and release on removal.
+    /// touchHLE has no Mach message sources, so these ports never deliver
+    /// input, but tracking them keeps ownership correct and lets apps that
+    /// attach a port purely to keep `-[NSRunLoop run]` alive work.
+    ports: Vec<id>,
     /// Set by CFRunLoopStop; cleared at the start of the next run.
     pub(crate) stopped: bool,
 }
@@ -118,6 +125,58 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (CFRunLoopRef)getCFRunLoop {
     // In our implementation these are the same type (they aren't in Apple's).
     this
+}
+
+// Adds a port as an input source to the run loop. See:
+// https://developer.apple.com/documentation/foundation/nsrunloop/1417511-addport
+// touchHLE has no Mach message delivery, so the port never fires an input
+// source, but the run loop takes ownership of it (retains it) exactly as
+// Cocoa does. Many old games attach a port only to keep `-[NSRunLoop run]`
+// from returning immediately; our `run_run_loop` already loops until stopped,
+// so this just needs to retain/track the port without crashing.
+- (())addPort:(id)port // NSPort*
+      forMode:(NSRunLoopMode)mode {
+    if port == nil {
+        log!("Warning: -[NSRunLoop addPort:nil forMode:] ignored");
+        return;
+    }
+    log_dbg!(
+        "[(NSRunLoop*){:?} addPort:{:?} forMode:{:?}]",
+        this,
+        port,
+        mode,
+    );
+    // Avoid double-retaining the same port for the same run loop.
+    if env.objc.borrow::<NSRunLoopHostObject>(this).ports.contains(&port) {
+        return;
+    }
+    ns_port::retain_port(env, port);
+    env.objc.borrow_mut::<NSRunLoopHostObject>(this).ports.push(port);
+}
+
+// Removes a port previously added with `addPort:forMode:`. See:
+// https://developer.apple.com/documentation/foundation/nsrunloop/1408625-removeport
+- (())removePort:(id)port // NSPort*
+         forMode:(NSRunLoopMode)mode {
+    if port == nil {
+        return;
+    }
+    log_dbg!(
+        "[(NSRunLoop*){:?} removePort:{:?} forMode:{:?}]",
+        this,
+        port,
+        mode,
+    );
+    let maybe_idx = env
+        .objc
+        .borrow::<NSRunLoopHostObject>(this)
+        .ports
+        .iter()
+        .position(|&p| p == port);
+    if let Some(idx) = maybe_idx {
+        env.objc.borrow_mut::<NSRunLoopHostObject>(this).ports.remove(idx);
+        ns_port::release_port(env, port);
+    }
 }
 
 - (())addTimer:(id)timer // NSTimer*
@@ -445,6 +504,7 @@ fn run_loop_for_thread(env: &mut Environment, this: Class, thread_id: ThreadId) 
             audio_queues: Vec::new(),
             timers: Vec::new(),
             sources: Vec::new(),
+            ports: Vec::new(),
             stopped: false,
         });
         // TODO: is it OK to allocate static object for all threads,
