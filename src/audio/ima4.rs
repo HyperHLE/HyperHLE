@@ -30,6 +30,57 @@ const STEP_SIZE_TABLE: &[u16] = &[
     10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767,
 ];
 
+/// Decoder state for one channel of an IMA ADPCM stream.
+///
+/// This implements the reference IMA decoding algorithm and is shared between
+/// the Apple IMA4 packet decoder below and the Microsoft/DVI WAV IMA ADPCM
+/// decoder in [`crate::audio::wav_extra`] (both use the same step-size and
+/// index tables; only the container framing differs — see Apple's TN1081).
+pub(crate) struct ImaAdpcmState {
+    pub predicted_sample: i16,
+    pub step_index: usize,
+}
+
+impl ImaAdpcmState {
+    pub fn new(predicted_sample: i16, step_index: usize) -> Self {
+        ImaAdpcmState {
+            predicted_sample,
+            step_index: step_index.min(STEP_SIZE_TABLE.len() - 1),
+        }
+    }
+
+    /// Decode a single 4-bit IMA ADPCM code and return the new PCM sample.
+    pub fn decode_nibble(&mut self, nibble: u8) -> i16 {
+        let nibble = nibble & 0xf;
+        let step_size = STEP_SIZE_TABLE[self.step_index];
+
+        let mut difference = 0u16;
+        if nibble & 4 != 0 {
+            difference += step_size;
+        }
+        if nibble & 2 != 0 {
+            difference += step_size >> 1;
+        }
+        if nibble & 1 != 0 {
+            difference += step_size >> 2;
+        }
+        difference += step_size >> 3;
+
+        self.predicted_sample = if nibble & 8 != 0 {
+            self.predicted_sample.saturating_sub_unsigned(difference)
+        } else {
+            self.predicted_sample.saturating_add_unsigned(difference)
+        };
+
+        self.step_index = self
+            .step_index
+            .saturating_add_signed(INDEX_TABLE[nibble as usize].into())
+            .min(STEP_SIZE_TABLE.len() - 1);
+
+        self.predicted_sample
+    }
+}
+
 /// Decode a 34-byte IMA4 ADPCM packet to 16-bit signed integer PCM.
 ///
 /// The packet is always a single channel. For stereo, the packets alternate
@@ -39,39 +90,14 @@ pub fn decode_ima4(in_packet: &[u8; 34]) -> [i16; 64] {
     let mut out_packet = [0i16; 64];
 
     let header = u16::from_be_bytes(in_packet[0..2].try_into().unwrap());
-    let mut index = ((header & 0x7f) as usize).min(STEP_SIZE_TABLE.len() - 1);
-    let mut predicted_sample = ((header >> 7) << 7) as i16;
-    let mut step_size = STEP_SIZE_TABLE[index];
+    let index = ((header & 0x7f) as usize).min(STEP_SIZE_TABLE.len() - 1);
+    let predicted_sample = ((header >> 7) << 7) as i16;
+    let mut state = ImaAdpcmState::new(predicted_sample, index);
 
     for (byte_idx, &byte) in in_packet[2..].iter().enumerate() {
         for nibble_idx in 0..2 {
             let nibble = (byte >> (nibble_idx * 4)) & 0xf;
-
-            predicted_sample = {
-                let mut difference = 0;
-                if nibble & 4 != 0 {
-                    difference += step_size;
-                }
-                if nibble & 2 != 0 {
-                    difference += step_size >> 1;
-                }
-                if nibble & 1 != 0 {
-                    difference += step_size >> 2;
-                }
-                difference += step_size >> 3;
-
-                if nibble & 8 != 0 {
-                    predicted_sample.saturating_sub_unsigned(difference)
-                } else {
-                    predicted_sample.saturating_add_unsigned(difference)
-                }
-            };
-
-            out_packet[byte_idx * 2 + nibble_idx] = predicted_sample;
-            index = index
-                .saturating_add_signed(INDEX_TABLE[nibble as usize].into())
-                .min(STEP_SIZE_TABLE.len() - 1);
-            step_size = STEP_SIZE_TABLE[index];
+            out_packet[byte_idx * 2 + nibble_idx] = state.decode_nibble(nibble);
         }
     }
 
