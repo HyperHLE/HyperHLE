@@ -25,6 +25,7 @@ use std::any::TypeId;
 /// function needs to conform to the same ABI: [id] and [SEL] must be
 /// its first two parameters.
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Clone, Copy)]
 pub enum IMP {
     Host(&'static dyn HostIMP),
     Guest(GuestIMP),

@@ -40,7 +40,7 @@ pub use classes::{
     class_getMethodImplementation, class_getMethodImplementation_stret, class_getName,
     class_getProperty, class_getSuperclass, class_replaceMethod, class_respondsToSelector, class_setSuperclass,
     method_exchangeImplementations,
-    method_getImplementation, method_getTypeEncoding, method_setImplementation, objc_storeStrong,
+    method_getImplementation, method_getName, method_getTypeEncoding, method_setImplementation, objc_storeStrong,
     objc_alloc, objc_allocateClassPair, objc_autorelease, objc_autoreleasePoolPop,
     objc_autoreleasePoolPush, objc_autoreleaseReturnValue, objc_begin_catch, objc_classes,
     objc_copyClassNamesForImage, objc_disposeClassPair, objc_end_catch, objc_exception_throw,
@@ -172,6 +172,31 @@ pub struct ObjC {
     /// - <https://developer.apple.com/documentation/objectivec/1418509-objc_setassociatedobject>
     /// - Apple `objc-references.mm` (open-source `objc4`).
     pub(crate) associated_objects: HashMap<(id, crate::mem::GuestUSize), (id, bool)>,
+
+    /// Backing store for the opaque `Method` handles returned by
+    /// `class_getInstanceMethod` / `class_getClassMethod` /
+    /// `class_copyMethodList`.
+    ///
+    /// Apple's runtime exposes `Method` as a pointer to a `method_t`
+    /// (`{ SEL name; const char *types; IMP imp; }`). touchHLE keeps its
+    /// method tables in host memory, so instead we hand out a pointer to a
+    /// tiny guest-memory record describing the (defining class, selector)
+    /// pair (see [classes::objc_method_t]). That identity is enough to
+    /// service every documented `Method`/`method_*` runtime call
+    /// (`method_getImplementation`, `method_setImplementation`,
+    /// `method_exchangeImplementations`, `method_getName`,
+    /// `method_getTypeEncoding`). Entries are deduplicated so that repeated
+    /// lookups of the same method return an identical pointer, matching the
+    /// stable identity real `Method` values have.
+    pub(super) method_handles: HashMap<(Class, SEL), crate::mem::MutPtr<classes::objc_method_t>>,
+
+    /// Lets a host (Rust-implemented) `IMP` round-trip through
+    /// `method_getImplementation` → `method_setImplementation` without a real
+    /// guest function pointer. Host IMPs are handed to the guest as opaque,
+    /// non-dereferenceable sentinel tokens (see `HOST_IMP_TOKEN_TAG` in
+    /// classes.rs) whose low bits index into this vector; the guest only ever
+    /// passes them straight back into a set/exchange call.
+    pub(super) host_imp_tokens: Vec<&'static dyn HostIMP>,
 }
 
 impl ObjC {
@@ -186,6 +211,8 @@ impl ObjC {
             initialized_classes: HashSet::new(),
             weak_refs: HashMap::new(),
             associated_objects: HashMap::new(),
+            method_handles: HashMap::new(),
+            host_imp_tokens: Vec::new(),
         }
     }
 
@@ -384,10 +411,11 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(class_copyMethodList(_, _)),
     export_c_func!(class_copyIvarList(_, _)),
     export_c_func!(class_copyProtocolList(_, _)),
-    export_c_func!(class_replaceMethod(_, _)),
-    export_c_func!(method_getImplementation(_, _)),
+    export_c_func!(class_replaceMethod(_, _, _, _)),
+    export_c_func!(method_getImplementation(_)),
     export_c_func!(method_setImplementation(_, _)),
-    export_c_func!(method_getTypeEncoding(_, _)),
+    export_c_func!(method_getName(_)),
+    export_c_func!(method_getTypeEncoding(_)),
     export_c_func!(method_exchangeImplementations(_, _)),
     export_c_func!(class_getMethodImplementation(_, _)),
     export_c_func!(class_getMethodImplementation_stret(_, _)),
