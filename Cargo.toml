@@ -94,6 +94,9 @@ rusqlite = { version = "0.29.0", features = ["bundled"] }
 lazy_static = "1.4.0"
 regex = "1.10.0"
 bzip2 = "0.4"
+# Blocking HTTP client used to give NSURLConnection / NSURLSession real
+# networking (pure-Rust TLS via rustls, so no system OpenSSL dependency).
+ureq = { version = "2.9", features = ["tls", "gzip"] }
 
 [build-dependencies]
 cargo-license = "0.5.1"
