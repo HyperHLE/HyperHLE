@@ -8,7 +8,9 @@
 
 use crate::frameworks::foundation::ns_string::{from_rust_string, to_rust_string};
 use crate::frameworks::foundation::NSUInteger;
-use crate::objc::{id, msg, nil, objc_classes, release, ClassExports, HostObject, NSZonePtr};
+use crate::objc::{
+    id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
+};
 
 /// Apple's NSNumberFormatter behavior modes.
 /// <https://developer.apple.com/documentation/foundation/nsnumberformatterbehavior>
@@ -54,6 +56,18 @@ struct NSNumberFormatterHostObject {
     /// `NSDecimalNumber` rather than plain `NSNumber`.  Most apps leave this
     /// `false`.
     generates_decimal_numbers: bool,
+    /// `currencySymbol` — the string used to represent the local currency
+    /// when formatting with `NSNumberFormatterCurrencyStyle`.
+    /// <https://developer.apple.com/documentation/foundation/numberformatter/currencysymbol>
+    /// `nil` means "use the locale's default" (we default to `"$"`, matching
+    /// the en_US locale reported elsewhere in touchHLE).
+    currency_symbol: id,
+    /// `currencyCode` — the ISO 4217 currency code (e.g. `"USD"`).
+    /// <https://developer.apple.com/documentation/foundation/numberformatter/currencycode>
+    currency_code: id,
+    /// `internationalCurrencySymbol`.
+    /// <https://developer.apple.com/documentation/foundation/numberformatter/internationalcurrencysymbol>
+    international_currency_symbol: id,
 }
 impl HostObject for NSNumberFormatterHostObject {}
 
@@ -83,6 +97,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         negative_prefix: nil,
         negative_suffix: nil,
         generates_decimal_numbers: false,
+        currency_symbol: nil,
+        currency_code: nil,
+        international_currency_symbol: nil,
     };
     env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
 }
@@ -117,6 +134,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.positive_suffix,
         host.negative_prefix,
         host.negative_suffix,
+        host.currency_symbol,
+        host.currency_code,
+        host.international_currency_symbol,
     ];
     drop(host);
     for id in ids_to_release {
@@ -206,13 +226,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     let val: f64 = msg![env; number doubleValue];
     let host_obj = env.objc.borrow::<NSNumberFormatterHostObject>(this);
     let style = host_obj.number_style;
+    let currency_symbol = host_obj.currency_symbol;
 
     let rust_string: String;
 
     // 0 = NoStyle, 1 = DecimalStyle, 2 = CurrencyStyle, 3 = PercentStyle, 4 =
     // ScientificStyle
     if style == 2 {
-        rust_string = format!("${:.2}", val);
+        // Per Apple's NSNumberFormatter documentation, the currency style
+        // uses `currencySymbol` (which defaults to the locale's symbol) as
+        // the prefix.
+        let symbol = if currency_symbol != nil {
+            to_rust_string(env, currency_symbol).to_string()
+        } else {
+            "$".to_string()
+        };
+        rust_string = format!("{}{:.2}", symbol, val);
     } else if style == 3 {
         rust_string = format!("{}%", val * 100.0);
     } else if style == 4 {
@@ -229,9 +258,21 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
 
-    let rust_str = to_rust_string(env, string);
+    let rust_str = to_rust_string(env, string).to_string();
 
-    // Clean string from currency and percentage signs
+    // Clean string from currency and percentage signs, including any custom
+    // currency symbol configured via setCurrencySymbol:.
+    let custom_symbol = env.objc.borrow::<NSNumberFormatterHostObject>(this).currency_symbol;
+    let rust_str = if custom_symbol != nil {
+        let symbol = to_rust_string(env, custom_symbol).to_string();
+        if symbol.is_empty() {
+            rust_str
+        } else {
+            rust_str.replace(&symbol, "")
+        }
+    } else {
+        rust_str
+    };
     let clean_str = rust_str.replace(['$', ',', '%'], "");
     let trimmed = clean_str.trim();
 
@@ -323,6 +364,84 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setGeneratesDecimalNumbers:(bool)flag {
     env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).generates_decimal_numbers = flag;
+}
+
+// =========================================================================
+// MARK: - Currency configuration
+// =========================================================================
+
+// `- (NSString *)currencySymbol`
+// <https://developer.apple.com/documentation/foundation/numberformatter/currencysymbol>
+//
+// Per Apple's documentation this is "the string used by the receiver as a
+// local currency symbol"; when the app has not set one, the locale's symbol
+// is used. touchHLE reports an en_US-like locale, so the default is "$".
+- (id)currencySymbol {
+    let symbol = env.objc.borrow::<NSNumberFormatterHostObject>(this).currency_symbol;
+    if symbol != nil {
+        symbol
+    } else {
+        from_rust_string(env, "$".to_string())
+    }
+}
+
+// `- (void)setCurrencySymbol:(NSString *)symbol`
+// <https://developer.apple.com/documentation/foundation/numberformatter/currencysymbol>
+- (())setCurrencySymbol:(id)symbol {
+    retain(env, symbol);
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).currency_symbol,
+        symbol,
+    );
+    release(env, old);
+}
+
+// `- (NSString *)currencyCode`
+// <https://developer.apple.com/documentation/foundation/numberformatter/currencycode>
+- (id)currencyCode {
+    let code = env.objc.borrow::<NSNumberFormatterHostObject>(this).currency_code;
+    if code != nil {
+        code
+    } else {
+        from_rust_string(env, "USD".to_string())
+    }
+}
+
+// `- (void)setCurrencyCode:(NSString *)code`
+// <https://developer.apple.com/documentation/foundation/numberformatter/currencycode>
+- (())setCurrencyCode:(id)code {
+    retain(env, code);
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).currency_code,
+        code,
+    );
+    release(env, old);
+}
+
+// `- (NSString *)internationalCurrencySymbol`
+// <https://developer.apple.com/documentation/foundation/numberformatter/internationalcurrencysymbol>
+- (id)internationalCurrencySymbol {
+    let symbol =
+        env.objc.borrow::<NSNumberFormatterHostObject>(this).international_currency_symbol;
+    if symbol != nil {
+        symbol
+    } else {
+        from_rust_string(env, "USD".to_string())
+    }
+}
+
+// `- (void)setInternationalCurrencySymbol:(NSString *)symbol`
+// <https://developer.apple.com/documentation/foundation/numberformatter/internationalcurrencysymbol>
+- (())setInternationalCurrencySymbol:(id)symbol {
+    retain(env, symbol);
+    let old = std::mem::replace(
+        &mut env
+            .objc
+            .borrow_mut::<NSNumberFormatterHostObject>(this)
+            .international_currency_symbol,
+        symbol,
+    );
+    release(env, old);
 }
 
 @end

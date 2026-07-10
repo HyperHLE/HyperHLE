@@ -218,6 +218,22 @@ impl AudioFile {
             }
         }
 
+        // Some WAVE files use compressed codecs that neither hound nor
+        // Symphonia's RIFF reader supports as a *container* format, notably
+        // MPEG audio (`WAVE_FORMAT_MPEG` = 0x0050 and `WAVE_FORMAT_MPEGLAYER3`
+        // = 0x0055 per Microsoft's mmreg.h registry). Symphonia rejects the
+        // container with "wav: unsupported wave format" even though it can
+        // decode the MPEG payload itself. Old iPhone OS games sometimes ship
+        // such files (e.g. SnowCraft's onetick2.wav) because iPhone OS Core
+        // Audio's AudioFile WAVE parser accepted them. Extract the raw MPEG
+        // frames from the `data` chunk and decode them as a plain MPEG
+        // stream.
+        if let Some(mpeg_data) = try_extract_mpeg_from_wav(&bytes) {
+            if let Ok(pcm) = symphonia_formats::decode_symphonia_to_pcm(Cursor::new(mpeg_data)) {
+                return Ok(AudioFileInner::Symphonia(pcm));
+            }
+        }
+
         if let Ok(pcm) = symphonia_formats::decode_symphonia_to_pcm(Cursor::new(bytes)) {
             Ok(AudioFileInner::Symphonia(pcm))
         } else {
@@ -418,6 +434,70 @@ impl AudioFile {
             }
             AudioFileInner::Aac(ref aac) => aac.read_bytes(offset, buffer),
         }
+    }
+}
+
+/// `WAVE_FORMAT_MPEG` from Microsoft's multimedia registry (mmreg.h).
+const WAVE_FORMAT_MPEG: u16 = 0x0050;
+/// `WAVE_FORMAT_MPEGLAYER3` from Microsoft's multimedia registry (mmreg.h).
+const WAVE_FORMAT_MPEGLAYER3: u16 = 0x0055;
+
+/// If `bytes` is a RIFF/WAVE file whose `fmt ` chunk declares an MPEG audio
+/// codec (`WAVE_FORMAT_MPEG` or `WAVE_FORMAT_MPEGLAYER3`), returns the raw
+/// contents of the `data` chunk, which is a plain sequence of MPEG audio
+/// frames that Symphonia's MP3 demuxer can decode directly.
+///
+/// RIFF layout per the Microsoft/IBM "Multimedia Programming Interface and
+/// Data Specifications 1.0": `"RIFF" <u32 size> "WAVE"` followed by chunks of
+/// the form `<4-byte id> <u32 little-endian size> <payload>`, where each
+/// chunk is padded to an even byte boundary.
+fn try_extract_mpeg_from_wav(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+
+    let mut format_tag: Option<u16> = None;
+    let mut data: Option<&[u8]> = None;
+
+    let mut pos = 12usize;
+    while pos + 8 <= bytes.len() {
+        let chunk_id = &bytes[pos..pos + 4];
+        let chunk_size = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
+        let payload_start = pos + 8;
+        // Tolerate a truncated final chunk (some encoders write a data chunk
+        // size larger than the actual file).
+        let payload_end = payload_start.checked_add(chunk_size)?.min(bytes.len());
+        let payload = &bytes[payload_start..payload_end];
+
+        match chunk_id {
+            b"fmt " if payload.len() >= 2 => {
+                format_tag = Some(u16::from_le_bytes(payload[..2].try_into().ok()?));
+            }
+            b"data" => {
+                data = Some(payload);
+            }
+            _ => (),
+        }
+
+        // Chunks are word-aligned: odd sizes are followed by a pad byte.
+        pos = payload_start + chunk_size + (chunk_size & 1);
+    }
+
+    match format_tag {
+        Some(WAVE_FORMAT_MPEG) | Some(WAVE_FORMAT_MPEGLAYER3) => {
+            let data = data?;
+            if data.is_empty() {
+                return None;
+            }
+            log!(
+                "AudioFile: WAVE file contains MPEG audio (format tag {:#06x}); \
+                 extracting {} bytes of MPEG frames from the data chunk.",
+                format_tag.unwrap(),
+                data.len()
+            );
+            Some(data.to_vec())
+        }
+        _ => None,
     }
 }
 

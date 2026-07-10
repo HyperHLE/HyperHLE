@@ -1594,6 +1594,12 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_file_manager::FUNCTIONS,
         ns_log::FUNCTIONS,
         ns_objc_runtime::FUNCTIONS,
+        // NSAllocateObject/NSCopyObject (Foundation object-allocation
+        // utilities). Without this registration the implementations in
+        // ns_object.rs were dead code and guest calls to _NSCopyObject fell
+        // back to a return-0 stub, breaking -copyWithZone: implementations
+        // built on top of it (seen in Chopper).
+        ns_object::FUNCTIONS,
     ],
 };
 
