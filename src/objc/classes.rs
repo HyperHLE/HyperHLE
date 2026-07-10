@@ -1401,21 +1401,29 @@ pub fn class_getInstanceSize(env: &mut crate::Environment, cls: Class, name: SEL
     ConstVoidPtr::null()
 }
 
-pub fn class_getInstanceMethod(
-    env: &mut crate::Environment,
-    cls: Class,
-    name: SEL,
-) -> ConstVoidPtr {
-    if cls.is_null() {
-        return ConstVoidPtr::null();
-    }
+// ──────────────────────────────────────────────────────────────────
+// Opaque `Method` handles
+//
+// Apple's `Method` is a pointer to the `method_t` entry inside a class's
+// method list; it identifies BOTH the class that defines the method and the
+// selector. touchHLE stores methods in a `HashMap<SEL, IMP>` per class, so we
+// materialise a stable 8-byte guest allocation per (defining class, selector)
+// pair — `[u32 class_bits][u32 selector_bits]` — and hand its pointer to the
+// guest as the opaque `Method`. All `method_*` functions decode the handle
+// back into (class, selector) to operate on the real method table, which is
+// what makes swizzling (`method_exchangeImplementations`,
+// `method_setImplementation`) actually take effect.
+// ──────────────────────────────────────────────────────────────────
 
+/// Returns the nearest class in `cls`'s superclass chain that defines an
+/// uninherited implementation of `sel`, or `nil` if none does.
+fn find_defining_class(env: &crate::Environment, cls: Class, sel: SEL) -> Class {
     let mut curr = cls;
     while !curr.is_null() {
         if let Some(host_obj) = env.objc.get_host_object(curr) {
             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                if class_obj.methods.contains_key(&name) {
-                    return curr.cast_const().cast();
+                if class_obj.methods.contains_key(&sel) {
+                    return curr;
                 }
             }
         }
@@ -1425,7 +1433,119 @@ pub fn class_getInstanceMethod(
         }
         curr = next;
     }
-    ConstVoidPtr::null()
+    nil
+}
+
+/// Get-or-create the stable opaque `Method` handle for a (defining class,
+/// selector) pair.
+fn method_handle_for(env: &mut crate::Environment, defining_class: Class, sel: SEL) -> ConstVoidPtr {
+    if let Some(&existing) = env.objc.method_handles.get(&(defining_class, sel)) {
+        return existing.cast_const();
+    }
+    let handle: crate::mem::MutPtr<u32> = env.mem.alloc(8).cast();
+    env.mem.write(handle, defining_class.to_bits());
+    env.mem.write(handle + 1, sel.to_bits());
+    let vp: MutVoidPtr = handle.cast();
+    env.objc
+        .method_handles
+        .insert((defining_class, sel), vp);
+    vp.cast_const()
+}
+
+/// Decode a `Method` handle back into its (defining class, selector) pair.
+/// Returns `None` if the pointer is NULL or was not produced by
+/// [method_handle_for] (guards against the guest passing an arbitrary
+/// pointer).
+fn method_handle_decode(env: &crate::Environment, m: ConstVoidPtr) -> Option<(Class, SEL)> {
+    if m.is_null() {
+        return None;
+    }
+    let known = env
+        .objc
+        .method_handles
+        .values()
+        .any(|p| p.to_bits() == m.to_bits());
+    if !known {
+        return None;
+    }
+    let base: ConstPtr<u32> = m.cast();
+    let cls: Class = Ptr::from_bits(env.mem.read(base));
+    let sel: SEL = Ptr::from_bits(env.mem.read(base + 1));
+    Some((cls, sel))
+}
+
+/// Read the [IMP] stored for `sel` directly on `cls` (no inheritance walk).
+fn imp_at(env: &crate::Environment, cls: Class, sel: SEL) -> Option<IMP> {
+    env.objc
+        .get_host_object(cls)
+        .and_then(|h| h.as_any().downcast_ref::<ClassHostObject>())
+        .and_then(|c| c.methods.get(&sel).copied())
+}
+
+/// Install `imp` for `sel` directly on `cls` (no inheritance walk).
+fn set_imp_at(env: &mut crate::Environment, cls: Class, sel: SEL, imp: IMP) {
+    let class_obj = env.objc.borrow_mut::<ClassHostObject>(cls);
+    class_obj.methods.insert(sel, imp);
+}
+
+/// Convert an [IMP] into the guest pointer that Apple's `IMP` type is (a
+/// function pointer). Guest implementations expose their real code address;
+/// host (Rust-backed) implementations have no guest address, so we mint a
+/// stable token pointer for the (class, selector) and remember which host
+/// IMP it stands for, allowing it to be round-tripped back through
+/// `method_setImplementation` / `method_exchangeImplementations`.
+fn imp_to_guest_ptr(env: &mut crate::Environment, cls: Class, sel: SEL, imp: IMP) -> ConstVoidPtr {
+    match imp {
+        IMP::Guest(gf) => gf.to_ptr(),
+        IMP::Host(_) => {
+            let token = if let Some(&t) = env.objc.host_imp_tokens.get(&(cls, sel)) {
+                t
+            } else {
+                let t = env.mem.alloc(4);
+                env.objc.host_imp_tokens.insert((cls, sel), t);
+                t
+            };
+            env.objc.imp_tokens.insert(token.to_bits(), imp);
+            token.cast_const()
+        }
+    }
+}
+
+/// Convert a guest `IMP` pointer received from the guest back into an [IMP].
+/// A pointer previously handed out for a host implementation is looked up in
+/// the token registry; anything else is treated as a guest code address.
+fn guest_ptr_to_imp(env: &crate::Environment, imp: ConstVoidPtr) -> Option<IMP> {
+    if imp.is_null() {
+        return None;
+    }
+    if let Some(host_imp) = env.objc.imp_tokens.get(&imp.to_bits()) {
+        return Some(*host_imp);
+    }
+    Some(IMP::Guest(crate::abi::GuestFunction::from_addr_with_thumb_bit(
+        imp.to_bits(),
+    )))
+}
+
+/// `Method class_getInstanceMethod(Class cls, SEL name)`
+///
+/// Per Apple's [Objective-C Runtime Reference](https://developer.apple.com/documentation/objectivec/1418889-class_getinstancemethod?language=objc):
+///
+/// > Returns a specified instance method for a given class, searching
+/// > superclasses for the implementation. Returns `NULL` if `cls` is `Nil`,
+/// > `name` is `NULL`, or instances of `cls` do not respond to `name`.
+pub fn class_getInstanceMethod(
+    env: &mut crate::Environment,
+    cls: Class,
+    name: SEL,
+) -> ConstVoidPtr {
+    if cls.is_null() || name.is_null() {
+        return ConstVoidPtr::null();
+    }
+    let defining = find_defining_class(env, cls, name);
+    if defining.is_null() {
+        return ConstVoidPtr::null();
+    }
+    method_handle_for(env, defining, name)
 }
 
 /// `BOOL class_respondsToSelector(Class cls, SEL sel)`
@@ -1468,81 +1588,89 @@ pub fn class_respondsToSelector(
     false
 }
 
-pub fn method_getImplementation(
-    env: &mut crate::Environment,
-    cls: Class,
-    name: SEL,
-) -> ConstVoidPtr {
-    if cls.is_null() {
+/// `IMP method_getImplementation(Method m)`
+///
+/// Per Apple's [Objective-C Runtime Reference](https://developer.apple.com/documentation/objectivec/1418551-method_getimplementation?language=objc):
+///
+/// > Returns the implementation of a method.
+///
+/// `m` is one of our opaque `Method` handles (see [method_handle_for]); we
+/// decode it to a (class, selector) pair and return the guest function
+/// pointer of the installed implementation.
+pub fn method_getImplementation(env: &mut crate::Environment, m: ConstVoidPtr) -> ConstVoidPtr {
+    let Some((cls, sel)) = method_handle_decode(env, m) else {
         return ConstVoidPtr::null();
+    };
+    match imp_at(env, cls, sel) {
+        Some(imp) => imp_to_guest_ptr(env, cls, sel, imp),
+        None => ConstVoidPtr::null(),
     }
-
-    let mut curr = cls;
-    while !curr.is_null() {
-        if let Some(host_obj) = env.objc.get_host_object(curr) {
-            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                if class_obj.methods.contains_key(&name) {
-                    return curr.cast_const().cast();
-                }
-            }
-        }
-        let next = env.objc.get_superclass(curr);
-        if next == curr {
-            break;
-        }
-        curr = next;
-    }
-    ConstVoidPtr::null()
 }
 
+/// `IMP method_setImplementation(Method m, IMP imp)`
+///
+/// Per Apple's [Objective-C Runtime Reference](https://developer.apple.com/documentation/objectivec/1418707-method_setimplementation?language=objc):
+///
+/// > Sets the implementation of a method. Returns the previous
+/// > implementation of the method.
+///
+/// This is one half of the classic swizzling idiom (the other being
+/// `method_exchangeImplementations`). Decoding the `Method` handle lets us
+/// mutate the real method table so the change is observed by subsequent
+/// dispatch — exactly what patterns like cocos2d's `SynthesizeSingleton`
+/// depend on.
 pub fn method_setImplementation(
     env: &mut crate::Environment,
-    cls: Class,
-    name: SEL,
+    m: ConstVoidPtr,
+    imp: ConstVoidPtr,
 ) -> ConstVoidPtr {
-    if cls.is_null() {
+    let Some((cls, sel)) = method_handle_decode(env, m) else {
         return ConstVoidPtr::null();
+    };
+    let old = imp_at(env, cls, sel);
+    if let Some(new_imp) = guest_ptr_to_imp(env, imp) {
+        set_imp_at(env, cls, sel, new_imp);
     }
-
-    let mut curr = cls;
-    while !curr.is_null() {
-        if let Some(host_obj) = env.objc.get_host_object(curr) {
-            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                if class_obj.methods.contains_key(&name) {
-                    return curr.cast_const().cast();
-                }
-            }
-        }
-        let next = env.objc.get_superclass(curr);
-        if next == curr {
-            break;
-        }
-        curr = next;
+    match old {
+        Some(old_imp) => imp_to_guest_ptr(env, cls, sel, old_imp),
+        None => ConstVoidPtr::null(),
     }
-    ConstVoidPtr::null()
 }
 
-pub fn method_getTypeEncoding(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    if cls.is_null() {
+/// `const char *method_getTypeEncoding(Method m)`
+///
+/// Per Apple's [Objective-C Runtime Reference](https://developer.apple.com/documentation/objectivec/1418488-method_gettypeencoding?language=objc):
+///
+/// > Returns a string describing a method's parameter and return types.
+///
+/// We return the guest pointer to the method's stored type-encoding string
+/// (as parsed from the binary or supplied via `class_addMethod`), or NULL if
+/// none is recorded.
+pub fn method_getTypeEncoding(env: &mut crate::Environment, m: ConstVoidPtr) -> ConstVoidPtr {
+    let Some((cls, sel)) = method_handle_decode(env, m) else {
         return ConstVoidPtr::null();
+    };
+    let types = env
+        .objc
+        .get_host_object(cls)
+        .and_then(|h| h.as_any().downcast_ref::<ClassHostObject>())
+        .and_then(|c| c.guest_method_signatures.get(&sel).copied());
+    match types {
+        Some(ptr) => ptr.cast(),
+        None => ConstVoidPtr::null(),
     }
+}
 
-    let mut curr = cls;
-    while !curr.is_null() {
-        if let Some(host_obj) = env.objc.get_host_object(curr) {
-            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                if class_obj.methods.contains_key(&name) {
-                    return curr.cast_const().cast();
-                }
-            }
-        }
-        let next = env.objc.get_superclass(curr);
-        if next == curr {
-            break;
-        }
-        curr = next;
+/// `SEL method_getName(Method m)`
+///
+/// Per Apple's [Objective-C Runtime Reference](https://developer.apple.com/documentation/objectivec/1418758-method_getname?language=objc):
+///
+/// > Returns the name of a method (the selector it is registered under).
+pub fn method_getName(env: &mut crate::Environment, m: ConstVoidPtr) -> SEL {
+    match method_handle_decode(env, m) {
+        Some((_cls, sel)) => sel,
+        None => Ptr::null(),
     }
-    ConstVoidPtr::null()
 }
 
 pub fn objc_getMetaClass(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
@@ -1568,27 +1696,52 @@ pub fn objc_getMetaClass(env: &mut crate::Environment, cls: Class, name: SEL) ->
     ConstVoidPtr::null()
 }
 
-pub fn class_replaceMethod(env: &mut crate::Environment, cls: Class, name: SEL) -> ConstVoidPtr {
-    if cls.is_null() {
+/// `IMP class_replaceMethod(Class cls, SEL name, IMP imp, const char *types)`
+///
+/// Per Apple's [Objective-C Runtime Reference](https://developer.apple.com/documentation/objectivec/1418677-class_replacemethod?language=objc):
+///
+/// > Replaces the implementation of a method for a given class.
+/// >
+/// > - If the method identified by `name` does not yet exist, it is added as
+/// >   if `class_addMethod` were called (and the return value is `NULL`).
+/// > - If the method identified by `name` does exist, its `IMP` is replaced
+/// >   as if `method_setImplementation` were called (and the previous `IMP`
+/// >   is returned).
+pub fn class_replaceMethod(
+    env: &mut crate::Environment,
+    cls: Class,
+    name: SEL,
+    imp: ConstVoidPtr,
+    types: ConstPtr<u8>,
+) -> ConstVoidPtr {
+    if cls.is_null() || name.is_null() {
         return ConstVoidPtr::null();
     }
 
-    let mut curr = cls;
-    while !curr.is_null() {
-        if let Some(host_obj) = env.objc.get_host_object(curr) {
-            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-                if class_obj.methods.contains_key(&name) {
-                    return curr.cast_const().cast();
-                }
-            }
+    // Whether `cls` itself already defines `name` (overrides of a superclass
+    // do not count, matching `class_addMethod`'s contract).
+    let already_defined = imp_at(env, cls, name).is_some();
+    let old = imp_at(env, cls, name);
+
+    // A NULL IMP with an existing method removes nothing in Apple's runtime
+    // (it is treated as a request to install the forwarding IMP); we simply
+    // leave the existing implementation in place and return it.
+    if let Some(new_imp) = guest_ptr_to_imp(env, imp) {
+        set_imp_at(env, cls, name, new_imp);
+        if !types.is_null() {
+            let class_obj = env.objc.borrow_mut::<ClassHostObject>(cls);
+            class_obj.guest_method_signatures.insert(name, types);
         }
-        let next = env.objc.get_superclass(curr);
-        if next == curr {
-            break;
-        }
-        curr = next;
     }
-    ConstVoidPtr::null()
+
+    if already_defined {
+        match old {
+            Some(old_imp) => imp_to_guest_ptr(env, cls, name, old_imp),
+            None => ConstVoidPtr::null(),
+        }
+    } else {
+        ConstVoidPtr::null()
+    }
 }
 
 /// `BOOL class_addMethod(Class cls, SEL name, IMP imp, const char *types)`
@@ -1873,7 +2026,19 @@ pub fn class_getMethodImplementation(
     cls: Class,
     name: crate::objc::SEL,
 ) -> ConstVoidPtr {
-    method_getImplementation(env, cls, name)
+    if cls.is_null() || name.is_null() {
+        return ConstVoidPtr::null();
+    }
+    // Unlike `method_getImplementation` (which takes an opaque `Method`),
+    // this call resolves the selector through the inheritance chain.
+    let defining = find_defining_class(env, cls, name);
+    if defining.is_null() {
+        return ConstVoidPtr::null();
+    }
+    match imp_at(env, defining, name) {
+        Some(imp) => imp_to_guest_ptr(env, defining, name, imp),
+        None => ConstVoidPtr::null(),
+    }
 }
 
 /// `IMP class_getMethodImplementation_stret(Class cls, SEL name)` — same
@@ -1884,7 +2049,7 @@ pub fn class_getMethodImplementation_stret(
     cls: Class,
     name: crate::objc::SEL,
 ) -> ConstVoidPtr {
-    method_getImplementation(env, cls, name)
+    class_getMethodImplementation(env, cls, name)
 }
 
 pub fn objc_retainAutorelease(env: &mut crate::Environment, obj: id) -> id {
@@ -2169,28 +2334,94 @@ pub fn object_getIndexedIvars(_env: &mut crate::Environment, obj: id) -> ConstVo
     obj.cast().cast_const()
 }
 
-/// `void method_exchangeImplementations(Method m1, Method m2)` — swaps
-/// the implementations of two methods. In the real Objective-C runtime
-/// this performs an atomic swap of the IMP pointers within the opaque
-/// Method structures.
+/// `void method_exchangeImplementations(Method m1, Method m2)`
 ///
-/// In touchHLE's simplified runtime, `class_getInstanceMethod` returns
-/// the class pointer itself (not a real `objc_method` struct), so we
-/// cannot determine which selector each "Method" value refers to from
-/// the pointer alone. Games that use method_exchangeImplementations
-/// typically do so for analytics, crash reporting swizzling, or other
-/// non-essential purposes. We log the call and no-op, which is safe
-/// because the emulator does not rely on swizzled behavior for
-/// correctness.
+/// Per Apple's [Objective-C Runtime Reference](https://developer.apple.com/documentation/objectivec/1418769-method_exchangeimplementations?language=objc):
+///
+/// > Exchanges the implementations of two methods. This is an atomic
+/// > version of the following:
+/// > ```
+/// > IMP imp1 = method_getImplementation(m1);
+/// > IMP imp2 = method_getImplementation(m2);
+/// > method_setImplementation(m1, imp2);
+/// > method_setImplementation(m2, imp1);
+/// > ```
+///
+/// Because our `Method` handles encode the defining class and selector, we
+/// can swap the real entries in each class's method table (along with their
+/// type-encoding strings). This makes method swizzling take effect — e.g.
+/// cocos2d's `SynthesizeSingleton` macro, whose `NSAssert` used to fail on
+/// every frame because the previous implementation was a no-op.
 pub fn method_exchangeImplementations(
-    _env: &mut crate::Environment,
+    env: &mut crate::Environment,
     m1: ConstVoidPtr,
     m2: ConstVoidPtr,
 ) {
+    let (Some((cls1, sel1)), Some((cls2, sel2))) = (
+        method_handle_decode(env, m1),
+        method_handle_decode(env, m2),
+    ) else {
+        log!(
+            "Warning: method_exchangeImplementations({:?}, {:?}) — unknown Method handle(s); ignoring.",
+            m1,
+            m2
+        );
+        return;
+    };
+
+    let imp1 = imp_at(env, cls1, sel1);
+    let imp2 = imp_at(env, cls2, sel2);
+
+    // Swap type-encoding strings too, so `method_getTypeEncoding` keeps
+    // reporting the encoding that matches each installed implementation.
+    let types1 = env
+        .objc
+        .get_host_object(cls1)
+        .and_then(|h| h.as_any().downcast_ref::<ClassHostObject>())
+        .and_then(|c| c.guest_method_signatures.get(&sel1).copied());
+    let types2 = env
+        .objc
+        .get_host_object(cls2)
+        .and_then(|h| h.as_any().downcast_ref::<ClassHostObject>())
+        .and_then(|c| c.guest_method_signatures.get(&sel2).copied());
+
+    if let Some(imp) = imp2 {
+        set_imp_at(env, cls1, sel1, imp);
+    }
+    if let Some(imp) = imp1 {
+        set_imp_at(env, cls2, sel2, imp);
+    }
+    {
+        let class_obj = env.objc.borrow_mut::<ClassHostObject>(cls1);
+        match types2 {
+            Some(t) => {
+                class_obj.guest_method_signatures.insert(sel1, t);
+            }
+            None => {
+                class_obj.guest_method_signatures.remove(&sel1);
+            }
+        }
+    }
+    {
+        let class_obj = env.objc.borrow_mut::<ClassHostObject>(cls2);
+        match types1 {
+            Some(t) => {
+                class_obj.guest_method_signatures.insert(sel2, t);
+            }
+            None => {
+                class_obj.guest_method_signatures.remove(&sel2);
+            }
+        }
+    }
+
     log_dbg!(
-        "method_exchangeImplementations({:?}, {:?}) — no-op (swizzling not critical in emulator)",
+        "method_exchangeImplementations({:?}, {:?}) — swapped [{:?} {:?}] <-> [{:?} {:?}]",
         m1,
-        m2
+        m2,
+        cls1,
+        sel1,
+        cls2,
+        sel2
     );
 }
 
@@ -2272,28 +2503,31 @@ pub fn class_copyMethodList(
     if cls.is_null() {
         return Ptr::null();
     }
-    let count = if let Some(host_obj) = env.objc.get_host_object(cls) {
+    // Collect the selectors defined directly on `cls` (Apple's contract:
+    // this call does NOT walk superclasses).
+    let sels: Vec<SEL> = if let Some(host_obj) = env.objc.get_host_object(cls) {
         if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
-            class_obj.methods.len()
+            class_obj.methods.keys().copied().collect()
         } else {
-            0
+            Vec::new()
         }
     } else {
-        0
+        Vec::new()
     };
-    if count == 0 {
+    if sels.is_empty() {
         return Ptr::null();
     }
-    let total = (count as u32) * guest_size_of::<ConstVoidPtr>();
+    let total = (sels.len() as u32) * guest_size_of::<ConstVoidPtr>();
     let buf: crate::mem::MutPtr<ConstVoidPtr> = env.mem.alloc(total).cast();
-    // We don't have a real `Method` struct, so reuse the class pointer for
-    // every entry, matching what `class_getInstanceMethod` already returns.
-    let class_as_method = ConstVoidPtr::from_bits(cls.to_bits());
-    for i in 0..count {
-        env.mem.write(buf + i as u32, class_as_method);
+    // Emit a real opaque `Method` handle per selector so callers can use each
+    // entry with `method_getName` / `method_getImplementation` /
+    // `method_setImplementation` and observe the correct per-method state.
+    for (i, sel) in sels.iter().enumerate() {
+        let handle = method_handle_for(env, cls, *sel);
+        env.mem.write(buf + i as u32, handle);
     }
     if !out_count.is_null() {
-        env.mem.write(out_count, count as u32);
+        env.mem.write(out_count, sels.len() as u32);
     }
     buf
 }

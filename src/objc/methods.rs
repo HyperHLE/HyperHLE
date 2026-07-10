@@ -24,7 +24,13 @@ use std::any::TypeId;
 /// and "guest methods" (functions in the guest app). Either way, the
 /// function needs to conform to the same ABI: [id] and [SEL] must be
 /// its first two parameters.
+///
+/// Both variants are cheap to copy (`&'static dyn HostIMP` is a reference and
+/// [GuestIMP] is a plain pointer), so `IMP` is `Copy`. This lets the runtime
+/// move implementations between method slots — e.g. for the swizzling
+/// performed by `method_exchangeImplementations` / `method_setImplementation`.
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Copy, Clone)]
 pub enum IMP {
     Host(&'static dyn HostIMP),
     Guest(GuestIMP),

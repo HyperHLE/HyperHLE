@@ -40,7 +40,8 @@ pub use classes::{
     class_getMethodImplementation, class_getMethodImplementation_stret, class_getName,
     class_getProperty, class_getSuperclass, class_replaceMethod, class_respondsToSelector, class_setSuperclass,
     method_exchangeImplementations,
-    method_getImplementation, method_getTypeEncoding, method_setImplementation, objc_storeStrong,
+    method_getImplementation, method_getName, method_getTypeEncoding, method_setImplementation,
+    objc_storeStrong,
     objc_alloc, objc_allocateClassPair, objc_autorelease, objc_autoreleasePoolPop,
     objc_autoreleasePoolPush, objc_autoreleaseReturnValue, objc_begin_catch, objc_classes,
     objc_copyClassNamesForImage, objc_disposeClassPair, objc_end_catch, objc_exception_throw,
@@ -172,6 +173,35 @@ pub struct ObjC {
     /// - <https://developer.apple.com/documentation/objectivec/1418509-objc_setassociatedobject>
     /// - Apple `objc-references.mm` (open-source `objc4`).
     pub(crate) associated_objects: HashMap<(id, crate::mem::GuestUSize), (id, bool)>,
+
+    /// Cache of opaque `Method` handles handed out to the guest.
+    ///
+    /// In Apple's runtime a `Method` is a stable pointer to the `method_t`
+    /// entry inside a class's method list, and `class_getInstanceMethod` /
+    /// `class_getClassMethod` return the same pointer for the same
+    /// class+selector every time. touchHLE stores methods in a Rust
+    /// `HashMap` instead, so we synthesise a small guest allocation per
+    /// (defining class, selector) pair and hand out its pointer as the
+    /// opaque `Method`. Caching keeps that pointer stable, which real code
+    /// relies on (e.g. it compares `Method` pointers, or expects
+    /// `method_getImplementation` on the returned handle to see the effect
+    /// of a prior `method_setImplementation`).
+    pub(super) method_handles: HashMap<(Class, SEL), crate::mem::MutVoidPtr>,
+
+    /// Reverse map from a synthesised `IMP` token pointer (see
+    /// [Self::host_imp_tokens]) back to the real [methods::IMP]. Host
+    /// (Rust-backed) methods have no guest code address, so
+    /// `method_getImplementation` hands out a unique token pointer for them
+    /// and records the mapping here so `method_setImplementation` /
+    /// `method_exchangeImplementations` can round-trip host implementations.
+    pub(super) imp_tokens: HashMap<crate::mem::GuestUSize, methods::IMP>,
+
+    /// Cache of token pointers minted for host `IMP`s, keyed by the
+    /// (defining class, selector) whose implementation the token stands in
+    /// for. Keeps the token pointer stable so that
+    /// `method_getImplementation(m) == method_getImplementation(m)` holds,
+    /// matching Apple's behaviour.
+    pub(super) host_imp_tokens: HashMap<(Class, SEL), crate::mem::MutVoidPtr>,
 }
 
 impl ObjC {
@@ -186,6 +216,9 @@ impl ObjC {
             initialized_classes: HashSet::new(),
             weak_refs: HashMap::new(),
             associated_objects: HashMap::new(),
+            method_handles: HashMap::new(),
+            imp_tokens: HashMap::new(),
+            host_imp_tokens: HashMap::new(),
         }
     }
 
@@ -384,10 +417,11 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(class_copyMethodList(_, _)),
     export_c_func!(class_copyIvarList(_, _)),
     export_c_func!(class_copyProtocolList(_, _)),
-    export_c_func!(class_replaceMethod(_, _)),
-    export_c_func!(method_getImplementation(_, _)),
+    export_c_func!(class_replaceMethod(_, _, _, _)),
+    export_c_func!(method_getImplementation(_)),
     export_c_func!(method_setImplementation(_, _)),
-    export_c_func!(method_getTypeEncoding(_, _)),
+    export_c_func!(method_getTypeEncoding(_)),
+    export_c_func!(method_getName(_)),
     export_c_func!(method_exchangeImplementations(_, _)),
     export_c_func!(class_getMethodImplementation(_, _)),
     export_c_func!(class_getMethodImplementation_stret(_, _)),
