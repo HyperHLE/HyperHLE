@@ -379,7 +379,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(sel_getName(_)),
     export_c_func!(sel_isEqual(_, _)),
     export_c_func!(objc_getClass(_)),
-    export_c_func!(objc_getMetaClass(_, _)),
+    export_c_func!(objc_getMetaClass(_)),
     export_c_func!(object_getClassName(_)),
     export_c_func!(object_getClass(_)),
     export_c_func!(objc_retainAutoreleasedReturnValue(_)),
