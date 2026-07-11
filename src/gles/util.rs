@@ -200,6 +200,27 @@ pub fn try_decode_pvrtc(
         _ => return false,
     };
 
+    // The `COMPRESSED_RGB_PVRTC_*` formats have a base internal format of RGB
+    // per the IMG_texture_compression_pvrtc spec, so their sampled alpha must
+    // be 1.0. The `COMPRESSED_RGBA_PVRTC_*` formats carry real alpha.
+    let is_opaque = matches!(
+        internalformat,
+        gles11::COMPRESSED_RGB_PVRTC_4BPPV1_IMG | gles11::COMPRESSED_RGB_PVRTC_2BPPV1_IMG
+    );
+    // OpenGL ES 1.1 and ES 2.0 both require `internalformat` to match `format`
+    // exactly in glTexImage2D — ES performs no format conversion, so a mismatch
+    // raises GL_INVALID_OPERATION (0x502) on strict drivers such as the native
+    // Qualcomm Adreno ES driver (per the Khronos OpenGL ES 2.0 glTexImage2D
+    // reference). The decoder always emits tightly-packed RGBA8 and, for the
+    // opaque `COMPRESSED_RGB_PVRTC_*` variants, `decode_pvrtc_with_alpha` has
+    // already forced every alpha byte to 0xFF, so sampling as RGBA yields the
+    // same 1.0 alpha the RGB base format would. We therefore always upload with
+    // matching RGBA/RGBA internalformat/format to stay spec-compliant on both
+    // native backends. Uploading an RGB internalformat with an RGBA `format`
+    // (the previous behaviour) black-screened Rush Rally 2 on Adreno because
+    // every opaque PVRTC upload failed with 0x502.
+    let upload_format = gles11::RGBA;
+
     if border != 0 {
         log!(
             "Warning: try_decode_pvrtc: invalid non-zero border ({border}) for PVRTC \
@@ -246,12 +267,16 @@ pub fn try_decode_pvrtc(
         return true;
     }
 
-    let pixels = crate::image::decode_pvrtc(pvrtc_data, is_2bit, width_u, height_u);
+    let pixels =
+        crate::image::decode_pvrtc_with_alpha(pvrtc_data, is_2bit, width_u, height_u, is_opaque);
     unsafe {
         gles.TexImage2D(
             target,
             level,
-            gles11::RGBA as _,
+            // Always RGBA: it must match the `format` argument below, and the
+            // decoder has baked the correct (1.0 for opaque) alpha into the
+            // tightly-packed RGBA8 pixel data.
+            upload_format as _,
             width,
             height,
             border,

@@ -67,6 +67,7 @@ pub mod ns_object;
 pub mod ns_operation;
 pub mod ns_ordered_set;
 pub mod ns_persistent_store_coordinator;
+pub mod ns_pointer_array;
 pub mod ns_predicate;
 pub mod ns_port;
 pub mod ns_process_info;
@@ -1552,6 +1553,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_predicate::CLASSES,
         ns_port::CLASSES,
         ns_process_info::CLASSES,
+        ns_pointer_array::CLASSES,
         ns_property_list_serialization::CLASSES,
         ns_regular_expression::CLASSES,
         ns_run_loop::CLASSES,

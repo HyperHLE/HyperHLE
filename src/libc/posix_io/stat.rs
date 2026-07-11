@@ -180,6 +180,10 @@ fn fstat_inner(env: &mut Environment, fd: FileDescriptor, buf: MutPtr<stat>) -> 
             stat.st_mode |= S_IFDIR;
             // TODO: st_size
         }
+        GuestFile::Random(_) => {
+            // `/dev/random` and `/dev/urandom` are character devices.
+            stat.st_mode |= S_IFCHR;
+        }
         _ => {
             // Socket / pipe / other non-file kinds: fstat() on a socket on
             // real iOS would return a struct with st_mode = S_IFSOCK; we

@@ -10,6 +10,7 @@ mod av_audio_player;
 pub mod av_audio_session;
 pub mod av_capture;
 pub mod av_player;
+pub mod av_speech;
 
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::objc::id;
@@ -325,6 +326,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         av_audio_session::CLASSES,
         av_capture::CLASSES,
         av_player::CLASSES,
+        av_speech::CLASSES,
     ],
     constant_exports: &[
         av_audio_session::CONSTANTS,

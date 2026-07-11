@@ -95,6 +95,14 @@ fn main() {
             // of degrading to a no-op resolve (which leaves the drawable
             // empty → black screen).
             "GL_APPLE_framebuffer_multisample",
+            // Boolean occlusion queries (glGenQueriesEXT / glBeginQueryEXT /
+            // glGetQueryObjectuivEXT etc.). Real iPhone OS ES 2.0 drivers on
+            // the PowerVR SGX advertise this extension, and games such as
+            // Rush Rally 2 link against these `*EXT` symbols directly. Without
+            // the bindings the guest symbol binds to null and the game jumps
+            // to a null pointer on launch.
+            // Reference: https://registry.khronos.org/OpenGL/extensions/EXT/EXT_occlusion_query_boolean.txt
+            "GL_EXT_occlusion_query_boolean",
         ],
     )
     .write_bindings(GlobalGenerator, &mut file)

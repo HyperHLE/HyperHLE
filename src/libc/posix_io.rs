@@ -285,6 +285,28 @@ pub fn open_direct(env: &mut Environment, path: ConstPtr<u8>, flags: i32) -> Fil
         log!("Ignoring O_NOFOLLOW when opening {:?}", path_string);
     }
 
+    // `/dev/random` and `/dev/urandom` are identical non-blocking CSPRNG
+    // character devices on Apple platforms (see the `random(4)` manual page).
+    // The emulated filesystem has no such node, so opening it used to fail;
+    // apps — and libc++'s `std::random_device` — then read from the resulting
+    // fd -1, which failed and made libc++ throw `std::system_error`, aborting
+    // launch (e.g. Minecraft PE). Back these paths with a real random source.
+    if path_string == "/dev/urandom" || path_string == "/dev/random" {
+        let host_object = PosixFileHostObject {
+            file: GuestFile::random(),
+            needs_flush: false,
+            reached_eof: false,
+            flags: 0,
+            status_flags: flags & (O_ACCMODE | O_APPEND | O_NONBLOCK),
+            path: Some(path_string.clone()),
+            locks: Vec::new(),
+            flock_state: None,
+        };
+        let fd = find_or_create_fd(env, host_object);
+        log_dbg!("open({:?}, {:#x}) => {:?} (random device)", path, flags, fd);
+        return fd;
+    }
+
     fn case_insensitive_path(env: &Environment, path: &str) -> Option<String> {
         if env.fs.exists(GuestPath::new(path)) {
             return Some(path.to_string());

@@ -318,7 +318,32 @@ pub fn gamma_decode(intensity: f32) -> f32 {
 
 /// Decodes Imagination Technologies' PVRTC texture compression format to
 /// RGBA (8 bits per channel).
+///
+/// `is_opaque` must be `true` for the `COMPRESSED_RGB_PVRTC_*` (no-alpha)
+/// internal formats and `false` for the `COMPRESSED_RGBA_PVRTC_*` variants.
+/// Per the `IMG_texture_compression_pvrtc` extension spec, the RGB variants
+/// have a base internal format of `RGB`, so sampling them must yield an alpha
+/// of 1.0 — exactly as real PowerVR / Apple hardware does. The underlying
+/// PVRTDecompress routine always produces a per-texel alpha value (PVRTC
+/// blocks can individually opt into a "transparent" colour mode regardless of
+/// the requested internal format), so for the opaque formats we overwrite the
+/// decoded alpha with 0xFF. Without this, opaque textures uploaded as GL_RGBA
+/// keep the decoder's stray sub-255 alpha and, when the app has GL_BLEND
+/// enabled with GL_SRC_ALPHA, blend away to nothing — producing a black screen
+/// while audio and input keep working.
 pub fn decode_pvrtc(pvrtc_data: &[u8], is_2bit: bool, width: u32, height: u32) -> Vec<u32> {
+    decode_pvrtc_with_alpha(pvrtc_data, is_2bit, width, height, false)
+}
+
+/// Like [decode_pvrtc], but lets the caller declare whether the source format
+/// is one of the opaque `COMPRESSED_RGB_PVRTC_*` variants (`is_opaque = true`).
+pub fn decode_pvrtc_with_alpha(
+    pvrtc_data: &[u8],
+    is_2bit: bool,
+    width: u32,
+    height: u32,
+    is_opaque: bool,
+) -> Vec<u32> {
     // This formula is from the IMG_texture_compression_pvrtc extension spec.
     let expected_size = if is_2bit {
         (width.max(16) as usize * height.max(8) as usize * 2).div_ceil(8)
@@ -342,5 +367,15 @@ pub fn decode_pvrtc(pvrtc_data: &[u8], is_2bit: bool, width: u32, height: u32) -
         assert_eq!(consumed_size as usize, expected_size);
         rgba8_data.set_len(rgba8_word_count);
     };
+
+    if is_opaque {
+        // Force alpha to fully opaque (the high byte of each little-endian
+        // RGBA8 word). The RGB-PVRTC base internal format is RGB, so the
+        // sampled alpha must be 1.0 on real hardware.
+        for word in rgba8_data.iter_mut() {
+            *word |= 0xFF00_0000;
+        }
+    }
+
     rgba8_data
 }

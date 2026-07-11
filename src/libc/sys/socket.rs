@@ -859,7 +859,14 @@ fn select(
                         }
                     }
                 }
-                _ => unimplemented!(),
+                other => {
+                    log!(
+                        "Warning: select() read_set fd {} has unknown socket type {}; \
+                         treating as not-ready.",
+                        fd, other
+                    );
+                    false
+                }
             }
         });
         log_dbg!("select: read_set after {:?}", read_set);
@@ -907,7 +914,14 @@ fn select(
                         false
                     }
                 }
-                _ => unimplemented!(),
+                other => {
+                    log!(
+                        "Warning: select() write_set fd {} has unknown socket type {}; \
+                         treating as not-ready.",
+                        fd, other
+                    );
+                    false
+                }
             }
         });
         log_dbg!("select: write_set after {:?}", write_set);
@@ -934,14 +948,41 @@ fn select(
                             log_dbg!("No error on TCP socket {}", fd);
                             false
                         }
-                        Ok(Some(error)) => unimplemented!("TCP socket {} error: {:?}", fd, error),
+                        Ok(Some(error)) => {
+                            log!(
+                                "select: TCP socket {} has a pending error: {:?}; \
+                                 reporting it via the error_fds set.",
+                                fd, error
+                            );
+                            // Set bit back so the guest observes the error
+                            // on this socket rather than us panicking.
+                            true
+                        }
                         Err(error) => panic!("TCP socket {fd} take_error failed: {error:?}"),
                     }
                 }
                 SOCK_DGRAM => {
-                    todo!()
+                    // UDP is connectionless, so there is no per-socket error
+                    // state comparable to TCP's take_error(). Real BSD
+                    // sockets can still surface async errors (e.g. from a
+                    // previous ICMP port-unreachable) via SO_ERROR, but we
+                    // don't track that here; report "no error" rather than
+                    // aborting the emulator.
+                    log_dbg!(
+                        "select: error_set check on UDP socket {} — no async \
+                         error tracking implemented, reporting none.",
+                        fd
+                    );
+                    false
                 }
-                _ => unimplemented!(),
+                other => {
+                    log!(
+                        "Warning: select() error_set fd {} has unknown socket type {}; \
+                         treating as no-error.",
+                        fd, other
+                    );
+                    false
+                }
             }
         });
         log_dbg!("select: error_set after {:?}", error_set);
@@ -1022,18 +1063,51 @@ fn accept(
     let socket_host_object = State::get(env).sockets.get(&socket).unwrap();
     let listener = socket_host_object.tcp_listener.as_ref().unwrap();
     match listener.accept() {
-        Ok((_, addr)) => {
+        Ok((stream, addr)) => {
             log!("accept: New client: {}", addr);
-            unimplemented!()
+            // FIX: was unimplemented!() — a direct (non-select-driven) accept()
+            // that got a connection immediately used to panic the whole
+            // emulator. Mirror the select() path above: register the new
+            // stream as its own guest socket and report the peer address,
+            // exactly like a real accept(2) does.
+            stream.set_nonblocking(true).unwrap();
+            let new_fd = find_or_create_socket(env);
+            assert!(!State::get(env).sockets.contains_key(&new_fd));
+            let host_object = SocketHostObject {
+                type_: SOCK_STREAM,
+                options: Default::default(),
+                tcp_listener: None,
+                pending_tcp_stream: None,
+                tcp_stream: Some(stream),
+                udp_socket: None,
+            };
+            State::get_mut(env).sockets.insert(new_fd, host_object);
+            if !address.is_null() {
+                let peer_guest_addr = sockaddr::from_sockaddr_v4(&addr);
+                env.mem.write(address, peer_guest_addr);
+                if !address_len.is_null() {
+                    assert_eq!(guest_size_of::<sockaddr>(), env.mem.read(address_len));
+                    env.mem.write(address_len, guest_size_of::<sockaddr>());
+                }
+            }
+            new_fd
         }
         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-            // No incoming connection is ready
-            // TODO: if this happened, take a deep breath and do:
-            // - block guest thread with a new [ThreadBlock] type
-            // - poll for data in thread scheduling part
-            // - write/read/accept/etc data once it is ready
-            // - unblock guest thread
-            unimplemented!("accept: TCP listener for socket {} would block on accepting, block current guest thread {}.", socket, env.current_thread)
+            // No incoming connection is ready.
+            // FIX: was unimplemented!() — a blocking accept() with no
+            // pending connection used to crash the emulator instead of
+            // reporting EAGAIN/EWOULDBLOCK like a real non-blocking accept(2)
+            // would. Guest apps are expected to poll via select()/accept()
+            // in a loop, so surfacing EAGAIN here lets that pattern work
+            // instead of aborting the whole process.
+            log_dbg!(
+                "accept: TCP listener for socket {} would block on accepting; \
+                 returning EAGAIN for thread {}",
+                socket,
+                env.current_thread
+            );
+            set_errno(env, EAGAIN);
+            -1
         }
         Err(e) => {
             panic!("accept: Socket {socket} has error accepting connection: {e}");

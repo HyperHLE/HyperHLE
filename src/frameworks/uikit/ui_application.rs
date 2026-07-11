@@ -814,6 +814,101 @@ pub(super) fn UIApplicationMain(
     let _: () = msg![env; run_loop run];
 }
 
+/// Dispatches `applicationWillResignActive:` and posts
+/// `UIApplicationWillResignActiveNotification`. Called when the OS tells
+/// touchHLE the app is about to stop being active (Android `onPause()`,
+/// iOS `applicationWillResignActive:`). Unlike [exit], this does NOT
+/// terminate the process — the app may return to the foreground later.
+///
+/// Apple docs: <https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationwillresignactive(_:)>
+pub(super) fn handle_will_resign_active(env: &mut Environment) {
+    let ui_application: id = msg_class![env; UIApplication sharedApplication];
+    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+
+    let pool: id = msg_class![env; NSAutoreleasePool new];
+    let delegate: id = msg![env; ui_application delegate];
+    if env
+        .objc
+        .object_has_method_named(&env.mem, delegate, "applicationWillResignActive:")
+    {
+        () = msg![env; delegate applicationWillResignActive:ui_application];
+    }
+    let notif_name = get_static_str(env, UIApplicationWillResignActiveNotification);
+    () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
+    let _: () = msg![env; pool drain];
+}
+
+/// Dispatches `applicationDidEnterBackground:` and posts
+/// `UIApplicationDidEnterBackgroundNotification`.
+///
+/// Apple docs: <https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidenterbackground(_:)>
+pub(super) fn handle_did_enter_background(env: &mut Environment) {
+    let ui_application: id = msg_class![env; UIApplication sharedApplication];
+    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+
+    let pool: id = msg_class![env; NSAutoreleasePool new];
+    // Real iOS apps are often killed by the OS shortly after entering the
+    // background, so persist user defaults eagerly: it's the last reliable
+    // moment to flush any data.
+    if !env.is_app_picker {
+        let user_defaults: id = msg_class![env; NSUserDefaults standardUserDefaults];
+        let _: bool = msg![env; user_defaults synchronize];
+    }
+    let delegate: id = msg![env; ui_application delegate];
+    if env
+        .objc
+        .object_has_method_named(&env.mem, delegate, "applicationDidEnterBackground:")
+    {
+        () = msg![env; delegate applicationDidEnterBackground:ui_application];
+    }
+    let notif_name = get_static_str(env, UIApplicationDidEnterBackgroundNotification);
+    () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
+    let _: () = msg![env; pool drain];
+}
+
+/// Dispatches `applicationWillEnterForeground:` and posts
+/// `UIApplicationWillEnterForegroundNotification`.
+///
+/// Apple docs: <https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationwillenterforeground(_:)>
+pub(super) fn handle_will_enter_foreground(env: &mut Environment) {
+    let ui_application: id = msg_class![env; UIApplication sharedApplication];
+    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+
+    let pool: id = msg_class![env; NSAutoreleasePool new];
+    let delegate: id = msg![env; ui_application delegate];
+    if env
+        .objc
+        .object_has_method_named(&env.mem, delegate, "applicationWillEnterForeground:")
+    {
+        () = msg![env; delegate applicationWillEnterForeground:ui_application];
+    }
+    let notif_name = get_static_str(env, UIApplicationWillEnterForegroundNotification);
+    () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
+    let _: () = msg![env; pool drain];
+}
+
+/// Dispatches `applicationDidBecomeActive:` and posts
+/// `UIApplicationDidBecomeActiveNotification`. Used both at launch time and
+/// when the app returns to the foreground after being inactive/backgrounded.
+///
+/// Apple docs: <https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidbecomeactive(_:)>
+pub(super) fn handle_did_become_active(env: &mut Environment) {
+    let ui_application: id = msg_class![env; UIApplication sharedApplication];
+    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+
+    let pool: id = msg_class![env; NSAutoreleasePool new];
+    let delegate: id = msg![env; ui_application delegate];
+    if env
+        .objc
+        .object_has_method_named(&env.mem, delegate, "applicationDidBecomeActive:")
+    {
+        () = msg![env; delegate applicationDidBecomeActive:ui_application];
+    }
+    let notif_name = get_static_str(env, UIApplicationDidBecomeActiveNotification);
+    () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
+    let _: () = msg![env; pool drain];
+}
+
 pub(super) fn exit(env: &mut Environment) {
     let ui_application: id = msg_class![env; UIApplication sharedApplication];
     let center: id = msg_class![env; NSNotificationCenter defaultCenter];

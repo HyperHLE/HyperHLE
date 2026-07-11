@@ -67,6 +67,24 @@
         <meta-data android:name="SDL_ENV.SDL_ACCELEROMETER_AS_JOYSTICK" android:value="0"/>
          -->
 
+        <!--
+          Ask the platform to prefer ANGLE (OpenGL ES on top of Vulkan) as the
+          GLES driver for this app. ANGLE is a conformant, well-tested ES 1.1 /
+          2.0 / 3.0 implementation, whereas some vendor drivers (notably
+          Qualcomm Adreno's native ES 1.1 path) are strict/buggy in ways that
+          make old iPhone OS games render a black screen. Routing our GLES calls
+          through ANGLE avoids those driver quirks.
+
+          This is only a *signal* ("prefer"), honoured on Android 15+ where
+          ANGLE is bundled with the platform (respected as a manifest opt-in on
+          Android 17+). If ANGLE can't be used, the vendor's native GLES driver
+          is used instead, so this is safe on all versions and never a hard
+          dependency. On older Android the flag is simply ignored.
+        -->
+        <meta-data
+            android:name="com.android.graphics.driver.prefer_angle"
+            android:value="true" />
+
         <activity
             android:name="org.touchhle.android.MainActivity"
             android:alwaysRetainTaskState="true"

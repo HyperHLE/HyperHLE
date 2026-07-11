@@ -1016,23 +1016,34 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 ui_touch::handle_event(env, event)
             }
             Event::AppWillResignActive => {
-                // Getting this event means touchHLE is becoming inactive, e.g.
-                // due to switching apps. The obvious way to handle this would
-                // be to just send `applicationWillResignActive:` to the
-                // UIApplicationDelegate. However:
-                // - touchHLE's event loop can't handle an inactive app well
-                //   right now. For example, audio isn't paused.
-                // - touchHLE's event loop can't handle the subsequent
-                //   termination of an app right now: it doesn't manage to send
-                //   the `applicationWillTerminate:` message in time. This can
-                //   mean loss of data!
-                // Therefore, for the moment we will simulate the early iOS
-                // behavior where switching app usually resulted in termination.
-                // We can usually handle this in time, so there won't be data
-                // loss, nor problems with background resource usage or audio.
-                // TODO: Handle this better.
-                log!("Handling app-will-resign-active event: exiting.");
-                ui_application::exit(env);
+                // touchHLE has become inactive (e.g. the user is switching
+                // apps, a system dialog took focus, the screen is turning
+                // off, etc.). Per Apple's UIApplicationDelegate lifecycle
+                // docs, notify the app delegate so it can pause its game
+                // logic, save state, etc., but DO NOT terminate the process.
+                // On Android the SDL event pump will block on the resume
+                // semaphore once the activity finishes pausing, so the
+                // emulator will pause naturally and resume when the user
+                // returns; only `AppWillTerminate` (Android `onDestroy`) is
+                // treated as a real shutdown.
+                // https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationwillresignactive(_:)
+                log!("Handling app-will-resign-active event.");
+                ui_application::handle_will_resign_active(env);
+            }
+            Event::AppDidEnterBackground => {
+                // https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidenterbackground(_:)
+                log!("Handling app-did-enter-background event.");
+                ui_application::handle_did_enter_background(env);
+            }
+            Event::AppWillEnterForeground => {
+                // https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationwillenterforeground(_:)
+                log!("Handling app-will-enter-foreground event.");
+                ui_application::handle_will_enter_foreground(env);
+            }
+            Event::AppDidBecomeActive => {
+                // https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidbecomeactive(_:)
+                log!("Handling app-did-become-active event.");
+                ui_application::handle_did_become_active(env);
             }
             Event::AppWillTerminate => {
                 log!("Handling app-will-terminate event.");

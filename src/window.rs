@@ -449,6 +449,17 @@ pub enum Event {
     /// OS has informed touchHLE it will soon become inactive.
     /// (iOS `applicationWillResignActive:`, Android `onPause()`)
     AppWillResignActive,
+    /// OS has informed touchHLE it has become inactive and entered the
+    /// background. (iOS `applicationDidEnterBackground:`, Android
+    /// `onPause()` completing / activity no longer visible)
+    AppDidEnterBackground,
+    /// OS has informed touchHLE it is about to leave the background and
+    /// re-enter the foreground. (iOS `applicationWillEnterForeground:`,
+    /// Android `onResume()` starting)
+    AppWillEnterForeground,
+    /// OS has informed touchHLE it has become active again after being
+    /// inactive/backgrounded. (iOS `applicationDidBecomeActive:`)
+    AppDidBecomeActive,
     /// OS has informed touchHLE it will soon terminate.
     /// (iOS `applicationWillTerminate:`, Android `onDestroy()`)
     AppWillTerminate,
@@ -529,6 +540,79 @@ pub fn host_screen_size() -> Option<(u32, u32)> {
     }
 }
 
+/// If this Android build was packaged with Google's ANGLE, point SDL's EGL /
+/// GLES loader at it so ANGLE is used in preference to the vendor-native
+/// OpenGL ES driver.
+///
+/// SDL loads its EGL and GLES libraries with `dlopen` at context-creation time
+/// and honours the `SDL_VIDEO_EGL_DRIVER` / `SDL_VIDEO_GL_DRIVER` environment
+/// variables (see SDL's `src/video/SDL_egl.c`). ANGLE ships as a pair of shared
+/// libraries — an `libEGL` and an `libGLESv2` — so to avoid clashing with the
+/// system driver of the same name we look for the conventional ANGLE-suffixed
+/// sonames (`libEGL_angle.so` / `libGLESv2_angle.so`), which is how ANGLE is
+/// packaged inside an APK's native library directory.
+///
+/// This is deliberately conservative:
+/// - It never overrides an `SDL_VIDEO_*_DRIVER` value the user already set.
+/// - It only selects ANGLE if *both* libraries can actually be `dlopen`ed, so
+///   a build that doesn't bundle ANGLE is completely unaffected (SDL falls back
+///   to the system driver, which itself may already be ANGLE on Android 15+ or
+///   when the user enabled ANGLE Preferences).
+#[cfg(target_os = "android")]
+fn prefer_bundled_angle_driver() {
+    /// Candidate (EGL, GLESv2) soname pairs, most specific first.
+    const CANDIDATES: &[(&str, &str)] = &[
+        ("libEGL_angle.so", "libGLESv2_angle.so"),
+        ("libEGL_angle_in_apk.so", "libGLESv2_angle_in_apk.so"),
+    ];
+
+    /// Returns true if `name` can be dynamically loaded (i.e. it is present in
+    /// the app's native library search path), closing the handle again.
+    fn can_load(name: &str) -> bool {
+        use std::ffi::CString;
+        let Ok(cname) = CString::new(name) else {
+            return false;
+        };
+        // RTLD_NOW = 2. Load, and immediately unload if it succeeded.
+        unsafe {
+            let handle = libc::dlopen(cname.as_ptr(), 2);
+            if handle.is_null() {
+                false
+            } else {
+                libc::dlclose(handle);
+                true
+            }
+        }
+    }
+
+    // Respect an explicit user override completely.
+    if env::var_os("SDL_VIDEO_EGL_DRIVER").is_some() || env::var_os("SDL_VIDEO_GL_DRIVER").is_some()
+    {
+        log!(
+            "SDL_VIDEO_EGL_DRIVER / SDL_VIDEO_GL_DRIVER already set; \
+             leaving GL driver selection to the environment."
+        );
+        return;
+    }
+
+    for &(egl, gles) in CANDIDATES {
+        if can_load(egl) && can_load(gles) {
+            // Set before any SDL video init reads these variables; we are still
+            // single-threaded during Window::new startup here.
+            env::set_var("SDL_VIDEO_EGL_DRIVER", egl);
+            env::set_var("SDL_VIDEO_GL_DRIVER", gles);
+            log!(
+                "Bundled ANGLE detected ({} / {}); preferring it over the \
+                 system OpenGL ES driver to avoid Adreno black-screen issues.",
+                egl,
+                gles
+            );
+            return;
+        }
+    }
+    // No bundled ANGLE: fall through and let SDL use the system driver.
+}
+
 pub struct Window {
     _sdl_ctx: sdl2::Sdl,
     video_ctx: sdl2::VideoSubsystem,
@@ -550,6 +634,12 @@ pub struct Window {
     scale_hack: NonZeroU32,
     host_screen_size: Option<(u32, u32)>,
     internal_gl_ins: Option<Box<dyn GLESContext>>,
+    /// Cached `GL_VERSION / GL_VENDOR / GL_RENDERER` string of the internal
+    /// OpenGL ES context, captured at window creation. Used to detect the host
+    /// GLES driver (e.g. whether we are running through ANGLE or on a vendor's
+    /// native driver such as Qualcomm Adreno) so that driver-specific
+    /// workarounds can be auto-enabled. See [Window::gl_driver_description].
+    gl_driver_description: String,
     splash_image: Option<Image>,
     device_family: DeviceFamily,
     device_orientation: DeviceOrientation,
@@ -601,6 +691,28 @@ impl Window {
 
             // Disable blocking of event loop when app is paused.
             sdl2::hint::set("SDL_ANDROID_BLOCK_ON_PAUSE", "0");
+
+            // Prefer Google's ANGLE (OpenGL ES over Vulkan) when it is
+            // available to us.
+            //
+            // On Qualcomm Adreno hardware the native OpenGL ES 1.1 driver is
+            // strict enough that many early iPhone OS games render as a black
+            // screen (incomplete textures sample as opaque black, ES 2.0-style
+            // entry points requested via an ES 1.1 context get stubbed, etc.).
+            // ANGLE's ES-over-Vulkan emulation is far more lenient and fixes
+            // these cases in practice.
+            //
+            // SDL loads its EGL / GLES libraries with `dlopen`, honouring the
+            // `SDL_VIDEO_EGL_DRIVER` / `SDL_VIDEO_GL_DRIVER` environment
+            // variables (see SDL's `src/video/SDL_egl.c`). If this build was
+            // packaged with ANGLE's `libEGL`/`libGLESv2` in the APK's native
+            // library directory, we point SDL straight at them so ANGLE is used
+            // transparently without the user having to toggle developer
+            // options. When ANGLE isn't bundled this is a no-op and SDL falls
+            // back to the system driver (which itself may already be ANGLE on
+            // Android 15+ or when selected via ANGLE Preferences).
+            #[cfg(target_os = "android")]
+            prefer_bundled_angle_driver();
         }
 
         // Separate mouse and touch events in both SDL synthesis directions.
@@ -706,6 +818,7 @@ impl Window {
             scale_hack,
             host_screen_size,
             internal_gl_ins: None,
+            gl_driver_description: String::new(),
             splash_image: launch_image,
             device_family,
             device_orientation,
@@ -732,17 +845,76 @@ impl Window {
         // because SDL2 won't let us use more than one graphics API in the same
         // window, and we also need OpenGL ES for the app's own rendering.
         let mut gl_ins = create_gles1_ctx_no_parent_stack(&mut window, options);
-        {
+        let gl_driver_description = {
             let gl_ctx = gl_ins.make_current(&mut window);
-            log!("Driver info: {}", unsafe { gl_ctx.driver_description() });
-        }
+            unsafe { gl_ctx.driver_description() }
+        };
+        log!("Driver info: {}", gl_driver_description);
+        window.gl_driver_description = gl_driver_description;
         window.internal_gl_ins = Some(gl_ins);
+
+        // Detect the host GL stack once, up front, so we can auto-apply the
+        // known Adreno black-screen workarounds. On Qualcomm Adreno hardware,
+        // the native OpenGL ES 1.1 driver is unusually strict: it samples
+        // incomplete textures as opaque black and silently stubs ES 2.0-style
+        // shader entry points requested through an ES 1.1 context, both of
+        // which manifest as a black screen for many early iPhone OS games.
+        // Google's ANGLE (OpenGL ES over Vulkan) is far more lenient and is the
+        // recommended driver on modern Adreno devices — the manifest opt-in and
+        // the SDL_VIDEO_GL_DRIVER hook let ANGLE be selected transparently, and
+        // when it is, `driver_description()` reports an "ANGLE" renderer here.
+        window.log_gpu_backend_hints();
 
         if window.splash_image.is_some() {
             window.display_splash();
         }
 
         window
+    }
+
+    /// Whether the host OpenGL stack is Google's ANGLE (OpenGL ES translated to
+    /// Vulkan/Direct3D/Metal) rather than a vendor-native driver. Detected from
+    /// the `GL_VERSION` / `GL_RENDERER` strings captured at context creation.
+    pub fn is_angle_backend(&self) -> bool {
+        self.gl_driver_description.contains("ANGLE")
+    }
+
+    /// Whether the host GPU is a Qualcomm Adreno part. Used to decide whether
+    /// the Adreno-specific rendering workarounds should be auto-enabled.
+    pub fn is_adreno_gpu(&self) -> bool {
+        let d = &self.gl_driver_description;
+        d.contains("Adreno") || d.contains("Qualcomm")
+    }
+
+    /// The cached `GL_VERSION / GL_VENDOR / GL_RENDERER` string for the internal
+    /// OpenGL ES context.
+    #[allow(dead_code)]
+    pub fn gl_driver_description(&self) -> &str {
+        &self.gl_driver_description
+    }
+
+    /// Log a one-line summary of the detected GPU backend and, on Adreno
+    /// hardware, whether ANGLE is active. This makes the "black screen on
+    /// Adreno" situation diagnosable straight from the log the user shares.
+    fn log_gpu_backend_hints(&self) {
+        if self.is_adreno_gpu() {
+            if self.is_angle_backend() {
+                log!(
+                    "GPU backend: Qualcomm Adreno via ANGLE (recommended). \
+                     ANGLE's lenient ES emulation avoids the native Adreno \
+                     driver's black-screen issues."
+                );
+            } else {
+                log!(
+                    "GPU backend: Qualcomm Adreno native OpenGL ES driver. \
+                     This driver is strict and can render some early iPhone OS \
+                     games as a black screen; enabling ANGLE (developer options \
+                     'ANGLE Preferences', or Android 15+ system ANGLE) is \
+                     recommended. The Adreno rendering workarounds \
+                     (--fix-texture-min-filter) are auto-enabled to mitigate this."
+                );
+            }
+        }
     }
 
     /// Poll for events from the OS. This needs to be done reasonably often
@@ -1124,19 +1296,28 @@ impl Window {
                 }
                 E::AppWillEnterBackground { .. } => {
                     log!("Received app-will-resign-active event.");
-                    assert!(self.high_priority_event.is_none());
-                    self.high_priority_event = Some(Event::AppWillResignActive);
-                    // For some reason, if we don't pause event polling, we will
-                    // never finish handling the event.
-                    // TODO: Add a mechanism for re-enabling polling, if at some
-                    // point we support returning touchHLE to the foreground.
-                    self.enable_event_polling = false;
-                    continue;
+                    Event::AppWillResignActive
+                }
+                E::AppDidEnterBackground { .. } => {
+                    log!("Received app-did-enter-background event.");
+                    Event::AppDidEnterBackground
+                }
+                E::AppWillEnterForeground { .. } => {
+                    log!("Received app-will-enter-foreground event.");
+                    Event::AppWillEnterForeground
+                }
+                E::AppDidEnterForeground { .. } => {
+                    log!("Received app-did-become-active event.");
+                    Event::AppDidBecomeActive
                 }
                 E::AppTerminating { .. } => {
                     log!("Received app-will-terminate event.");
                     assert!(self.high_priority_event.is_none());
                     self.high_priority_event = Some(Event::AppWillTerminate);
+                    // App is about to be killed by the OS. Stop polling so we
+                    // can return to the run loop and dispatch the high
+                    // priority event quickly, before the process is
+                    // terminated.
                     self.enable_event_polling = false;
                     continue;
                 }
