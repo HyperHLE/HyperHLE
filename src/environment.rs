@@ -122,14 +122,6 @@ pub struct Environment {
     /// Tracks repeated UndefinedInstruction bypasses. See `debug_cpu_error`.
     udf_bypass_last: Option<(u32, u32)>,
     udf_bypass_count: u32,
-    /// Tracks consecutive UndefinedInstruction bypasses that all fake-return
-    /// to the *same* LR, regardless of the faulting PC. This catches runaway
-    /// loops where the faulting PC alternates between several bogus addresses
-    /// (so the `(pc, lr)` key above keeps resetting) but the guest keeps
-    /// bouncing back to a single return site — e.g. a game that called
-    /// through a nil/garbage function pointer. See `debug_cpu_error`.
-    udf_bypass_last_lr: Option<u32>,
-    udf_bypass_lr_count: u32,
 }
 
 /// What to do next when executing this thread.
@@ -800,8 +792,6 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
             udf_bypass_last: None,
             udf_bypass_count: 0,
-            udf_bypass_last_lr: None,
-            udf_bypass_lr_count: 0,
         };
 
         if env.options.dumping_options.any() {
@@ -945,8 +935,6 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
             udf_bypass_last: None,
             udf_bypass_count: 0,
-            udf_bypass_last_lr: None,
-            udf_bypass_lr_count: 0,
         };
 
         env.set_up_initial_env_vars();
@@ -1008,8 +996,6 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
             udf_bypass_last: None,
             udf_bypass_count: 0,
-            udf_bypass_last_lr: None,
-            udf_bypass_lr_count: 0,
         }
     }
 
@@ -1956,47 +1942,6 @@ impl Environment {
                     1
                 };
 
-                // Independently track how many times in a row we've faked a
-                // return to the SAME LR, ignoring the faulting PC. The `(pc,
-                // lr)` counter above resets to 1 whenever the faulting PC
-                // changes, so a guest that keeps calling through a bad/nil
-                // function pointer from a single call site — trapping at a
-                // handful of *different* garbage addresses but always
-                // returning to the same LR — never trips `BYPASS_LIMIT` and
-                // the emulator wedges forever.
-                //
-                // This is exactly the Rush Rally 2 startup hang: the faulting
-                // PC alternates between 0x4000 and 0x36c6ec30 while LR stays
-                // 0x2639a3, so the pair counter oscillates around 1 and the
-                // process spins until it's killed. Bounding the number of
-                // consecutive same-LR fake returns turns that infinite hang
-                // into a clean, actionable panic. We allow a larger budget
-                // here than `BYPASS_LIMIT` so genuinely recoverable cases
-                // (which do make forward progress and eventually settle on a
-                // stable LR) are unaffected.
-                const LR_BYPASS_LIMIT: u32 = 4096;
-                let lr_count = if self.udf_bypass_last_lr == Some(lr) {
-                    self.udf_bypass_lr_count = self.udf_bypass_lr_count.saturating_add(1);
-                    self.udf_bypass_lr_count
-                } else {
-                    self.udf_bypass_last_lr = Some(lr);
-                    self.udf_bypass_lr_count = 1;
-                    1
-                };
-
-                if lr_count >= LR_BYPASS_LIMIT {
-                    panic!(
-                        "UndefinedInstruction bypass faked a return to LR={:#x} \
-                         {} times in a row (most recent faulting PC {:#x}); \
-                         giving up to avoid hanging. The guest is repeatedly \
-                         calling through a bad/nil function pointer from a \
-                         single call site — usually a framework stub that \
-                         returned a bogus object the game then dereferences \
-                         as a function.",
-                        lr, lr_count, pc
-                    );
-                }
-
                 if count == 1 || count % LOG_RATE == 0 {
                     log_no_panic!(
                         "Warning: Ignored UndefinedInstruction at {:#x}. \
@@ -2043,8 +1988,6 @@ impl Environment {
                     self.cpu.regs_mut()[cpu::Cpu::PC] = pc.wrapping_add(instruction_len);
                     self.udf_bypass_last = None;
                     self.udf_bypass_count = 0;
-                    self.udf_bypass_last_lr = None;
-                    self.udf_bypass_lr_count = 0;
                     return;
                 }
 
@@ -2086,18 +2029,7 @@ impl Environment {
     /// debugging) and decide what to do next.
     fn handle_cpu_state(&mut self, state: cpu::CpuState) -> ThreadNextAction {
         match state {
-            cpu::CpuState::Normal => {
-                // The CPU executed a full batch of instructions without
-                // trapping: real forward progress. Clear the same-LR bypass
-                // runaway counter so an earlier, since-recovered burst of
-                // fake returns can't accumulate toward a false-positive
-                // panic. (The genuine runaway loop never reaches this state:
-                // it produces back-to-back UndefinedInstruction errors with
-                // no Normal batch in between.)
-                self.udf_bypass_last_lr = None;
-                self.udf_bypass_lr_count = 0;
-                ThreadNextAction::Continue
-            }
+            cpu::CpuState::Normal => ThreadNextAction::Continue,
             cpu::CpuState::Svc(svc) => {
                 // The program counter is pointing at the
                 // instruction after the SVC, but we want the
@@ -2121,11 +2053,6 @@ impl Environment {
                             svc_pc,
                             svc,
                         ) {
-                            // Successfully dispatching a host/linked function
-                            // is real forward progress, so clear the same-LR
-                            // bypass runaway counter (see `debug_cpu_error`).
-                            self.udf_bypass_last_lr = None;
-                            self.udf_bypass_lr_count = 0;
                             f.call_from_guest(self);
 
                             // ORIGINAL LOGIC MERGED: Stack zeroing
