@@ -1453,6 +1453,53 @@ impl GLES for GLES2Native<'_> {
         gles2::IsVertexArrayOES(array)
     }
 
+    // Boolean occlusion queries (GL_EXT_occlusion_query_boolean). ES 2.0 has no
+    // core query objects, so we forward to the driver's `*EXT` entry points.
+    // These are the exact functions iPhone OS games (e.g. Rush Rally 2) call
+    // through the `glGenQueriesEXT` family of symbols.
+    // Reference: https://registry.khronos.org/OpenGL/extensions/EXT/EXT_occlusion_query_boolean.txt
+    unsafe fn GenQueries(&mut self, n: GLsizei, ids: *mut GLuint) {
+        if gles2::GenQueriesEXT::is_loaded() {
+            gles2::GenQueriesEXT(n, ids)
+        } else {
+            log_once!(
+                "GenQueries: driver does not expose GL_EXT_occlusion_query_boolean [stubbed]"
+            );
+        }
+    }
+    unsafe fn DeleteQueries(&mut self, n: GLsizei, ids: *const GLuint) {
+        if gles2::DeleteQueriesEXT::is_loaded() {
+            gles2::DeleteQueriesEXT(n, ids)
+        }
+    }
+    unsafe fn IsQuery(&mut self, id: GLuint) -> GLboolean {
+        if gles2::IsQueryEXT::is_loaded() {
+            gles2::IsQueryEXT(id)
+        } else {
+            gles2::FALSE
+        }
+    }
+    unsafe fn BeginQuery(&mut self, target: GLenum, id: GLuint) {
+        if gles2::BeginQueryEXT::is_loaded() {
+            gles2::BeginQueryEXT(target, id)
+        }
+    }
+    unsafe fn EndQuery(&mut self, target: GLenum) {
+        if gles2::EndQueryEXT::is_loaded() {
+            gles2::EndQueryEXT(target)
+        }
+    }
+    unsafe fn GetQueryiv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint) {
+        if gles2::GetQueryivEXT::is_loaded() {
+            gles2::GetQueryivEXT(target, pname, params)
+        }
+    }
+    unsafe fn GetQueryObjectuiv(&mut self, id: GLuint, pname: GLenum, params: *mut GLuint) {
+        if gles2::GetQueryObjectuivEXT::is_loaded() {
+            gles2::GetQueryObjectuivEXT(id, pname, params)
+        }
+    }
+
     // Uniforms
     unsafe fn Uniform1f(&mut self, location: GLint, v0: GLfloat) {
         gles2::Uniform1f(location, v0)

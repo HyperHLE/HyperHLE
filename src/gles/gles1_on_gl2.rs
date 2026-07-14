@@ -2666,8 +2666,14 @@ impl GLES for GLES1OnGL2<'_> {
                 );
                 return;
             };
-            let pixels =
-                crate::image::decode_pvrtc(data_slice, is_pvrtc_2bit, width_u, height_u);
+            let is_opaque = matches!(
+                format,
+                gles11::COMPRESSED_RGB_PVRTC_2BPPV1_IMG
+                    | gles11::COMPRESSED_RGB_PVRTC_4BPPV1_IMG
+            );
+            let pixels = crate::image::decode_pvrtc_with_alpha(
+                data_slice, is_pvrtc_2bit, width_u, height_u, is_opaque,
+            );
             gl21::TexSubImage2D(
                 target,
                 level,

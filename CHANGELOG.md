@@ -204,6 +204,7 @@ Compatibility:
 
 Quality and performance:
 
+- Fixed opaque `COMPRESSED_RGB_PVRTC_*` textures rendering as a black screen (with working audio and touch input) on hosts that lack `GL_IMG_texture_compression_pvrtc` and therefore software-decode PVRTC to RGBA — for example Adreno/Mali devices and the GLES1-on-GL2 layer. Per the `IMG_texture_compression_pvrtc` spec the RGB variants have a base internal format of RGB, so their sampled alpha must be 1.0; the software decoder was instead keeping the PVRTC block's stray per-texel alpha and uploading as `GL_RGBA`, so apps that draw with `GL_BLEND` + `GL_SRC_ALPHA` blended their world away to nothing. The decoded alpha is now forced opaque (and uploaded with a matching `GL_RGB` base format) for the RGB variants, across all GLES backends.
 - Overlapping characters in text now render correctly. (@Xertes0)
 - touchHLE now avoids polling for events more often than 120Hz. Previously, it would sometimes poll many times more often than that, which could be very bad for performance. This change improves performance in basically all apps, though the effects on the supported apps from previous releases are fairly subtle. (@hikari-no-yume)
 - The macOS-only memory leak of up to 0.4MB/s seems to have been fixed! (@hikari-no-yume)

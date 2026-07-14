@@ -360,6 +360,13 @@ Other options:
         still override this. Apps that legitimately upload mipmaps
         should NOT enable this flag.
 
+        On Android, HyperHLE now auto-enables this workaround when it
+        detects it is running on Qualcomm Adreno's native OpenGL ES
+        driver (and you have not set it explicitly). If the host is
+        using Google's ANGLE backend instead (recommended: Android 15+
+        system ANGLE, or developer options "ANGLE Preferences"), the
+        workaround is left off because ANGLE does not have this quirk.
+
     --zero-stack-after-guest-to-host-call=<bytes>
         After a guest-to-host call returns, zero out the given number of
         bytes immediately below the current stack pointer (i.e. the unused

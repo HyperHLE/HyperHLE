@@ -549,7 +549,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     // through the NSRunLoop, so handle_events() in the run loop never fires.
     // Poll and dispatch pending input events here, at the natural per-frame
     // boundary, so touches always reach the game.
-    if env.current_thread == 0 {
+    //
+    // In headless mode there is no window, and
+    // [Environment::on_parent_stack_in_coroutine] unconditionally unwraps
+    // the (absent) window, so routing through it here would panic before we
+    // ever get to the "OpenGL ES is not supported in headless mode" checks
+    // further down. There's nothing to poll without a window anyway, so
+    // just skip this step when headless.
+    if env.current_thread == 0 && env.window.is_some() {
         env.on_parent_stack_in_coroutine(|window, options| {
             window.poll_for_events(options);
         });

@@ -14,7 +14,7 @@ use crate::environment::Environment;
 use crate::export_c_func;
 use crate::libc::mach::arm::task::task_t;
 use crate::libc::mach::init::MACH_TASK_SELF;
-use crate::libc::mach::thread_info::{kern_return_t, KERN_SUCCESS};
+use crate::libc::mach::thread_info::{kern_return_t, KERN_INVALID_ARGUMENT, KERN_SUCCESS};
 use crate::libc::semaphore::{sem_destroy, sem_init, sem_post, sem_t, sem_wait};
 use crate::mem::MutPtr;
 
@@ -51,15 +51,27 @@ fn semaphore_create(
 }
 
 fn semaphore_signal(env: &mut Environment, semaphore: semaphore_t) -> kern_return_t {
-    assert_eq!(sem_post(env, semaphore), 0);
-    let result = KERN_SUCCESS;
+    // Mirror `sem_post`: a valid semaphore signals successfully (KERN_SUCCESS),
+    // an invalid handle maps to KERN_INVALID_ARGUMENT rather than aborting the
+    // process. (Mach's `semaphore_signal` returns KERN_INVALID_ARGUMENT for a
+    // bad semaphore port.)
+    let result = if sem_post(env, semaphore) == 0 {
+        KERN_SUCCESS
+    } else {
+        KERN_INVALID_ARGUMENT
+    };
     log_dbg!("semaphore_signal({:?}) -> {:?}", semaphore, result);
     result
 }
 
 fn semaphore_wait(env: &mut Environment, semaphore: semaphore_t) -> kern_return_t {
-    assert_eq!(sem_wait(env, semaphore), 0);
-    let result = KERN_SUCCESS;
+    // Mirror `sem_wait`: KERN_SUCCESS once the semaphore is acquired, or
+    // KERN_INVALID_ARGUMENT for an invalid semaphore port instead of a panic.
+    let result = if sem_wait(env, semaphore) == 0 {
+        KERN_SUCCESS
+    } else {
+        KERN_INVALID_ARGUMENT
+    };
     log_dbg!("semaphore_wait({:?}) -> {:?}", semaphore, result);
     result
 }

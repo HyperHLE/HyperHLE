@@ -425,6 +425,81 @@ fn handle_open_err<T, E: std::fmt::Display, P: std::fmt::Debug>(
     }
 }
 
+/// Backing for the guest's `/dev/random` and `/dev/urandom` character devices.
+///
+/// On Apple platforms (iOS/macOS) both device nodes are identical: a
+/// non-blocking kernel CSPRNG that draws from a single entropy pool and never
+/// returns an error or a short read (see the `random(4)` manual page). We
+/// mirror that behaviour by pulling bytes from the host operating system's own
+/// `/dev/urandom` when it exists (Android, Linux and macOS — touchHLE's primary
+/// targets), falling back to a seeded xorshift64* generator on hosts that lack
+/// the device (e.g. Windows) so a read can never fail.
+#[derive(Debug)]
+pub struct RandomFile {
+    /// Host `/dev/urandom` handle, when available, for genuine OS entropy.
+    host_source: Option<File>,
+    /// State for the portable fallback generator. Never zero.
+    prng_state: u64,
+}
+
+impl RandomFile {
+    fn new() -> RandomFile {
+        // Seed the fallback generator from several host entropy sources so it
+        // is still well-varied on platforms without a host random device.
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15; // fractional bits of phi
+        if let Ok(dur) = std::time::SystemTime::now().duration_since(UNIX_EPOCH) {
+            seed ^= dur.as_nanos() as u64;
+        }
+        // Mix in an address that varies with ASLR each run.
+        let local = 0u8;
+        seed ^= (&local as *const u8) as u64;
+        RandomFile {
+            host_source: File::open("/dev/urandom").ok(),
+            prng_state: seed | 1,
+        }
+    }
+
+    /// xorshift64* — a fast, well-distributed non-cryptographic generator used
+    /// only as a fallback when the host has no random device.
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.prng_state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.prng_state = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    fn fill_from_prng(&mut self, buf: &mut [u8]) {
+        for chunk in buf.chunks_mut(8) {
+            let bytes = self.next_u64().to_le_bytes();
+            chunk.copy_from_slice(&bytes[..chunk.len()]);
+        }
+    }
+
+    /// Fill `buf` completely with random bytes, matching the Apple semantics of
+    /// never returning a short read.
+    fn fill(&mut self, buf: &mut [u8]) -> usize {
+        if let Some(file) = self.host_source.as_mut() {
+            match file.read(buf) {
+                Ok(n) if n == buf.len() => return n,
+                Ok(n) => {
+                    // The host `/dev/urandom` should never short-read, but be
+                    // defensive and top up the remainder from the fallback.
+                    self.fill_from_prng(&mut buf[n..]);
+                    return buf.len();
+                }
+                Err(_) => {
+                    // Stop using the broken handle and fall back below.
+                    self.host_source = None;
+                }
+            }
+        }
+        self.fill_from_prng(buf);
+        buf.len()
+    }
+}
+
 /// Like [File] but for the guest filesystem.
 #[derive(Debug)]
 pub enum GuestFile {
@@ -433,6 +508,8 @@ pub enum GuestFile {
     IpaBundleFile(IpaFile),
     ResourceFile(paths::ResourceFile),
     Socket,
+    /// A `/dev/random` or `/dev/urandom` character device.
+    Random(RandomFile),
 }
 
 impl GuestFile {
@@ -452,6 +529,11 @@ impl GuestFile {
         GuestFile::Directory
     }
 
+    /// Construct a `/dev/random` / `/dev/urandom` character device.
+    pub fn random() -> GuestFile {
+        GuestFile::Random(RandomFile::new())
+    }
+
     pub fn sync_all(&self) -> std::io::Result<()> {
         match self {
             GuestFile::File(file) => file.sync_all(),
@@ -460,6 +542,8 @@ impl GuestFile {
                 log!("Warning: syncing directory as a guest file.");
                 Ok(())
             }
+            // Syncing a character device is a no-op.
+            GuestFile::Random(_) => Ok(()),
             GuestFile::Socket => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "Sync operation not supported on socket",
@@ -476,6 +560,10 @@ impl GuestFile {
             GuestFile::Directory => Err(std::io::Error::new(
                 std::io::ErrorKind::IsADirectory,
                 "Attempt to resize a directory as a guest file",
+            )),
+            GuestFile::Random(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Attempt to resize a character device",
             )),
             GuestFile::Socket => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -495,7 +583,8 @@ impl GuestFile {
     pub fn is_seekable(&self) -> bool {
         // Due to legacy directory iteration support, directories are seekable
         // https://stackoverflow.com/questions/65911066/what-does-lseek-mean-for-a-directory-file-descriptor
-        !matches!(self, GuestFile::Socket)
+        // Random character devices are not meaningfully seekable.
+        !matches!(self, GuestFile::Socket | GuestFile::Random(_))
     }
 
     /// Duplicate this file descriptor, creating an independent handle that
@@ -522,6 +611,10 @@ impl GuestFile {
                 ))
             }
             GuestFile::Directory => Ok(GuestFile::Directory),
+            // A fresh, independent random source is an acceptable duplicate:
+            // both handles yield unrelated random bytes, just like the kernel
+            // device.
+            GuestFile::Random(_) => Ok(GuestFile::random()),
             GuestFile::Socket => {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
@@ -538,6 +631,7 @@ impl Read for GuestFile {
             GuestFile::File(file) => file.read(buf),
             GuestFile::IpaBundleFile(file) => file.read(buf),
             GuestFile::ResourceFile(file) => file.get().read(buf),
+            GuestFile::Random(random) => Ok(random.fill(buf)),
             GuestFile::Directory => Err(std::io::Error::new(
                 std::io::ErrorKind::IsADirectory,
                 "Attempt to read from a directory as a guest file",
@@ -558,6 +652,10 @@ impl Write for GuestFile {
                 std::io::ErrorKind::PermissionDenied,
                 "Attempt to write to a read-only file",
             )),
+            // Writing to the random device is permitted on Apple platforms
+            // (it stirs the entropy pool). We accept and discard the bytes so
+            // apps that write a seed never fail.
+            GuestFile::Random(_) => Ok(buf.len()),
             GuestFile::Directory => Err(std::io::Error::new(
                 std::io::ErrorKind::IsADirectory,
                 "Attempt to write to a directory as a guest file",
@@ -576,6 +674,7 @@ impl Write for GuestFile {
                 std::io::ErrorKind::PermissionDenied,
                 "Attempt to flush a read-only file",
             )),
+            GuestFile::Random(_) => Ok(()),
             GuestFile::Directory => Err(std::io::Error::new(
                 std::io::ErrorKind::IsADirectory,
                 "Attempt to flush a directory as a guest file",
@@ -606,6 +705,9 @@ impl Seek for GuestFile {
                     "Attempt to seek a directory as a guest file",
                 ))
             }
+            // Seeking a character device is a no-op: the offset is
+            // meaningless, so report position 0 rather than failing.
+            GuestFile::Random(_) => Ok(0),
             GuestFile::Socket => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "seek not supported on socket via GuestFile",

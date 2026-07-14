@@ -18,6 +18,7 @@
 //! (which produces mysterious NULL-deref crashes later, as seen in the
 //! KamiChallenge log).
 
+use crate::abi::VaList;
 use crate::dyld::{ConstantExports, FunctionExports, HostConstant};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
@@ -84,13 +85,45 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // `+raise:format:` — convenience that creates and immediately raises.
-// The `format` parameter is treated as a plain reason string (no printf
-// substitution) because varargs are not supported in touchHLE HLE stubs.
-+ (())raise:(id)name   // NSString*  (exception name)
-       format:(id)fmt  // NSString*  (reason / format string)
+// Per Apple's documentation this is variadic:
+//   + (void)raise:(NSExceptionName)name format:(NSString *)format, ...;
+// The `format` argument is a printf-style format string and the reason is
+// produced by substituting the trailing varargs into it (the same machinery
+// `+[NSString stringWithFormat:]` uses). Previously the varargs were ignored
+// and `format` was used verbatim, so reasons like Parse SDK's
+// "...before calling %s!" were logged with the literal "%s" instead of the
+// selector name that was passed as an argument.
++ (())raise:(id)name          // NSString*  (exception name)
+       format:(id)fmt, ...args // NSString*  (printf-style reason format) + varargs
 {
+    let reason = if fmt == nil {
+        nil
+    } else {
+        let formatted = super::ns_string::with_format(env, fmt, args.start());
+        let ns = super::ns_string::from_rust_string(env, formatted);
+        autorelease(env, ns)
+    };
     let exc: id = msg_class![env; NSException exceptionWithName:name
-                                                         reason:fmt
+                                                         reason:reason
+                                                       userInfo:nil];
+    () = msg![env; exc raise];
+}
+
+// `+raise:format:arguments:` — the `va_list` sibling of the above, used by
+// code that forwards its own varargs (e.g. custom assertion wrappers).
++ (())raise:(id)name           // NSString*  (exception name)
+       format:(id)fmt          // NSString*  (printf-style reason format)
+    arguments:(VaList)args     // va_list of the format arguments
+{
+    let reason = if fmt == nil {
+        nil
+    } else {
+        let formatted = super::ns_string::with_format(env, fmt, args);
+        let ns = super::ns_string::from_rust_string(env, formatted);
+        autorelease(env, ns)
+    };
+    let exc: id = msg_class![env; NSException exceptionWithName:name
+                                                         reason:reason
                                                        userInfo:nil];
     () = msg![env; exc raise];
 }
