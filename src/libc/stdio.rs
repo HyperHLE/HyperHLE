@@ -603,7 +603,7 @@ fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
             );
             EOF
         }
-    }
+    };
 
     close_result
 }
