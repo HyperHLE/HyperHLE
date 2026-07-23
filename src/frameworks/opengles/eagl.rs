@@ -2113,18 +2113,6 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
         );
     }
 
-    // GLES2 applications leave their shader program bound while presenting.
-    // touchHLE draws the renderbuffer to the window with the GL2 compatibility
-    // fixed-function pipeline, so the guest program must be disabled for that
-    // internal presentation quad and restored immediately afterwards.
-    let old_program = if env.options.gles2_compat {
-        let program = gles.GetCurrentProgram();
-        gles.UseProgram(0);
-        Some(program)
-    } else {
-        None
-    };
-
     let old_tex_env_mode = get_tex_env_int(gles, gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE);
     // if the mode is REPLACE, we don't have to reset the other texture
     // environment values
@@ -2151,10 +2139,6 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
             &SEEN,
             "after present_frame (textured quad draw)",
         );
-    }
-
-    if let Some(program) = old_program {
-        gles.UseProgram(program);
     }
 
     // Clean up the texture
