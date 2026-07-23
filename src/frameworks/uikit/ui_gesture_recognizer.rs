@@ -72,6 +72,12 @@ impl UIGestureRecognizerHostObject {
     }
 }
 
+impl Default for UIGestureRecognizerHostObject {
+    fn default() -> Self {
+        Self::new(GestureKind::Generic)
+    }
+}
+
 fn init_with_target(env: &mut Environment, this: id, target: id, action: SEL) -> id {
     let recognizer = env.objc.borrow_mut::<UIGestureRecognizerHostObject>(this);
     recognizer.target = target;
