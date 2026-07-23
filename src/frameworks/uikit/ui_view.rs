@@ -177,6 +177,13 @@ pub fn set_view_controller(env: &mut Environment, view: id, controller: id) {
     host_obj.view_controller = controller;
 }
 
+pub(super) fn gesture_recognizers(env: &Environment, view: id) -> Vec<id> {
+    env.objc
+        .borrow::<UIViewHostObject>(view)
+        .gesture_recognizers
+        .clone()
+}
+
 fn init_common(env: &mut Environment, this: id) -> id {
     let view_class: Class = msg![env; this class];
     let layer_class: Class = msg![env; view_class layerClass];
@@ -1395,8 +1402,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         super::ui_gesture_recognizer::set_view(env, recognizer, nil);
         release(env, recognizer);
     }
-
-    for r in gesture_recognizers { release(env, r); }
 
     // UIAccessibility informal protocol: properties are documented as
     // "copy" / "retain" — release them on teardown to match

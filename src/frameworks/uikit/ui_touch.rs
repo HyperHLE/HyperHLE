@@ -8,7 +8,7 @@
 
 use super::ui_event;
 use super::ui_gesture_recognizer::{
-    fire_targets, UIGestureRecognizerHostObject, UIGestureRecognizerStatePossible,
+    UIGestureRecognizerHostObject, UIGestureRecognizerStatePossible,
     UIGestureRecognizerStateRecognized, UISwipeGestureRecognizerDirectionDown,
     UISwipeGestureRecognizerDirectionLeft, UISwipeGestureRecognizerDirectionRight,
     UISwipeGestureRecognizerDirectionUp,
@@ -588,6 +588,7 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     for (view, v_set) in view_touches {
         let _: () = msg![env;
             view touchesBegan:v_set withEvent:event];
+        super::ui_gesture_recognizer::touches_began(env, view, v_set);
         touchhle_send_cocos_touch_aliases_to_chain(env, view, "began", v_set, event);
     }
     release(env, pool);
@@ -655,6 +656,7 @@ fn handle_touches_move(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     for (view, v_set) in view_touches {
         let _: () = msg![env;
             view touchesMoved:v_set withEvent:event];
+        super::ui_gesture_recognizer::touches_moved(env, view, v_set);
         touchhle_send_cocos_touch_aliases_to_chain(env, view, "moved", v_set, event);
     }
     release(env, pool);
@@ -757,8 +759,6 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     }
 
     let mut view_touches: HashMap<id, id> = HashMap::new();
-    // (view, start_location, end_location) for swipe gesture detection.
-    let mut swipe_candidates: Vec<(id, CGPoint, CGPoint)> = Vec::new();
     for (finger_id, coords) in map {
         let Some(&touch) = env
             .framework_state
@@ -781,10 +781,6 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
             host.location = location;
             host.timestamp = timestamp;
             host.phase = UITouchPhaseEnded;
-        }
-
-        if view != nil {
-            swipe_candidates.push((view, start_location, location));
         }
 
         let _: () = msg![env;
@@ -811,11 +807,8 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     for (view, v_set) in view_touches {
         let _: () = msg![env;
             view touchesEnded:v_set withEvent:event];
+        super::ui_gesture_recognizer::touches_ended(env, view, v_set);
         touchhle_send_cocos_touch_aliases_to_chain(env, view, "ended", v_set, event);
-    }
-    for (view, start, end) in swipe_candidates {
-        recognize_taps(env, view, start, end);
-        recognize_swipes(env, view, start, end);
     }
 
     // ULTRAHLE_MINIONJUMP_DRAIN_SELECT_BEGIN

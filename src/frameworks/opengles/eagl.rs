@@ -160,10 +160,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         return msg![env; this initWithAPI:api];
     }
 
-    if compatible_gles2 {
-        log!("Using the OpenGL 2.1 compatibility backend for EAGL API 2");
-    }
-
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
     let prev_context = env.objc.borrow_mut::<EAGLContextHostObject>(group).gles_ctx.as_mut().unwrap();
 
