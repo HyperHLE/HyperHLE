@@ -72,16 +72,16 @@ pub extern "C" fn SDL_main(
     // gets discarded, so we set a custom hook to make debugging easier.
     std::panic::set_hook(Box::new(|info| {
         let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
-            s
+            *s
         } else if let Some(s) = info.payload().downcast_ref::<String>() {
-            s
+            s.as_str()
         } else {
             "(non-string payload)"
         };
         if let Some(location) = info.location() {
-            echo!("Panic at {}: {}", location, payload);
+            echo_no_panic!("Panic at {}: {}", location, payload);
         } else {
-            echo!("Panic: {}", payload);
+            echo_no_panic!("Panic: {}", payload);
         }
     }));
     // Empty args: brings up app picker.

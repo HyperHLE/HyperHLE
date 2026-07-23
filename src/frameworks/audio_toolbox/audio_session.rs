@@ -218,6 +218,11 @@ pub fn AudioSessionGetProperty(
                 session.current_hardware_output_volume,
             );
         }
+        kAudioSessionProperty_AudioInputAvailable => {
+            // touchHLE currently does not emulate microphone input.
+            let value: u32 = 0;
+            env.mem.write(out_data.cast(), value);
+        }
         kAudioSessionProperty_CurrentHardwareIOBufferDuration => {
             env.mem.write(
                 out_data.cast::<f32>(),

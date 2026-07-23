@@ -11,6 +11,7 @@ use crate::objc::{id, msg, msg_class, nil, objc_classes, ClassExports, TrivialHo
 #[derive(Default)]
 pub struct State {
     main_screen: Option<id>,
+    current_mode: Option<id>,
 }
 
 fn screen_size_for_current_orientation(env: &mut crate::Environment) -> (u32, u32) {

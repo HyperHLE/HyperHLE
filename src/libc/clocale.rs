@@ -7,7 +7,7 @@
 
 use std::collections::hash_map::Entry;
 
-use crate::dyld::FunctionExports;
+use crate::dyld::{ConstantExports, FunctionExports, HostConstant};
 use crate::environment::Environment;
 use crate::export_c_func;
 use crate::mem::{ConstPtr, MutPtr, MutVoidPtr};

@@ -64,6 +64,12 @@ fn setjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>) -> i32 {
     0 // no longjmp() was performed
 }
 
+fn sigsetjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>, _save_mask: i32) -> i32 {
+    // Signal masks are not currently emulated, but the register/stack state is
+    // identical to setjmp for the apps supported here.
+    setjmp(env, jmp_buf)
+}
+
 fn longjmp(env: &mut Environment, jmp_buf: MutPtr<JmpBuf>, status: u32) {
     let lr = env.cpu.regs()[crate::cpu::Cpu::LR];
     let fp = env.cpu.regs()[abi::FRAME_POINTER];

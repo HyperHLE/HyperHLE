@@ -13,7 +13,7 @@
 
 use crate::fs::{BundleData, Fs, GuestPath, GuestPathBuf};
 use crate::image::Image;
-use crate::window::DeviceFamily;
+use crate::window::{DeviceFamily, DeviceOrientation};
 use plist::dictionary::Dictionary;
 use plist::Value;
 use std::io::Cursor;

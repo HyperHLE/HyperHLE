@@ -450,6 +450,13 @@ fn glBlendFunc(env: &mut Environment, sfactor: GLenum, dfactor: GLenum) {
 fn glBlendEquationOES(env: &mut Environment, mode: GLenum) {
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.BlendEquationOES(mode) })
 }
+
+fn glBlendEquation(env: &mut Environment, mode: GLenum) {
+    // The operation is identical to the OES extension exposed by an ES 1.1
+    // context. Some engines link the unsuffixed ES 2.0 entry point even when
+    // they successfully fall back to an ES 1.1 EAGLContext.
+    glBlendEquationOES(env, mode)
+}
 fn glColorMask(
     env: &mut Environment,
     red: GLboolean,
@@ -779,7 +786,7 @@ fn glBufferData(
     usage: GLenum,
 ) {
     with_ctx_and_mem(env, |gles, mem| unsafe {
-        let data = if data.is_null() {
+        let data: *const GLvoid = if data.is_null() {
             std::ptr::null()
         } else {
             mem.ptr_at(data.cast::<u8>(), size.try_into().unwrap())
@@ -5153,6 +5160,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glAlphaFunc(_, _)),
     export_c_func!(glAlphaFuncx(_, _)),
     export_c_func!(glBlendFunc(_, _)),
+    export_c_func!(glBlendEquation(_)),
     export_c_func!(glBlendEquationOES(_)),
     export_c_func!(glColorMask(_, _, _, _)),
     export_c_func!(glClipPlanef(_, _)),

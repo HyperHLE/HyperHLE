@@ -43,6 +43,7 @@ unsafe impl SafeRead for FILE {}
 #[derive(Default)]
 pub struct State {
     file_streams: HashMap<MutPtr<FILE>, FILEHostObject>,
+    next_temporary_file_id: u64,
 }
 impl State {
     fn get_mut(env: &mut Environment) -> &mut Self {
@@ -591,7 +592,7 @@ fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
 
     env.mem.free(file_ptr.cast());
 
-    match posix_io::close(env, fd) {
+    let close_result = match posix_io::close(env, fd) {
         0 => 0,
         -1 => EOF,
         other => {
@@ -603,6 +604,8 @@ fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
             EOF
         }
     }
+
+    close_result
 }
 
 fn ferror(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
