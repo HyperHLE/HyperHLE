@@ -28,7 +28,6 @@ enum GestureKind {
     Swipe,
 }
 
-#[derive(Default)]
 pub(super) struct UIGestureRecognizerHostObject {
     // UIKit does not retain targets, delegates or the associated view.
     target: id,
