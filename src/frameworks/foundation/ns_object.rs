@@ -10,7 +10,7 @@
 use super::ns_dictionary::dict_from_keys_and_objects;
 use super::ns_run_loop::NSDefaultRunLoopMode;
 use super::ns_string::{from_rust_string, get_static_str, to_rust_string};
-use super::{NSTimeInterval, NSUInteger};
+use super::{NSInteger, NSTimeInterval, NSUInteger};
 // ДОБАВЛЕНЫ ИМПОРТЫ ДЛЯ ЭКСПОРТА ФУНКЦИИ И ОКРУЖЕНИЯ
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
@@ -789,6 +789,39 @@ pub const CLASSES: ClassExports = objc_classes! {
         key_str.as_bytes()[0].to_ascii_uppercase() as char,
         &key_str[1..]
     );
+
+    if key_str == "boolValue" {
+        let value: bool = msg![env; this boolValue];
+        return msg_class![env; NSNumber numberWithBool:value];
+    }
+    if key_str == "floatValue" {
+        let value: f32 = msg![env; this floatValue];
+        return msg_class![env; NSNumber numberWithFloat:value];
+    }
+    if key_str == "doubleValue" {
+        let value: f64 = msg![env; this doubleValue];
+        return msg_class![env; NSNumber numberWithDouble:value];
+    }
+    if key_str == "intValue" {
+        let value: i32 = msg![env; this intValue];
+        return msg_class![env; NSNumber numberWithInt:value];
+    }
+    if key_str == "integerValue" {
+        let value: NSInteger = msg![env; this integerValue];
+        return msg_class![env; NSNumber numberWithInteger:value];
+    }
+    if key_str == "longLongValue" {
+        let value: i64 = msg![env; this longLongValue];
+        return msg_class![env; NSNumber numberWithLongLong:value];
+    }
+    if key_str == "unsignedIntValue" {
+        let value: u32 = msg![env; this unsignedIntValue];
+        return msg_class![env; NSNumber numberWithUnsignedInt:value];
+    }
+    if key_str == "unsignedLongLongValue" {
+        let value: u64 = msg![env; this unsignedLongLongValue];
+        return msg_class![env; NSNumber numberWithUnsignedLongLong:value];
+    }
 
     // 1. Поиск геттеров (get<Key>, <key>, is<Key>)
     if let Some(sel) = env.objc.lookup_selector(&key_str) {
