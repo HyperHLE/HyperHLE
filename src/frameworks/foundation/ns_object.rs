@@ -861,6 +861,40 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)valueForKeyPath:(id)key_path {
+    let key_path_string = to_rust_string(env, key_path).into_owned();
+    if key_path_string == "@count" {
+        return msg![env; this count];
+    }
+
+    if let Some((operator, remainder)) = key_path_string.split_once('.') {
+        if matches!(operator, "@sum" | "@avg" | "@min" | "@max") {
+            let remainder_id = from_rust_string(env, remainder.to_string());
+            let values: id = msg![env; this valueForKey:remainder_id];
+            let count: NSUInteger = if values == nil {
+                0
+            } else {
+                msg![env; values count]
+            };
+            let mut numbers = Vec::with_capacity(count as usize);
+            for index in 0..count {
+                let value: id = msg![env; values objectAtIndex:index];
+                if value != nil {
+                    numbers.push(msg![env; value doubleValue]);
+                }
+            }
+            let result = match operator {
+                "@sum" => numbers.iter().sum::<f64>(),
+                "@avg" => numbers
+                    .first()
+                    .map(|_| numbers.iter().sum::<f64>() / numbers.len() as f64)
+                    .unwrap_or(0.0),
+                "@min" => numbers.iter().copied().reduce(f64::min).unwrap_or(0.0),
+                "@max" => numbers.iter().copied().reduce(f64::max).unwrap_or(0.0),
+                _ => unreachable!(),
+            };
+            return msg_class![env; NSNumber numberWithDouble:result];
+        }
+    }
     msg![env; this valueForKey:key_path]
 }
 
