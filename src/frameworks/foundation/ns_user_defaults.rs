@@ -60,6 +60,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
++ (())resetStandardUserDefaults {
+    // Remove the cached singleton so it gets re-created fresh.
+    State::get(env).standard_defaults = None;
+    log_dbg!("NSUserDefaults resetStandardUserDefaults: cache cleared");
+}
+
 // MARK: - NSUserDefaults init variants
 
 + (id)standardUserDefaults {
@@ -86,12 +92,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     // usable NSUserDefaults instance back.
     log_dbg!("NSUserDefaults initWithSuiteName: — ignoring suite name, using standard app domain");
     msg![env; this init]
-}
-
-+ (())resetStandardUserDefaults {
-    // Remove the cached singleton so it gets re-created fresh.
-    State::get(env).standard_defaults = None;
-    log_dbg!("NSUserDefaults resetStandardUserDefaults: cache cleared");
 }
 
 - (id)init {
