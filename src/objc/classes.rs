@@ -2216,6 +2216,34 @@ pub fn objc_readClassPair(_env: &mut crate::Environment, cls: Class, _info: Cons
     cls
 }
 
+pub fn swift_getInitializedObjCClass(
+    env: &mut crate::Environment,
+    cls: Class,
+) -> Class {
+    if cls.is_null() {
+        return nil;
+    }
+    let initialize_sel = env
+        .objc
+        .lookup_selector("initialize")
+        .unwrap_or_else(|| env.objc.register_host_selector("initialize".to_string(), &mut env.mem));
+    if env.objc.object_has_method(&env.mem, cls, initialize_sel) {
+        let _: id = crate::objc::msg_send_no_initialize(env, (cls, initialize_sel));
+    }
+    cls
+}
+
+pub fn objc_allocWithZone(
+    env: &mut crate::Environment,
+    cls: Class,
+    zone: crate::mem::MutVoidPtr,
+) -> id {
+    if cls.is_null() {
+        return nil;
+    }
+    crate::objc::msg![env; cls allocWithZone:zone]
+}
+
 /// `void objc_registerClassPair(Class cls)` — finalise the registration
 /// of a dynamically created class. touchHLE's [`objc_allocateClassPair`]
 /// already inserts the class into the runtime tables; the matching

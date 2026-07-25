@@ -140,6 +140,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (NSInteger)preferredFramesPerSecond {
+    let interval = env.objc.borrow::<CADisplayLinkHostObject>(this).frame_interval;
+    (60 / interval.max(1)).max(1)
+}
+
+- (())setPreferredFramesPerSecond:(NSInteger)fps {
+    let safe_fps = if fps <= 0 { 60 } else { fps.min(60) };
+    let interval = (60 / safe_fps).max(1);
+    () = msg![env; this setFrameInterval:interval];
+}
+
 // Registers the display link with a run loop.
 // Per Apple docs: "You can add a display link to multiple input modes.
 // When the input mode changes, the run loop stops calling the selector

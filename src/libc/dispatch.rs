@@ -12,7 +12,9 @@
 //!   - Queues are opaque handles — we don't actually schedule work.
 
 use crate::abi::{CallFromHost, GuestFunction};
-use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
+use crate::dyld::{
+    export_c_func, export_c_func_aliased, ConstantExports, FunctionExports, HostConstant,
+};
 use crate::mem::{ConstVoidPtr, MutPtr, MutVoidPtr, Ptr};
 use crate::Environment;
 use std::collections::HashMap;
@@ -164,6 +166,18 @@ fn dispatch_once_f(
     if work.addr_with_thumb_bit() != 0 {
         let _: () = work.call_from_host(env, (context,));
     }
+}
+/// Swift's `swift_once` has the same once-token semantics as
+/// `dispatch_once_f`: the Swift runtime passes a token, a context, and a
+/// no-return-value callback. The ABI is documented in Swift's open-source
+/// runtime (`stdlib/public/runtime/Once.cpp`).
+fn swift_once(
+    env: &mut Environment,
+    predicate: MutPtr<dispatch_once_t>,
+    function: GuestFunction,
+    context: MutVoidPtr,
+) {
+    dispatch_once_f(env, predicate, context, function);
 }
 
 // MARK: - Queue creation / retrieval
@@ -696,6 +710,7 @@ pub const FUNCTIONS: FunctionExports = &[
     // once
     export_c_func!(dispatch_once(_, _)),
     export_c_func!(dispatch_once_f(_, _, _)),
+    export_c_func_aliased!("swift_once", swift_once(_, _, _)),
     // queues
     export_c_func!(dispatch_get_main_queue()),
     export_c_func!(dispatch_get_global_queue(_, _)),
