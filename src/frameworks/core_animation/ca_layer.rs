@@ -498,7 +498,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; layer removeFromSuperlayer];
     env.objc.borrow_mut::<CALayerHostObject>(layer).superlayer = this;
     let CALayerHostObject { ref mut sublayers, .. } = env.objc.borrow_mut(this);
-    sublayers.insert(idx.try_into().unwrap(), layer);
+    let insertion_index = (idx as usize).min(sublayers.len());
+    sublayers.insert(insertion_index, layer);
 }
 
 - (())insertSublayer:(id)layer below:(id)sibling {
@@ -507,8 +508,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; layer removeFromSuperlayer];
     env.objc.borrow_mut::<CALayerHostObject>(layer).superlayer = this;
     let CALayerHostObject { ref mut sublayers, .. } = env.objc.borrow_mut(this);
-    let idx = sublayers.iter().position(|&sublayer| sublayer == sibling).unwrap_or(0);
-    sublayers.insert(idx, layer);
+    if let Some(idx) = sublayers.iter().position(|&sublayer| sublayer == sibling) {
+        sublayers.insert(idx, layer);
+    } else {
+        sublayers.push(layer);
+    }
 }
 
 - (())insertSublayer:(id)layer above:(id)sibling {
@@ -517,12 +521,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; layer removeFromSuperlayer];
     env.objc.borrow_mut::<CALayerHostObject>(layer).superlayer = this;
     let CALayerHostObject { ref mut sublayers, .. } = env.objc.borrow_mut(this);
-    let idx = sublayers
-        .iter()
-        .position(|&sublayer| sublayer == sibling)
-        .map(|i| i + 1)
-        .unwrap_or(sublayers.len());
-    sublayers.insert(idx, layer);
+    if let Some(idx) = sublayers.iter().position(|&sublayer| sublayer == sibling) {
+        sublayers.insert(idx + 1, layer);
+    } else {
+        sublayers.push(layer);
+    }
 }
 
 - (())replaceSublayer:(id)old_layer with:(id)new_layer {
@@ -551,10 +554,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     let superlayer = std::mem::take(superlayer);
     if superlayer == nil { return; }
     let CALayerHostObject { ref mut sublayers, .. } = env.objc.borrow_mut(superlayer);
-    let idx = sublayers.iter().position(|&sublayer| sublayer == this).unwrap();
-    let sublayer = sublayers.remove(idx);
-    assert!(sublayer == this);
-    release(env, this);
+    if let Some(idx) = sublayers.iter().position(|&sublayer| sublayer == this) {
+        let sublayer = sublayers.remove(idx);
+        if sublayer == this {
+            release(env, this);
+        }
+    }
 }
 
 - (CGRect)bounds { env.objc.borrow::<CALayerHostObject>(this).bounds }
