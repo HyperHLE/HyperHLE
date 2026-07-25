@@ -206,6 +206,7 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &frameworks::foundation::DYLIB,
     &frameworks::game_kit::DYLIB,
     &frameworks::media_player::DYLIB,
+    &frameworks::metal::DYLIB,
     &frameworks::openal::DYLIB,
     &frameworks::opengles::DYLIB,
     &frameworks::security::DYLIB,

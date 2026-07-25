@@ -343,7 +343,7 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
 
     if required_device_capabilities.contains(&"opengles-3") {
         echo!(
-            "Warning: app requires OpenGL ES 3.0+ support. Only OpenGL ES 1.1 and 2.0 are currently supported."
+            "Warning: app requires OpenGL ES 3.0+ support. HyperHLE now routes EAGL OpenGL ES 3 contexts to its GLES 3 backend."
         );
     }
 

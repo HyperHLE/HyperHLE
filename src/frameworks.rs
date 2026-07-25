@@ -58,6 +58,7 @@ pub mod libsqlite3;
 pub mod libxml2;
 pub mod map_kit;
 pub mod media_player;
+pub mod metal;
 pub mod message_ui;
 pub mod mobile_core_services;
 pub mod openal;
