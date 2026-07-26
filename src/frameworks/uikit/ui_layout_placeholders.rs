@@ -92,6 +92,31 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host, &mut env.mem)
 }
 
++ (id)constraintWithItem:(id)first_item
+                 attribute:(i32)first_attribute
+                 relatedBy:(i32)relation
+                    toItem:(id)second_item
+                 attribute:(i32)second_attribute
+                multiplier:(CGFloat)multiplier
+                  constant:(CGFloat)constant {
+    let constraint: id = msg![env; this alloc];
+    if first_item != nil { retain(env, first_item); }
+    if second_item != nil { retain(env, second_item); }
+    {
+        let host = env.objc.borrow_mut::<NSLayoutConstraintHostObject>(constraint);
+        host.first_item = first_item;
+        host.first_attribute = first_attribute;
+        host.relation = relation;
+        host.second_item = second_item;
+        host.second_attribute = second_attribute;
+        host.multiplier = multiplier;
+        host.constant = constant;
+        host.priority = 1000.0;
+        host.active = true;
+    }
+    autorelease(env, constraint)
+}
+
 // Bulk activation helpers used by NSLayoutConstraint-heavy code.
 + (())activateConstraints:(id)constraints {
     if constraints == nil { return; }

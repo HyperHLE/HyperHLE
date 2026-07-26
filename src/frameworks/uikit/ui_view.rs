@@ -970,6 +970,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIViewHostObject>(this).should_group_accessibility_children = should;
 }
 
+- (())setTranslatesAutoresizingMaskIntoConstraints:(bool)_translates { }
+- (bool)translatesAutoresizingMaskIntoConstraints { true }
+- (())setNeedsLayout { }
+- (())layoutIfNeeded { }
+- (())addConstraint:(id)_constraint { }
+- (())addConstraints:(id)_constraints { }
+- (())removeConstraint:(id)_constraint { }
+- (())removeConstraints:(id)_constraints { }
+- (id)constraints { msg_class![env; NSArray array] }
+
 // Broad UIKit/Cocos compatibility. A lot of Cocos2D-era games call
 // these optional UIView hooks directly on their GL view subclasses. The default
 // UIView behavior is effectively no-op, but having the selectors prevents the

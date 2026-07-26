@@ -54,6 +54,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // TODO: more?
 
+// UIWindow levels are only relevant when multiple windows overlap. The
+// compositor already draws windows in insertion order, so retain the value
+// for API compatibility without changing the single-screen ordering.
+- (())setWindowLevel:(f32)_level { }
+- (f32)windowLevel { 0.0 }
+
 - (id)initWithFrame:(CGRect)frame {
     let this = msg_super![env; this initWithFrame:frame];
     // Undocumented: windows seem to be hidden by default on iOS, unlike views.
