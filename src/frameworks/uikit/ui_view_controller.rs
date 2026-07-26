@@ -608,6 +608,15 @@ pub const CLASSES: ClassExports = objc_classes! {
         return;
     }
 
+    if modal_class_name == "AgeGateView" {
+        if let Some(callback) = env.objc.lookup_selector("ageGateDidCompleted") {
+            log!("AgeGateView detected: completing age gate automatically");
+            let _: () = crate::objc::msg_send_no_type_checking(env, (this, callback));
+            return;
+        }
+        log!("WARNING: AgeGateView callback ageGateDidCompleted is unavailable");
+    }
+
     // Locate a window to host the modal view. Prefer the presenting view's
     // window, but if the controller isn't attached yet fall back to the app's
     // key window or, failing that, the first visible window.
