@@ -3324,6 +3324,10 @@ fn glVertexAttribPointer(
 fn glVertexAttrib1f(env: &mut Environment, index: GLuint, x: GLfloat) {
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.VertexAttrib1f(index, x) });
 }
+fn glVertexAttrib1fv(env: &mut Environment, index: GLuint, values: ConstPtr<GLfloat>) {
+    let value = env.mem.read(values);
+    with_ctx_and_mem(env, |gles, _mem| unsafe { gles.VertexAttrib1fv(index, &value) });
+}
 fn glVertexAttrib2f(env: &mut Environment, index: GLuint, x: GLfloat, y: GLfloat) {
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.VertexAttrib2f(index, x, y)
@@ -5365,6 +5369,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glDisableVertexAttribArray(_)),
     export_c_func!(glVertexAttribPointer(_, _, _, _, _, _)),
     export_c_func!(glVertexAttrib1f(_, _)),
+    export_c_func!(glVertexAttrib1fv(_, _)),
     export_c_func!(glVertexAttrib2f(_, _, _)),
     export_c_func!(glVertexAttrib3f(_, _, _, _)),
     export_c_func!(glVertexAttrib4f(_, _, _, _, _)),
