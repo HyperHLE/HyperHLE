@@ -610,9 +610,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     if modal_class_name == "AgeGateView" {
         if let Some(callback) = env.objc.lookup_selector("ageGateDidCompleted") {
-            log!("AgeGateView detected: completing age gate automatically");
-            let _: () = crate::objc::msg_send_no_type_checking(env, (this, callback));
-            return;
+            let app: id = msg_class![env; UIApplication sharedApplication];
+            let delegate: id = msg![env; app delegate];
+            log!("AgeGateView detected: completing age gate automatically on app delegate {:?}", delegate);
+            if delegate != nil {
+                let _: () = crate::objc::msg_send_no_type_checking(env, (delegate, callback));
+                return;
+            }
+            log!("WARNING: UIApplication delegate is nil; cannot complete age gate");
         }
         log!("WARNING: AgeGateView callback ageGateDidCompleted is unavailable");
     }
