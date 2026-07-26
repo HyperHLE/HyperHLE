@@ -107,6 +107,9 @@ fn malloc_destroy_zone(env: &mut Environment, zone: MutPtr<malloc_zone_t>) {
 }
 
 fn malloc_zone_free(env: &mut Environment, _zone: MutPtr<malloc_zone_t>, ptr: MutVoidPtr) {
+    if ptr.is_null() || !env.mem.is_known_allocation(ptr.to_bits()) {
+        return;
+    }
     env.mem.free(ptr)
 }
 
