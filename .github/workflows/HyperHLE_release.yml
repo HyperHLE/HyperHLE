@@ -329,7 +329,7 @@ jobs:
   check-hyperhle-release:
     runs-on: ubuntu-latest
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/t') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/trunk') ||
       github.event_name == 'workflow_dispatch'
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
