@@ -379,6 +379,33 @@ fn touchhle_find_cocos_touch_target(env: &mut Environment, root: id) -> id {
     if touchhle_cocos_is_gl_or_game_view_name(&class_name) { root } else { nil }
 }
 
+/// Last-resort fallback used when BOTH the geometric hitTest and the
+/// name-based Cocos/GL heuristic in `touchhle_find_cocos_touch_target` fail
+/// to find a target. Previously this meant the touch was delivered to the
+/// bare `UIWindow`, which has no `touchesBegan` handler and doesn't match
+/// any of the `ccTouches*` alias name patterns either -- so the touch was
+/// silently swallowed and nothing happened. Instead, walk down to the
+/// deepest visible, interactive leaf view purely by geometry (ignoring
+/// class name), so the real guest view still gets a chance to receive the
+/// touch even if its class name doesn't match our guesses.
+fn touchhle_find_deepest_visible_view(env: &mut Environment, root: id) -> id {
+    if root == nil { return nil; }
+    let subviews: id = msg![env; root subviews];
+    if subviews != nil {
+        let count: NSUInteger = msg![env; subviews count];
+        for i in (0..count).rev() {
+            let child: id = msg![env; subviews objectAtIndex:i];
+            let hidden: bool = msg![env; child isHidden];
+            let alpha: crate::frameworks::core_graphics::CGFloat = msg![env; child alpha];
+            let interactible: bool = msg![env; child isUserInteractionEnabled];
+            if hidden || alpha < 0.01 || !interactible { continue; }
+            let found = touchhle_find_deepest_visible_view(env, child);
+            if found != nil { return found; }
+        }
+    }
+    root
+}
+
 fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     let pool: id = msg_class![env;
         NSAutoreleasePool new];
@@ -514,7 +541,16 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
         if view == nil {
             log_dbg!("SUPER HACK: hitTest failed, looking for Cocos/GL target before using window");
             let cocos_target = touchhle_find_cocos_touch_target(env, window);
-            view = if cocos_target != nil { cocos_target } else { window };
+            view = if cocos_target != nil {
+                cocos_target
+            } else {
+                let deepest = touchhle_find_deepest_visible_view(env, window);
+                log_dbg!(
+                    "SUPER HACK: Cocos/GL name heuristic missed too, falling back to deepest visible view {:?} instead of bare window",
+                    deepest
+                );
+                if deepest != nil { deepest } else { window }
+            };
         } else if view == window {
             let cocos_target = touchhle_find_cocos_touch_target(env, window);
             if cocos_target != nil { view = cocos_target; }
