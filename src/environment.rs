@@ -122,6 +122,9 @@ pub struct Environment {
     /// Tracks repeated UndefinedInstruction bypasses. See `debug_cpu_error`.
     udf_bypass_last: Option<(u32, u32)>,
     udf_bypass_count: u32,
+    /// Optional RTCV-style game-corruption engine. Always present, but only
+    /// does anything when enabled via the `--corrupt*` options.
+    corruptor: crate::corrupt::Corruptor,
 }
 
 /// What to do next when executing this thread.
@@ -768,7 +771,22 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
             udf_bypass_last: None,
             udf_bypass_count: 0,
+            corruptor: crate::corrupt::Corruptor::default(),
         };
+
+        env.corruptor = crate::corrupt::Corruptor::new(env.options.corruption.clone());
+        if env.corruptor.is_enabled() {
+            log!(
+                "[corrupt] RTCV-style game corruption ENABLED: every {} frame(s), {} byte(s) per burst, seed {:#x}{}",
+                env.options.corruption.interval_frames.max(1),
+                env.options.corruption.bytes_per_burst.max(1),
+                env.options.corruption.seed,
+                match env.options.corruption.max_offset {
+                    Some(o) => format!(", max offset {}", o),
+                    None => String::new(),
+                }
+            );
+        }
 
         if env.options.dumping_options.any() {
             env.dump_file =
@@ -911,6 +929,7 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
             udf_bypass_last: None,
             udf_bypass_count: 0,
+            corruptor: crate::corrupt::Corruptor::default(),
         };
 
         env.set_up_initial_env_vars();
@@ -972,6 +991,7 @@ impl Environment {
             panic_cell: Rc::new(Cell::new(None)),
             udf_bypass_last: None,
             udf_bypass_count: 0,
+            corruptor: crate::corrupt::Corruptor::default(),
         }
     }
 
@@ -1462,6 +1482,14 @@ impl Environment {
                 // or trying to poll for events too often. At the same time,
                 // very large values are bad for responsiveness.
                 self.remaining_ticks = Some(100_000);
+            }
+            // RTCV-style game corruption: once per main-loop iteration, give the
+            // corruption engine a chance to mangle live guest memory. This is a
+            // no-op unless enabled via the `--corrupt*` options.
+            if self.corruptor.is_enabled() {
+                let mut corruptor = std::mem::take(&mut self.corruptor);
+                corruptor.tick(&mut self.mem);
+                self.corruptor = corruptor;
             }
             let mut kill_current_thread = false;
             if let Some(w) = self.window.as_mut() {
