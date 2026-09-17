@@ -1,5 +1,5 @@
 // Client-side enhancements: localised <time> formatting, sortable / searchable
-// tables (matches the behaviour of appdb.touchhle.org).
+// tables.
 (function () {
   "use strict";
 

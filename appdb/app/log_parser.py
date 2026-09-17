@@ -24,11 +24,11 @@ class ParsedLog:
 
 
 # Header line is the first line of every HyperHLE / touchHLE log.
-#   touchHLE UNOFFICIAL 9424a29c — https://touchhle.org/
-#   touchHLE v0.2.3 — https://touchhle.org/
+#   touchHLE UNOFFICIAL 9424a29c
+#   touchHLE v0.2.3
 #   HyperHLE v0.1.0 — ...
 _HEADER_RE = re.compile(
-    r"^(?:touchHLE|HyperHLE)\s+(?P<ver>[^\n—–-]+?)\s+[—–-]",
+    r"^(?:touchHLE|HyperHLE)\s+(?P<ver>[^\n—–-]+?)(?:\s+[—–-][^\n]*)?$",
     re.MULTILINE | re.IGNORECASE,
 )
 

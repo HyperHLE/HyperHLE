@@ -20,10 +20,10 @@ MAX_LOG_CHARS = 20_000
 _URL_RE = re.compile(r"https?://\S+")
 
 # First line of every HyperHLE / touchHLE log, e.g.
-#   touchHLE UNOFFICIAL 8d65eca — https://touchhle.org/
-#   HyperHLE v1.0.2 — https://touchhle.org/
+#   touchHLE UNOFFICIAL 8d65eca
+#   HyperHLE v1.0.2
 _LOG_HEADER_RE = re.compile(
-    r"^(?:touchHLE|HyperHLE)\s+(?:UNOFFICIAL\s+)?(?P<ver>[\w.]+)\s+[—–-]",
+    r"^(?:touchHLE|HyperHLE)\s+(?:UNOFFICIAL\s+)?(?P<ver>[\w.]+)(?:\s+[—–-][^\n]*)?",
     re.MULTILINE | re.IGNORECASE,
 )
 # Second line on Actions-built binaries, e.g.

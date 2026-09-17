@@ -2,7 +2,7 @@
 
 A community-run compatibility database for [HyperHLE](https://github.com/j92580498-max/touchHLE)
 (a community fork of the touchHLE iPhone OS emulator), modelled on the
-original [appdb.touchhle.org](https://appdb.touchhle.org/).
+original upstream app compatibility database.
 
 Anyone can submit a compatibility report for an app they've tested in
 HyperHLE: app name, version, OS, GPU, rating (1–5⭐), remarks, screenshot

@@ -8,7 +8,6 @@ version = "0.2.3"
 edition = "2021"
 license = "MPL-2.0"
 authors = ["touchHLE project contributors"]
-homepage = "https://touchhle.org/"
 
 [package]
 name = "touchHLE"
@@ -16,7 +15,6 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 authors = { workspace = true }
-homepage = { workspace = true }
 
 [lib]
 # https://users.rust-lang.org/t/making-both-binary-and-cdylib-from-one-package/29105

@@ -276,16 +276,6 @@ const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (())visitWebsite {
-    // Assert (see above).
-    let _ = env.objc.borrow_mut::<AppPickerDelegateHostObject>(this);
-
-    let url = ns_string::get_static_str(env, "https://touchhle.org/");
-    let url: id = msg_class![env; NSURL URLWithString:url];
-    let ui_application: id = msg_class![env; UIApplication sharedApplication];
-    assert!(msg![env; ui_application openURL:url]);
-}
-
 @end
 
 };
@@ -535,7 +525,6 @@ fn app_picker_inner(
         buttons_row2_center,
         &[
             ("Copyright info", "copyrightInfoShow"),
-            ("touchHLE.org", "visitWebsite"),
         ],
         None,
     );

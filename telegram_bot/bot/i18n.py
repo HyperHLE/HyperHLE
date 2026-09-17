@@ -170,7 +170,7 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "log_no_header": (
             "That doesn't look like a HyperHLE/touchHLE log. A real log starts "
-            "with a line like `touchHLE UNOFFICIAL <hash> — https://touchhle.org/`. "
+            "with a line like `touchHLE UNOFFICIAL <hash>`. "
             "Please attach or paste the actual log."
         ),
         "issue_line_no_token_short": (
@@ -346,7 +346,7 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "log_no_header": (
             "Это не похоже на лог HyperHLE/touchHLE. Настоящий лог начинается "
-            "со строки вида `touchHLE UNOFFICIAL <hash> — https://touchhle.org/`. "
+            "со строки вида `touchHLE UNOFFICIAL <hash>`. "
             "Прикрепите или вставьте настоящий лог."
         ),
         "issue_line_no_token_short": (
@@ -508,7 +508,7 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "log_no_header": (
             "هذا لا يبدو سجل HyperHLE/touchHLE. يبدأ السجل الحقيقي بسطر مثل "
-            "`touchHLE UNOFFICIAL <hash> — https://touchhle.org/`. الرجاء إرفاق "
+            "`touchHLE UNOFFICIAL <hash>`. الرجاء إرفاق "
             "أو لصق السجل الفعلي."
         ),
         "issue_line_no_token_short": (

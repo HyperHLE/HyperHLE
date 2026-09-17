@@ -1,7 +1,7 @@
 """Seed the database with a small set of example apps and reports.
 
 This is purely demo data so a fresh deployment isn't empty. It mirrors a few
-well-known apps from https://appdb.touchhle.org/ but the reports are
+well-known apps but the reports are
 illustrative — they are not copied verbatim.
 """
 from __future__ import annotations

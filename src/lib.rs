@@ -112,7 +112,7 @@ Special options:
 ";
 pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     echo!(
-        "touchHLE {}{}{} — https://touchhle.org/",
+        "touchHLE {}{}{}",
         branding(),
         if branding().is_empty() { "" } else { " " },
         VERSION,

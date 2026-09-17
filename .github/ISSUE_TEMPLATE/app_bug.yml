@@ -6,14 +6,13 @@ body:
     attributes:
       value: |
         This form is for reporting an issue with an app that is already known
-        to be working in touchHLE. Please check the [app compatibility database](https://appdb.touchhle.org/)
+        to be working in touchHLE. Please check the app compatibility database
         to see which apps work. Apps with less than three stars are not
         considered “working”.
   - type: input
     attributes:
       label: App DB report link
       description: Link to the pre-existing database report for the app.
-      placeholder: https://appdb.touchhle.org/apps/1
     validations:
       required: true
   - type: input

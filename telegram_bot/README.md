@@ -114,7 +114,7 @@ token also lifts the anonymous API rate limit on the latest-commit check.
 HyperHLE logs identify their own build in the first two lines:
 
 ```
-touchHLE UNOFFICIAL 8d65eca — https://touchhle.org/
+touchHLE UNOFFICIAL 8d65eca
 Built from branch "trunk" of "HyperHLE/HyperHLE" by GitHub Actions workflow run https://github.com/HyperHLE/HyperHLE/actions/runs/27085497648.
 ```
 

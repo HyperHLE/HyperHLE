@@ -24,6 +24,8 @@ def _basic_request(**overrides):
 def test_has_log_header():
     assert has_log_header(REAL_HEADER)
     assert has_log_header("HyperHLE v1.0.2 — https://touchhle.org/")
+    assert has_log_header("HyperHLE v1.0.2")
+    assert has_log_header("touchHLE UNOFFICIAL 8d65eca")
     assert not has_log_header("just some text without a header")
     assert not has_log_header("")
 
