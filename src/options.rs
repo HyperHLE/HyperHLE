@@ -31,6 +31,27 @@ pub enum Button {
     LeftShoulder,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct CorruptionOptions {
+    pub enabled: bool,
+    pub interval_frames: u32,
+    pub bytes_per_burst: u32,
+    pub max_offset: Option<u32>,
+    pub seed: u64,
+}
+
+impl Default for CorruptionOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_frames: 30,
+            bytes_per_burst: 1,
+            max_offset: None,
+            seed: 0x6a09e667f3bcc909,
+        }
+    }
+}
+
 /// Struct containing all user-configurable options.
 #[derive(Clone)]
 pub struct Options {
@@ -111,6 +132,7 @@ pub struct Options {
     /// mipmaps are unaffected.
     pub fix_texture_min_filter: bool,
     pub zero_stack_after_guest_to_host_call: Option<u32>,
+    pub corruption: CorruptionOptions,
 }
 
 impl Default for Options {
@@ -139,7 +161,7 @@ impl Default for Options {
             preferred_languages: None,
             headless: false,
             print_fps: false,
-            fps_limit: Some(60.0), // Original iPhone is 60Hz and uses v-sync,
+            fps_limit: Some(60.0),
             force_composition: false,
             prefer_gles2_context: false,
             network_access: false,
@@ -150,6 +172,7 @@ impl Default for Options {
             trace_gl_errors: false,
             fix_texture_min_filter: false,
             zero_stack_after_guest_to_host_call: None,
+            corruption: CorruptionOptions::default(),
         }
     }
 }
@@ -341,6 +364,38 @@ impl Options {
             self.zero_stack_after_guest_to_host_call = Some(value.parse().map_err(|_| {
                 "Invalid value for --zero-stack-after-guest-to-host-call=".to_string()
             })?);
+        } else if arg == "--corrupt-game" {
+            self.corruption.enabled = true;
+        } else if arg == "--no-corrupt-game" {
+            self.corruption.enabled = false;
+        } else if let Some(value) = arg.strip_prefix("--corrupt-interval=") {
+            let frames: u32 = value
+                .parse()
+                .ok()
+                .filter(|&v| v > 0)
+                .ok_or_else(|| "Invalid value for --corrupt-interval= (must be > 0)".to_string())?;
+            self.corruption.enabled = true;
+            self.corruption.interval_frames = frames;
+        } else if let Some(value) = arg.strip_prefix("--corrupt-intensity=") {
+            let bytes: u32 = value
+                .parse()
+                .ok()
+                .filter(|&v| v > 0)
+                .ok_or_else(|| "Invalid value for --corrupt-intensity= (must be > 0)".to_string())?;
+            self.corruption.enabled = true;
+            self.corruption.bytes_per_burst = bytes;
+        } else if let Some(value) = arg.strip_prefix("--corrupt-seed=") {
+            let seed: u64 = value
+                .parse()
+                .map_err(|_| "Invalid value for --corrupt-seed=".to_string())?;
+            self.corruption.enabled = true;
+            self.corruption.seed = seed;
+        } else if let Some(value) = arg.strip_prefix("--corrupt-max-offset=") {
+            let off: u32 = value
+                .parse()
+                .map_err(|_| "Invalid value for --corrupt-max-offset=".to_string())?;
+            self.corruption.enabled = true;
+            self.corruption.max_offset = Some(off);
         } else {
             return Ok(false);
         };
