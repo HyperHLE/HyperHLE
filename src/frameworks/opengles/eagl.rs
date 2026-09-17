@@ -963,18 +963,8 @@ unsafe fn present_renderbuffer_es2(
     let blend_was_on = gles.IsEnabled(gles2::BLEND) != 0;
     let scissor_was_on = gles.IsEnabled(gles2::SCISSOR_TEST) != 0;
 
-    // Save the enabled state of every vertex attribute slot we might touch.
-    // The app may have left attributes 0..N enabled; mutating them here would
-    // break its next draw call.
-    let mut attrib_was_enabled = [0u8; 16];
-    for (i, slot) in attrib_was_enabled.iter_mut().enumerate() {
-        let mut v: GLint = 0;
-        gles.GetVertexAttribiv(i as GLuint, gles2::VERTEX_ATTRIB_ARRAY_ENABLED, &mut v);
-        *slot = v as u8;
-    }
-
-    // Resolve renderbuffer → texture with a cached FBO + `glCopyTexImage2D`,
-    // using the ES 2.0 entry points.
+    // Resolve renderbuffer → texture with a cached FBO + the ES 2.0 entry
+    // points.
     let mut renderbuffer: GLint = 0;
     gles.GetIntegerv(gles2::RENDERBUFFER_BINDING, &mut renderbuffer);
     let (width, height) = {
@@ -986,35 +976,60 @@ unsafe fn present_renderbuffer_es2(
     };
 
     let present_objects = ensure_present_objects(gles);
-    gles.BindFramebuffer(gles2::FRAMEBUFFER, present_objects.framebuffer);
-    gles.FramebufferRenderbuffer(
-        gles2::FRAMEBUFFER,
-        gles2::COLOR_ATTACHMENT0,
-        gles2::RENDERBUFFER,
-        renderbuffer as GLuint,
-    );
+    if width > 0 && height > 0 {
+        // Reuse one FBO as the copy source. Reattach only when the app
+        // creates a new EAGL renderbuffer.
+        let source_renderbuffer = PRESENT_SOURCE_RENDERBUFFER.with(|cell| cell.get());
+        gles.BindFramebuffer(gles2::FRAMEBUFFER, present_objects.framebuffer);
+        if source_renderbuffer != renderbuffer as GLuint {
+            gles.FramebufferRenderbuffer(
+                gles2::FRAMEBUFFER,
+                gles2::COLOR_ATTACHMENT0,
+                gles2::RENDERBUFFER,
+                renderbuffer as GLuint,
+            );
+            PRESENT_SOURCE_RENDERBUFFER.with(|cell| cell.set(renderbuffer as GLuint));
+        }
+
+        // Copy into preallocated texture storage. CopyTexImage2D reallocates
+        // that storage on every frame, while CopyTexSubImage2D does not.
+        gles.ActiveTexture(gles2::TEXTURE0);
+        gles.BindTexture(gles2::TEXTURE_2D, present_objects.texture);
+        let texture_size = PRESENT_TEXTURE_SIZE.with(|cell| cell.get());
+        if texture_size != Some((width, height)) {
+            gles.TexImage2D(
+                gles2::TEXTURE_2D,
+                0,
+                gles2::RGBA as GLint,
+                width,
+                height,
+                0,
+                gles2::RGBA,
+                gles2::UNSIGNED_BYTE,
+                std::ptr::null(),
+            );
+            PRESENT_TEXTURE_SIZE.with(|cell| cell.set(Some((width, height))));
+        }
+        gles.CopyTexSubImage2D(
+            gles2::TEXTURE_2D,
+            0,
+            0,
+            0,
+            0,
+            0,
+            width,
+            height,
+        );
+        gles.BindFramebuffer(gles2::FRAMEBUFFER, old_framebuffer as _);
+        static LOGGED: std::sync::Once = std::sync::Once::new();
+        LOGGED.call_once(|| {
+            log!("GLES2 presenter: cached FBO and glCopyTexSubImage2D fast path")
+        });
+    }
 
     gles.ActiveTexture(gles2::TEXTURE0);
     gles.BindTexture(gles2::TEXTURE_2D, present_objects.texture);
     gles.BindBuffer(gles2::ARRAY_BUFFER, present_objects.quad_vbo);
-    #[rustfmt::skip]
-    let verts: [f32; 24] = [
-        // x, y, u, v
-        -1.0, -1.0, 0.0, 0.0,
-         1.0, -1.0, 1.0, 0.0,
-        -1.0,  1.0, 0.0, 1.0,
-         1.0, -1.0, 1.0, 0.0,
-         1.0,  1.0, 1.0, 1.0,
-        -1.0,  1.0, 0.0, 1.0,
-    ];
-    gles.BufferData(
-        gles2::ARRAY_BUFFER,
-        std::mem::size_of_val(&verts) as isize,
-        verts.as_ptr().cast(),
-        gles2::STREAM_DRAW,
-    );
-    gles.CopyTexImage2D(gles2::TEXTURE_2D, 0, gles2::RGB, 0, 0, width, height, 0);
-
     gles.BindFramebuffer(gles2::FRAMEBUFFER, 0);
 
     // Configure the destination viewport (the window) and clear.
@@ -1037,14 +1052,6 @@ unsafe fn present_renderbuffer_es2(
     // remains on screen and the app continues to run.
     let Some(program) = ensure_present_program(gles) else {
         log!("Warning: present_renderbuffer_es2: present shader unavailable, skipping frame.");
-        // Restore vertex attribute enabled state so the app's next draw works.
-        for (i, &was) in attrib_was_enabled.iter().enumerate() {
-            if was != 0 {
-                gles.EnableVertexAttribArray(i as GLuint);
-            } else {
-                gles.DisableVertexAttribArray(i as GLuint);
-            }
-        }
         gles.UseProgram(if old_program > 0 {
             old_program as GLuint
         } else {
@@ -1081,6 +1088,17 @@ unsafe fn present_renderbuffer_es2(
         }
         return;
     };
+
+    // The presenter only changes the two attributes it owns. Querying all 16
+    // slots on every frame is unnecessary driver traffic.
+    let attribute_slots = [program.a_pos as GLuint, program.a_uv as GLuint];
+    let mut attrib_was_enabled = [0u8; 2];
+    for (slot, &attribute) in attrib_was_enabled.iter_mut().zip(attribute_slots.iter()) {
+        let mut v: GLint = 0;
+        gles.GetVertexAttribiv(attribute, gles2::VERTEX_ATTRIB_ARRAY_ENABLED, &mut v);
+        *slot = v as u8;
+    }
+
     gles.UseProgram(program.program);
     gles.Uniform1i(program.u_tex, 0);
     let m = crate::matrix::Matrix::<4>::from(&rotation_matrix);
@@ -1140,11 +1158,11 @@ unsafe fn present_renderbuffer_es2(
     }
 
     // Restore vertex attribute enabled state so the app's next draw works.
-    for (i, &was) in attrib_was_enabled.iter().enumerate() {
+    for (&attribute, &was) in attribute_slots.iter().zip(attrib_was_enabled.iter()) {
         if was != 0 {
-            gles.EnableVertexAttribArray(i as GLuint);
+            gles.EnableVertexAttribArray(attribute);
         } else {
-            gles.DisableVertexAttribArray(i as GLuint);
+            gles.DisableVertexAttribArray(attribute);
         }
     }
 
@@ -1229,6 +1247,10 @@ thread_local! {
     static PRESENT_PROGRAM: std::cell::Cell<Option<PresentProgram>> =
         const { std::cell::Cell::new(None) };
     static PRESENT_OBJECTS: std::cell::Cell<Option<PresentObjects>> =
+        const { std::cell::Cell::new(None) };
+    static PRESENT_SOURCE_RENDERBUFFER: std::cell::Cell<GLuint> =
+        const { std::cell::Cell::new(0) };
+    static PRESENT_TEXTURE_SIZE: std::cell::Cell<Option<(GLint, GLint)>> =
         const { std::cell::Cell::new(None) };
 }
 
@@ -1361,6 +1383,22 @@ unsafe fn ensure_present_objects(gles: &mut dyn GLES) -> PresentObjects {
     gles.GenTextures(1, &mut texture);
     let mut quad_vbo: GLuint = 0;
     gles.GenBuffers(1, &mut quad_vbo);
+    gles.BindBuffer(crate::gles::gles2_raw::ARRAY_BUFFER, quad_vbo);
+    #[rustfmt::skip]
+    let verts: [f32; 24] = [
+        -1.0, -1.0, 0.0, 0.0,
+         1.0, -1.0, 1.0, 0.0,
+        -1.0,  1.0, 0.0, 1.0,
+         1.0, -1.0, 1.0, 0.0,
+         1.0,  1.0, 1.0, 1.0,
+        -1.0,  1.0, 0.0, 1.0,
+    ];
+    gles.BufferData(
+        crate::gles::gles2_raw::ARRAY_BUFFER,
+        std::mem::size_of_val(&verts) as isize,
+        verts.as_ptr().cast(),
+        crate::gles::gles2_raw::STATIC_DRAW,
+    );
     gles.ActiveTexture(crate::gles::gles2_raw::TEXTURE0);
     gles.BindTexture(crate::gles::gles2_raw::TEXTURE_2D, texture);
     gles.TexParameteri(
@@ -1389,6 +1427,8 @@ unsafe fn ensure_present_objects(gles: &mut dyn GLES) -> PresentObjects {
         texture,
         quad_vbo,
     };
+    PRESENT_SOURCE_RENDERBUFFER.with(|cell| cell.set(0));
+    PRESENT_TEXTURE_SIZE.with(|cell| cell.set(None));
     PRESENT_OBJECTS.with(|c| c.set(Some(result)));
     result
 }
