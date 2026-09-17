@@ -65,7 +65,11 @@ pub unsafe fn present_frame(
         viewport.3 as _,
     );
     gles.ClearColor(0.0, 0.0, 0.0, 1.0);
-    gles.Clear(gles11::COLOR_BUFFER_BIT | gles11::DEPTH_BUFFER_BIT | gles11::STENCIL_BUFFER_BIT);
+    // PERF: only the color buffer needs clearing here. The present quad runs
+    // with depth/stencil testing disabled (the caller disables caps before
+    // drawing), so clearing DEPTH|STENCIL is a wasted full-viewport pass —
+    // noticeable at scale-hack 4x on software rasterizers.
+    gles.Clear(gles11::COLOR_BUFFER_BIT);
     gles.BindBuffer(gles11::ARRAY_BUFFER, 0);
     // Stretch the full rendered frame to fill the active host viewport.
     //
