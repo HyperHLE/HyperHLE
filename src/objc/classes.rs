@@ -2094,12 +2094,10 @@ pub fn objc_autorelease(env: &mut crate::Environment, obj: id) -> id {
 /// id objc_retainBlock(id x) { return (id)_Block_copy(x); }
 /// ```
 ///
-/// touchHLE's `_Block_copy` (see `src/libc/blocks.rs`) does not physically
-/// duplicate the block — global blocks (the common case for static literal
-/// blocks) are not reference-counted, and stack-block promotion needs deeper
-/// Block ABI work — so it returns the same pointer. Mirroring that here keeps
-/// `objc_retainBlock` consistent with the rest of the Block runtime, while
-/// still providing the correct return value the ARC-generated code expects.
+/// This doesn't copy stack blocks the way `_Block_copy` (see
+/// `src/libc/blocks.rs`) does: blocks don't respond to `release` in touchHLE,
+/// so the matching `objc_release` would never free the copy or the objects it
+/// captures.
 pub fn objc_retainBlock(env: &mut crate::Environment, block: id) -> id {
     let _ = env;
     block
