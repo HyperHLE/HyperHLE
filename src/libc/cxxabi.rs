@@ -314,13 +314,11 @@ fn __cxa_call_unexpected(env: &mut Environment, _exc: MutVoidPtr) {
 /// Returns the casted pointer on success, or NULL on failure (the cast
 /// does not apply / a `dynamic_cast<T*>` should evaluate to nullptr).
 ///
-/// touchHLE has no real RTTI walk because every Itanium type_info vtable
-/// is stubbed (see [crate::dyld::do_non_lazy_linking]). We can't ever
-/// say "yes this is the right cast", so always returning NULL is the
-/// only safe answer — it matches the language semantics for failed
-/// casts. Apps that rely on dynamic_cast to *succeed* (rather than just
-/// using it as a defensive nullptr check) will still misbehave, but
-/// they were already going to crash on the broken vtables anyway.
+/// Lazy binding prefers guest dylibs, so apps whose C++ runtime is loaded
+/// (libstdc++, or libc++abi) use the real `__dynamic_cast` and this stub
+/// only runs without one. Then the type_info vtables are stubs too (see
+/// [crate::dyld::do_non_lazy_linking]), so there is no class hierarchy to
+/// walk, and NULL, the result of a failed cast, is the only safe answer.
 fn __dynamic_cast(
     _env: &mut Environment,
     _src: ConstVoidPtr,
@@ -328,7 +326,7 @@ fn __dynamic_cast(
     _dst_type: ConstVoidPtr,
     _src2dst_offset: i32,
 ) -> ConstVoidPtr {
-    log_dbg!("__dynamic_cast: returning NULL (RTTI vtables are stubbed)");
+    log_dbg!("__dynamic_cast: returning NULL (no guest C++ runtime)");
     Ptr::null()
 }
 
