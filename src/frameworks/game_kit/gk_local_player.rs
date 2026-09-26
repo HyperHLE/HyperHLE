@@ -81,6 +81,16 @@ fn block_invoke(env: &mut Environment, block: id) -> Option<GuestFunction> {
     Some(GuestFunction::from_addr_with_thumb_bit(invoke_addr))
 }
 
+/// `Block_copy`/`Block_release` for the stored handlers. Blocks don't respond
+/// to `copy`/`release` messages in touchHLE.
+fn copy_block(env: &mut Environment, block: id) -> id {
+    let copy = crate::libc::blocks::copy_block(env, Ptr::from_bits(block.to_bits()));
+    Ptr::from_bits(copy.to_bits())
+}
+fn release_block(env: &mut Environment, block: id) {
+    crate::libc::blocks::release_block(env, Ptr::from_bits(block.to_bits()));
+}
+
 /// Invoke an ObjC block whose underlying C function has the signature
 /// `void (^)(NSError *)`.
 fn invoke_error_block(env: &mut Environment, block: id, error: id) {
@@ -251,8 +261,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, alias);
     release(env, display_name);
     release(env, friends);
-    release(env, authenticate_handler);
-    release(env, pending);
+    release_block(env, authenticate_handler);
+    release_block(env, pending);
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
@@ -309,7 +319,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Block_copy the handler so it survives the caller's stack frame, and
     // park it on the host object until the deferred selector fires.
-    let retained: id = msg![env; completion_handler copy];
+    let retained: id = copy_block(env, completion_handler);
     {
         let host = env.objc.borrow_mut::<GKLocalPlayerHostObject>(this);
         // If a previous authentication is still pending, drop it; GameKit
@@ -317,7 +327,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         let old = host.pending_completion_handler;
         host.pending_completion_handler = retained;
         if old != nil {
-            release(env, old);
+            release_block(env, old);
         }
     }
 
@@ -346,7 +356,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let error = make_not_authenticated_error(env);
     invoke_error_block(env, handler, error);
-    release(env, handler);
+    release_block(env, handler);
 }
 
 // Apple reference (iOS 6+):
@@ -367,7 +377,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setAuthenticateHandler:(id)handler {
     // Replace any previously stored handler (GameKit keeps exactly one).
     let retained: id = if handler != nil {
-        msg![env; handler copy]
+        copy_block(env, handler)
     } else {
         nil
     };
@@ -376,7 +386,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         let old = host.authenticate_handler;
         host.authenticate_handler = retained;
         if old != nil {
-            release(env, old);
+            release_block(env, old);
         }
     }
     if retained == nil {
