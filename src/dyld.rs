@@ -849,6 +849,17 @@ impl Dyld {
                     .or_insert_with(|| mem.alloc(16).to_bits());
                 log_dbg!("Patched block class descriptor {} -> {:#x}", name, addr);
                 Ptr::from_bits(addr)
+            } else if let Some(&external_addr) = bins
+                .iter()
+                .filter(|_| name.starts_with("__ZTV") || name.starts_with("__ZTI"))
+                .flat_map(|other_bin| other_bin.exported_symbols.get(name))
+                .next()
+            {
+                // C++ RTTI from the guest C++ runtime (libstdc++/libc++abi),
+                // as for non-lazy symbol pointers below. Its __dynamic_cast
+                // and exception matching call the type_info virtual methods,
+                // so the stubs below are only a fallback.
+                Ptr::from_bits(external_addr)
             } else if name == "__ZTVN10__cxxabiv117__class_type_infoE"
                 || name == "__ZTVN10__cxxabiv120__si_class_type_infoE"
                 || name == "__ZTVN10__cxxabiv121__vmi_class_type_infoE"
@@ -869,12 +880,18 @@ impl Dyld {
                 //   +4   typeinfo for the vtable's class (= 0; never used)
                 //   +8   ~type_info() complete dtor   -> BX LR stub
                 //   +12  ~type_info() deleting dtor   -> BX LR stub
-                //   +16  __is_pointer_p()             -> returns 0 (false)
-                //   +20  __is_function_p()            -> returns 0 (false)
-                //   +24  __do_catch()                 -> returns 0 (no match)
-                //   +28  __do_upcast()                -> returns 0 (no match)
-                //   +32  reserved
-                //   +36  reserved
+                //   +16  __is_pointer_p()             -> BX LR stub
+                //   +20  __is_function_p()            -> BX LR stub
+                //   +24  __do_catch()                 -> BX LR stub
+                //   +28  __do_upcast() (2 arguments)  -> BX LR stub
+                //   +32  __do_upcast() (3 arguments)  -> BX LR stub
+                //   +36  __do_dyncast()               -> BX LR stub
+                //
+                // The stub only returns and leaves r0 (`this`) as it is, so
+                // the return values are undefined. __do_dyncast leaves its
+                // result empty, so a guest __dynamic_cast returns NULL.
+                // libstdc++'s __class_type_info also has
+                // __do_find_public_src at +40, which this table lacks.
                 //
                 // The relocation addend (usually +8) is applied below, so we
                 // return the vtable base here.
