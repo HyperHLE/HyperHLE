@@ -4,6 +4,8 @@
 
 ---
 
+Hey everyone, HyperHLE hasn't received any updates for three months now, but KlugKlugTG has picked up where I left off—games run better there. Here is the link to his fork https://github.com/KlugKlugTG/HyperHLE-Fork
+
 ## Key Features
 * **Clean Codebase:** Developed completely independently without using or copying any code from touchHLE's GerritHub.
 * **AI-Assisted Development:** This fork utilizes AI tools and assistance to accelerate development and implement features.
@@ -20,7 +22,7 @@ The upstream developers' aggressive measures against certain forks were not a ra
 To ensure complete transparency and maintain a clean open-source ecosystem, the HyperHLE team wishes to state the following:
 * **No Code Theft:** HyperHLE is built entirely through independent development methods. We strictly respect the original work and comply fully with the **Mozilla Public License 2.0 (MPL 2.0)**.
 * **Malicious Actor Removed:** The individual responsible for the code theft discovered by hikari_no_yume was completely removed and banned from the HyperHLE repository earlier this year (around April/May). We do not tolerate or support code plagiarism under any circumstances.
-* **Communication Lines Open:** TimofeyLednev has established direct contact with hikari_no_yume and shared the necessary information to bridge the gap between the actual creator of the HyperHLE fork and the upstream team, ensuring any future concerns can be resolved through proper discussion.
+* **Communication Lines Open:** TimofeyLednev has established direct contact with hikari_no_yume and shared thenecessary information to bridge the gap between the actual creator of the HyperHLE fork and the upstream team, ensuring any future concerns can be resolved through proper discussion.
 
 > ⚠️ **IMPORTANT WARNING:**
 > Despite the ongoing dialogue to resolve these past misunderstandings, please remember that the official touchHLE Discord server maintains a strict local policy. **DO NOT mention any forks there**, as discussing them will still result in an immediate, permanent ban.
