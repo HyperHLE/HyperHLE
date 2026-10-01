@@ -1,0 +1,45 @@
+name: Apply HyperHLE patches
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'patches/**'
+      - '.github/workflows/apply_hyperhle_patches.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/walaber-skeleton-resource-lookup
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply patches
+        run: |
+          set -euo pipefail
+          applied=0
+          for p in patches/*.patch; do
+            [ -f "$p" ] || continue
+            if git apply --check "$p" 2>/dev/null; then
+              git apply "$p"
+              echo "Applied $p"
+              applied=1
+            else
+              echo "Skip (already applied or conflict): $p"
+            fi
+          done
+          if [ "$applied" = "1" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Apply HyperHLE patches (app_picker polish)"
+            git push origin HEAD:fix/walaber-skeleton-resource-lookup
+            git push origin HEAD:fix/walaber-complete || true
+          else
+            echo "Nothing new to apply"
+          fi
