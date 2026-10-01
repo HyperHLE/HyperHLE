@@ -1178,6 +1178,9 @@ fn __assert_rtn(
         file_str,
         line
     );
+    // Guest stack for diagnostics (e.g. Walaber SkeletonActor.cpp init).
+    // Do not abort here — resource-loading fix is what unblocks the assert.
+    env.stack_trace_current();
 }
 
 fn __assert(env: &mut Environment, expr: ConstPtr<u8>, file: ConstPtr<u8>, line: i32) {
