@@ -61,6 +61,9 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/usr/lib/libSystem.B.dylib",
     aliases: &[
         "/usr/lib/libSystem.dylib",
+        // Many iOS apps (especially Unity/Mono-based) attempt to dlopen libc
+        // under various names. On Darwin, libc is part of libSystem — these
+        // aliases let dlopen succeed instead of returning NULL.
         "/usr/lib/libc.dylib",
         "libc.dylib",
         "libc.so",
