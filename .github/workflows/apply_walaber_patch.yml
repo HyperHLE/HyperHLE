@@ -19,27 +19,22 @@ jobs:
           ref: fix/walaber-complete
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Apply patch
+      - name: Apply patch if needed
         run: |
           set -euo pipefail
-          if git apply --check patches/walaber-resource-lookup.patch; then
-            git apply patches/walaber-resource-lookup.patch
-            echo "Patch applied"
+          if grep -q 'guest_path_resolve::resolve_guest_path' src/libc/posix_io.rs; then
+            echo "Patch already present in sources"
           else
-            echo "Patch already applied or conflict"
-            git apply --reverse --check patches/walaber-resource-lookup.patch && exit 0
-            git apply patches/walaber-resource-lookup.patch || true
+            git apply patches/walaber-resource-lookup.patch
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/libc/posix_io.rs src/libc/unistd.rs src/libc/stdlib.rs src/frameworks/foundation/ns_bundle.rs
+            git commit -m "fix: apply Walaber resource-lookup (posix_io, ns_bundle, unistd, assert stack)" || true
+            git push origin HEAD:fix/walaber-complete || true
           fi
 
-      - name: Commit and push if changed
+      - name: Sync fix/walaber-skeleton-resource-lookup
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/libc/posix_io.rs src/libc/unistd.rs src/libc/stdlib.rs src/frameworks/foundation/ns_bundle.rs
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "fix: apply Walaber resource-lookup (posix_io, ns_bundle, unistd, assert stack)"
-            git push origin HEAD:fix/walaber-complete
-          fi
+          git push origin HEAD:fix/walaber-skeleton-resource-lookup --force
+          echo "Synced original branch name to $(git rev-parse HEAD)"
