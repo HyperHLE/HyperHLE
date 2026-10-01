@@ -2,6 +2,10 @@ name: Apply app_picker polish
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'dev-scripts/polish_app_picker.py'
+      - '.github/workflows/apply_app_picker_polish.yml'
 
 permissions:
   contents: write
@@ -15,16 +19,17 @@ jobs:
           ref: fix/walaber-skeleton-resource-lookup
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Assemble polished app_picker.rs
+      - name: Polish app_picker.rs
         run: |
           set -euo pipefail
-          cat patches/app_picker.b64.part* > /tmp/all.b64
-          base64 -d /tmp/all.b64 > src/environment/app_picker.rs
-          wc -c src/environment/app_picker.rs
-          grep -q package_kind src/environment/app_picker.rs
+          python3 dev-scripts/polish_app_picker.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/environment/app_picker.rs
-          git commit -m "feat(app_picker): HyperHLE header, metadata labels, clearer empty state" || echo nochange
-          git push origin HEAD:fix/walaber-skeleton-resource-lookup
-          git push origin HEAD:fix/walaber-complete || true
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "feat(app_picker): HyperHLE header, metadata labels, clearer empty state"
+            git push origin HEAD:fix/walaber-skeleton-resource-lookup
+            git push origin HEAD:fix/walaber-complete || true
+          fi
