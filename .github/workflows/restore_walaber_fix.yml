@@ -1,0 +1,25 @@
+name: Restore Walaber fix branch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/walaber-complete
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point fix/walaber-skeleton-resource-lookup at complete tip
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git push origin HEAD:fix/walaber-skeleton-resource-lookup --force
+          echo "Updated fix/walaber-skeleton-resource-lookup to $(git rev-parse HEAD)"
