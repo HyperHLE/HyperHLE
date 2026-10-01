@@ -30,6 +30,7 @@ mod abi;
 mod audio;
 mod bundle;
 mod cpu;
+mod beni;
 mod debug;
 mod dyld;
 mod environment;
@@ -191,11 +192,11 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         bundle_path
     };
     // When PowerShell does tab-completion on a directory, for some reason it
-    // expands it to `'..\My Bundle.app\'` and that trailing \ seems to
+    // expands it to `'..\\My Bundle.app\\'` and that trailing \\ seems to
     // get interpreted as escaping a double quotation mark?
     #[cfg(windows)]
-    if let Some(fixed) = bundle_path.to_str().and_then(|s| s.strip_suffix('"')) {
-        log!("Warning: The bundle path has a trailing quotation mark! This often happens accidentally on Windows when tab-completing, because '\\\"' gets interpreted by Rust in the wrong way. Did you meant to write {:?}?", fixed);
+    if let Some(fixed) = bundle_path.to_str().and_then(|s| s.strip_suffix('\"')) {
+        log!("Warning: The bundle path has a trailing quotation mark! This often happens accidentally on Windows when tab-completing, because '\\\\\"' gets interpreted by Rust in the wrong way. Did you meant to write {:?}?", fixed);
     }
 
     let bundle_data = fs::BundleData::open_any(&bundle_path)
@@ -306,17 +307,6 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     echo!();
 
     if let Some(version) = minimum_os_version.as_deref() {
-        // Apple's `MinimumOSVersion` Info.plist key follows the standard
-        // dotted version format (`MAJOR[.MINOR[.PATCH]]`). Some apps ship
-        // with just `"7"`, others with `"7.0"`, others with `"7.0.0"` or
-        // even `"6.1.3"` — see Apple's
-        // <https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/iPhoneOSKeys.html#//apple_ref/doc/uid/TP40009252-SW33>.
-        // Previously we required at least one `.` separator and would
-        // `unwrap()` the resulting Option, which panicked when the value
-        // was a bare integer (e.g. Swordigo's iPhone OS bundle declares
-        // `MinimumOSVersion = 7`). Parse defensively instead and treat any
-        // non-numeric / unparseable component as zero, matching how dyld
-        // itself tolerates malformed plists.
         let (major_str, minor_str) = match version.split_once('.') {
             Some((maj, rest)) => {
                 let minor_str = rest.split_once('.').map_or(rest, |(minor, _patch)| minor);
@@ -326,9 +316,6 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         };
         let major: u32 = major_str.parse().unwrap_or(0);
         let minor: u32 = minor_str.parse().unwrap_or(0);
-        // Apps targeting up to iOS 9.0 attempt to run silently. Only warn
-        // when the deployment target is beyond iOS 9, where breakage from
-        // missing post-iOS-9 APIs becomes the rule rather than the exception.
         if major > 9 || (major == 9 && minor > 0) {
             echo!(
                 "Warning: app requires OS version {}. touchHLE currently aims \
