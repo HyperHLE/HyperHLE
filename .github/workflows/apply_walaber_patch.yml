@@ -1,0 +1,45 @@
+name: Apply Walaber patch
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'patches/walaber-resource-lookup.patch'
+      - '.github/workflows/apply_walaber_patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/walaber-complete
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply patch
+        run: |
+          set -euo pipefail
+          if git apply --check patches/walaber-resource-lookup.patch; then
+            git apply patches/walaber-resource-lookup.patch
+            echo "Patch applied"
+          else
+            echo "Patch already applied or conflict"
+            git apply --reverse --check patches/walaber-resource-lookup.patch && exit 0
+            git apply patches/walaber-resource-lookup.patch || true
+          fi
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/libc/posix_io.rs src/libc/unistd.rs src/libc/stdlib.rs src/frameworks/foundation/ns_bundle.rs
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "fix: apply Walaber resource-lookup (posix_io, ns_bundle, unistd, assert stack)"
+            git push origin HEAD:fix/walaber-complete
+          fi
