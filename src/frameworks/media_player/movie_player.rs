@@ -63,10 +63,12 @@ enum PendingNotification {
     ContentPreloadDidFinish(id),
     NowPlayingMovieChange(id),
     PlaybackStateChange(id),
-    /// `reason` is one of the `MPMovieFinishReason*` values.
+    /// `reason` is one of the `MPMovieFinishReason*` values. `generation` is
+    /// the player's `content_generation` when this was queued.
     PlaybackDidFinish {
         player: id,
         reason: NSInteger,
+        generation: u32,
     },
 }
 
@@ -311,10 +313,14 @@ struct MPMoviePlayerControllerHostObject {
     /// `true` once we have scheduled the post-load notification burst, so
     /// `prepareToPlay` / `play` / `setContentURL:` don't queue it twice.
     preload_scheduled: bool,
-    /// `true` once a `PlaybackDidFinish` notification has been queued for
-    /// the current content URL, to prevent duplicates when both autoplay
-    /// and an explicit `play` happen.
+    /// `true` while a `PlaybackDidFinish` notification is queued for the
+    /// current playback, to prevent duplicates when both autoplay and an
+    /// explicit `play` happen. Cleared when it is delivered, unless it
+    /// reports an error.
     finish_scheduled: bool,
+    /// Incremented by `setContentURL:`, so that a `PlaybackDidFinish` queued
+    /// for the previous content doesn't end the current playback.
+    content_generation: u32,
 }
 impl HostObject for MPMoviePlayerControllerHostObject {}
 
@@ -420,14 +426,19 @@ fn schedule_preload_sequence(env: &mut Environment, this: id) {
         // For a missing file, real iOS still posts a single finish
         // notification (with reason = PlaybackError); load-state etc. are
         // never posted. Mirror that.
-        env.objc
-            .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-            .finish_scheduled = true;
+        let generation = {
+            let host = env
+                .objc
+                .borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+            host.finish_scheduled = true;
+            host.content_generation
+        };
         enqueue(
             env,
             PendingNotification::PlaybackDidFinish {
                 player: this,
                 reason: MPMovieFinishReasonPlaybackError,
+                generation,
             },
             base,
         );
@@ -474,14 +485,19 @@ fn schedule_preload_sequence(env: &mut Environment, this: id) {
         // `PlaybackDidFinish` so they can advance past the intro screen.
         // Schedule it as a fallback after the metadata notifications; if the
         // app does call `play`, we'll skip the duplicate.
-        env.objc
-            .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-            .finish_scheduled = true;
+        let generation = {
+            let host = env
+                .objc
+                .borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+            host.finish_scheduled = true;
+            host.content_generation
+        };
         enqueue(
             env,
             PendingNotification::PlaybackDidFinish {
                 player: this,
                 reason: MPMovieFinishReasonPlaybackEnded,
+                generation,
             },
             metadata_at + Duration::from_millis(150),
         );
@@ -489,12 +505,12 @@ fn schedule_preload_sequence(env: &mut Environment, this: id) {
 }
 
 fn schedule_playback(env: &mut Environment, this: id, start_at: Instant) {
-    let already_finish_scheduled = {
+    let (already_finish_scheduled, generation) = {
         let host = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
         host.playback_state = MPMoviePlaybackStatePlaying;
         let was = host.finish_scheduled;
         host.finish_scheduled = true;
-        was
+        (was, host.content_generation)
     };
 
     enqueue(env, PendingNotification::NowPlayingMovieChange(this), start_at);
@@ -508,6 +524,7 @@ fn schedule_playback(env: &mut Environment, this: id, start_at: Instant) {
             PendingNotification::PlaybackDidFinish {
                 player: this,
                 reason: MPMovieFinishReasonPlaybackEnded,
+                generation,
             },
             start_at + Duration::from_millis(150),
         );
@@ -539,6 +556,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         ready_for_display: false,
         preload_scheduled: false,
         finish_scheduled: false,
+        content_generation: 0,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -583,6 +601,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.content_url = url;
         host.preload_scheduled = false;
         host.finish_scheduled = false;
+        host.content_generation = host.content_generation.wrapping_add(1);
         host.load_state = MPMovieLoadStateUnknown;
         host.ready_for_display = false;
         let was = host.playback_state == MPMoviePlaybackStatePlaying;
@@ -937,10 +956,25 @@ pub(super) fn handle_players(env: &mut Environment) {
 
         // For PlaybackDidFinish we must update playbackState BEFORE posting,
         // so observers that read [player playbackState] see Stopped.
-        if matches!(notif, PendingNotification::PlaybackDidFinish { .. }) {
-            env.objc
-                .borrow_mut::<MPMoviePlayerControllerHostObject>(player)
-                .playback_state = MPMoviePlaybackStateStopped;
+        if let PendingNotification::PlaybackDidFinish {
+            reason, generation, ..
+        } = notif
+        {
+            let host = env
+                .objc
+                .borrow_mut::<MPMoviePlayerControllerHostObject>(player);
+            // One queued before `setContentURL:` is still posted, but it
+            // belongs to the previous content and must not end this playback.
+            if generation == host.content_generation {
+                host.playback_state = MPMoviePlaybackStateStopped;
+                // A later `play` starts a new playback with its own
+                // notification, for apps that subscribe after this one.
+                // After an error iOS posts no more, and a later `play` must
+                // not report a successful end of a missing file.
+                if reason != MPMovieFinishReasonPlaybackError {
+                    host.finish_scheduled = false;
+                }
+            }
         }
 
         let name = ns_string::get_static_str(env, name_str);
