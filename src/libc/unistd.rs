@@ -147,19 +147,9 @@ fn access(env: &mut Environment, path: ConstPtr<u8>, mode: i32) -> i32 {
             return -1;
         }
     };
-    let resolved_binding = if !binding.starts_with('/') && !env.fs.exists(GuestPath::new(&binding)) {
-        let bundle_root = env.bundle.bundle_path().as_str().trim_end_matches('/');
-        let relative = binding.strip_prefix("Data/").unwrap_or(&binding);
-        let relative = relative.strip_prefix("Data/").unwrap_or(relative);
-        let candidate = format!("{bundle_root}/Data/{relative}");
-        if env.fs.exists(GuestPath::new(&candidate)) {
-            candidate
-        } else {
-            binding.clone()
-        }
-    } else {
-        binding.clone()
-    };
+    // Prefer app-bundle relative paths; only probe Unity Data/ when present
+    // (Walaber Engine games must not be forced through Data/).
+    let resolved_binding = crate::libc::guest_path_resolve::resolve_guest_path(env, &binding);
     let guest_path = GuestPath::new(&resolved_binding);
     let (exists, read, write, execute) = env.fs.access(guest_path);
     // TODO: support ORing

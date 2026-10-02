@@ -1,0 +1,35 @@
+name: Apply app_picker polish
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'dev-scripts/polish_app_picker.py'
+      - '.github/workflows/apply_app_picker_polish.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/walaber-skeleton-resource-lookup
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Polish app_picker.rs
+        run: |
+          set -euo pipefail
+          python3 dev-scripts/polish_app_picker.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/environment/app_picker.rs
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "feat(app_picker): HyperHLE header, metadata labels, clearer empty state"
+            git push origin HEAD:fix/walaber-skeleton-resource-lookup
+            git push origin HEAD:fix/walaber-complete || true
+          fi

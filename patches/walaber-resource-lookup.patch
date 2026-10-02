@@ -1,0 +1,136 @@
+diff --git a/src/frameworks/foundation/ns_bundle.rs b/src/frameworks/foundation/ns_bundle.rs
+index ce4cce41..762cc2f4 100644
+--- a/src/frameworks/foundation/ns_bundle.rs
++++ b/src/frameworks/foundation/ns_bundle.rs
+@@ -1038,25 +1038,8 @@ fn path_for_resource_helper(
+         return path;
+     }
+ 
+-    // Unity iOS players keep their serialized data files in a sibling Data
+-    // directory inside the app bundle rather than at the bundle root.
+-    // NSBundle's normal lookup remains first; this fallback only applies when
+-    // the requested resource is not found there.
+-    let data_component = ns_string::get_static_str(env, "Data");
+-    let data_path: id = msg![env; path stringByAppendingPathComponent:data_component];
+-    let data_path: id = msg![env; data_path stringByAppendingPathComponent:name];
+-    let data_path_exists: bool = msg![env; file_manager fileExistsAtPath:data_path];
+-    log!(
+-        "NSBundle resource lookup: {:?} missing, Unity Data fallback {:?} exists={}",
+-        path,
+-        data_path,
+-        data_path_exists
+-    );
+-    if data_path_exists {
+-        return data_path;
+-    }
+-
+-    // Case-insensitive fallback: scan the parent directory.
++    // Case-insensitive fallback FIRST (before any Unity Data/ probe).
++    // Non-Unity engines (Walaber) must not get a misleading Data/ miss log.
+     let path_str = ns_string::to_rust_string(env, path);
+     let rust_path = std::path::Path::new(path_str.as_ref());
+     if let (Some(parent), Some(file_name)) = (rust_path.parent(), rust_path.file_name()) {
+@@ -1074,6 +1057,37 @@ fn path_for_resource_helper(
+             return ns_string::from_rust_string(env, full);
+         }
+     }
++
++    // Unity Data/ only when the bundle actually contains a top-level Data dir.
++    {
++        let resource_path: id = msg![env; bundle resourcePath];
++        let data_component = ns_string::get_static_str(env, "Data");
++        let data_dir: id = msg![env; resource_path stringByAppendingPathComponent:data_component];
++        let data_dir_exists: bool = msg![env; file_manager fileExistsAtPath:data_dir];
++        if data_dir_exists {
++            let mut data_path: id = data_dir;
++            if lproj != nil {
++                data_path = msg![env; data_path stringByAppendingPathComponent:lproj];
++            }
++            if directory != nil {
++                data_path = msg![env; data_path stringByAppendingPathComponent:directory];
++            }
++            data_path = msg![env; data_path stringByAppendingPathComponent:name];
++            if extension != nil {
++                let ext_str = ns_string::to_rust_string(env, extension);
++                if !ext_str.is_empty() {
++                    data_path = msg![env; data_path stringByAppendingPathExtension:extension];
++                }
++            }
++            let data_path_exists: bool = msg![env; file_manager fileExistsAtPath:data_path];
++            if data_path_exists {
++                log_dbg!("NSBundle: resolved {:?} via Unity Data/", data_path);
++                return data_path;
++            }
++        }
++    }
++
++    log_dbg!("NSBundle: resource not found for name={:?}", name);
+     nil
+ }
+ 
+diff --git a/src/libc/posix_io.rs b/src/libc/posix_io.rs
+index 4d65c542..7ac676ea 100644
+--- a/src/libc/posix_io.rs
++++ b/src/libc/posix_io.rs
+@@ -330,14 +330,12 @@ pub fn open_direct(env: &mut Environment, path: ConstPtr<u8>, flags: i32) -> Fil
+             if (flags & O_CREAT) != 0 {
+                 return None;
+             }
+-
+-            let bundle_root = env.bundle.bundle_path().as_str().trim_end_matches('/');
+-            let relative_path = path_string.trim_start_matches("./");
+-            let data_relative_path = relative_path.strip_prefix("Data/").unwrap_or(relative_path);
+-            let bundle_relative_path = format!("{bundle_root}/{relative_path}");
+-            let bundle_data_path = format!("{bundle_root}/Data/{data_relative_path}");
+-            case_insensitive_path(env, &bundle_relative_path)
+-                .or_else(|| case_insensitive_path(env, &bundle_data_path))
++            // Prefer bundle-root; Unity Data/ only when that dir exists (Walaber-safe).
++            let resolved = crate::libc::guest_path_resolve::resolve_guest_path(env, &path_string);
++            if resolved != path_string {
++                return case_insensitive_path(env, &resolved);
++            }
++            None
+         })
+         .unwrap_or_else(|| path_string.clone());
+ 
+diff --git a/src/libc/stdlib.rs b/src/libc/stdlib.rs
+index fac676f3..dfb05d94 100644
+--- a/src/libc/stdlib.rs
++++ b/src/libc/stdlib.rs
+@@ -1178,6 +1178,9 @@ fn __assert_rtn(
+         file_str,
+         line
+     );
++    // Guest stack for diagnostics (e.g. Walaber SkeletonActor.cpp init).
++    // Do not abort here — resource-loading fix is what unblocks the assert.
++    env.stack_trace_current();
+ }
+ 
+ fn __assert(env: &mut Environment, expr: ConstPtr<u8>, file: ConstPtr<u8>, line: i32) {
+diff --git a/src/libc/unistd.rs b/src/libc/unistd.rs
+index b7f8b923..bd902f53 100644
+--- a/src/libc/unistd.rs
++++ b/src/libc/unistd.rs
+@@ -147,19 +147,9 @@ fn access(env: &mut Environment, path: ConstPtr<u8>, mode: i32) -> i32 {
+             return -1;
+         }
+     };
+-    let resolved_binding = if !binding.starts_with('/') && !env.fs.exists(GuestPath::new(&binding)) {
+-        let bundle_root = env.bundle.bundle_path().as_str().trim_end_matches('/');
+-        let relative = binding.strip_prefix("Data/").unwrap_or(&binding);
+-        let relative = relative.strip_prefix("Data/").unwrap_or(relative);
+-        let candidate = format!("{bundle_root}/Data/{relative}");
+-        if env.fs.exists(GuestPath::new(&candidate)) {
+-            candidate
+-        } else {
+-            binding.clone()
+-        }
+-    } else {
+-        binding.clone()
+-    };
++    // Prefer app-bundle relative paths; only probe Unity Data/ when present
++    // (Walaber Engine games must not be forced through Data/).
++    let resolved_binding = crate::libc::guest_path_resolve::resolve_guest_path(env, &binding);
+     let guest_path = GuestPath::new(&resolved_binding);
+     let (exists, read, write, execute) = env.fs.access(guest_path);
+     // TODO: support ORing

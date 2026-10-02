@@ -330,14 +330,12 @@ pub fn open_direct(env: &mut Environment, path: ConstPtr<u8>, flags: i32) -> Fil
             if (flags & O_CREAT) != 0 {
                 return None;
             }
-
-            let bundle_root = env.bundle.bundle_path().as_str().trim_end_matches('/');
-            let relative_path = path_string.trim_start_matches("./");
-            let data_relative_path = relative_path.strip_prefix("Data/").unwrap_or(relative_path);
-            let bundle_relative_path = format!("{bundle_root}/{relative_path}");
-            let bundle_data_path = format!("{bundle_root}/Data/{data_relative_path}");
-            case_insensitive_path(env, &bundle_relative_path)
-                .or_else(|| case_insensitive_path(env, &bundle_data_path))
+            // Prefer bundle-root; Unity Data/ only when that dir exists (Walaber-safe).
+            let resolved = crate::libc::guest_path_resolve::resolve_guest_path(env, &path_string);
+            if resolved != path_string {
+                return case_insensitive_path(env, &resolved);
+            }
+            None
         })
         .unwrap_or_else(|| path_string.clone());
 

@@ -283,6 +283,37 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this description]
 }
 
+// TouchJSON / SBJSON-style selectors used by Burstly / AdColony response
+// serializers. Returning a real empty JSON string avoids the guest treating
+// an unrecognized-selector fallback as a live object pointer (e.g. 0x1) and
+// walking NULL-PAGE memory.
+- (id)toJSONAs:(bool)_as
+    excludingInArray:(id)_excluding
+    withTranslations:(id)_translations {
+    let dict_class = env.objc.get_known_class("NSDictionary", &mut env.mem);
+    let array_class = env.objc.get_known_class("NSArray", &mut env.mem);
+    let is_dict: bool = msg![env; this isKindOfClass:dict_class];
+    let is_array: bool = msg![env; this isKindOfClass:array_class];
+    if is_dict || is_array {
+        let data: id = msg_class![env; NSJSONSerialization dataWithJSONObject:this
+                                                                      options:0u32
+                                                                        error:(crate::mem::MutPtr::null())];
+        if data != nil {
+            let s: id = msg_class![env; NSString alloc];
+            let s: id = msg![env; s initWithData:data encoding:4u32]; // NSUTF8StringEncoding
+            if s != nil {
+                return autorelease(env, s);
+            }
+        }
+    }
+    let empty = from_rust_string(env, "{}".to_string());
+    autorelease(env, empty)
+}
+
+- (id)JSONRepresentation {
+    msg![env; this toJSONAs:false excludingInArray:nil withTranslations:nil]
+}
+
 - (NSUInteger)retainCount {
     env.objc.get_refcount(this).into()
 }

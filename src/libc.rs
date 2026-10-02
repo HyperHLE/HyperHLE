@@ -52,6 +52,7 @@ pub mod string;
 pub mod sys;
 pub mod sysctl;
 pub mod time;
+pub mod guest_path_resolve;
 pub mod unistd;
 pub mod uuid;
 pub mod wchar;

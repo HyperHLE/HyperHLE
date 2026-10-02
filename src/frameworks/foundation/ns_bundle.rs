@@ -1038,25 +1038,8 @@ fn path_for_resource_helper(
         return path;
     }
 
-    // Unity iOS players keep their serialized data files in a sibling Data
-    // directory inside the app bundle rather than at the bundle root.
-    // NSBundle's normal lookup remains first; this fallback only applies when
-    // the requested resource is not found there.
-    let data_component = ns_string::get_static_str(env, "Data");
-    let data_path: id = msg![env; path stringByAppendingPathComponent:data_component];
-    let data_path: id = msg![env; data_path stringByAppendingPathComponent:name];
-    let data_path_exists: bool = msg![env; file_manager fileExistsAtPath:data_path];
-    log!(
-        "NSBundle resource lookup: {:?} missing, Unity Data fallback {:?} exists={}",
-        path,
-        data_path,
-        data_path_exists
-    );
-    if data_path_exists {
-        return data_path;
-    }
-
-    // Case-insensitive fallback: scan the parent directory.
+    // Case-insensitive fallback FIRST (before any Unity Data/ probe).
+    // Non-Unity engines (Walaber) must not get a misleading Data/ miss log.
     let path_str = ns_string::to_rust_string(env, path);
     let rust_path = std::path::Path::new(path_str.as_ref());
     if let (Some(parent), Some(file_name)) = (rust_path.parent(), rust_path.file_name()) {
@@ -1074,6 +1057,37 @@ fn path_for_resource_helper(
             return ns_string::from_rust_string(env, full);
         }
     }
+
+    // Unity Data/ only when the bundle actually contains a top-level Data dir.
+    {
+        let resource_path: id = msg![env; bundle resourcePath];
+        let data_component = ns_string::get_static_str(env, "Data");
+        let data_dir: id = msg![env; resource_path stringByAppendingPathComponent:data_component];
+        let data_dir_exists: bool = msg![env; file_manager fileExistsAtPath:data_dir];
+        if data_dir_exists {
+            let mut data_path: id = data_dir;
+            if lproj != nil {
+                data_path = msg![env; data_path stringByAppendingPathComponent:lproj];
+            }
+            if directory != nil {
+                data_path = msg![env; data_path stringByAppendingPathComponent:directory];
+            }
+            data_path = msg![env; data_path stringByAppendingPathComponent:name];
+            if extension != nil {
+                let ext_str = ns_string::to_rust_string(env, extension);
+                if !ext_str.is_empty() {
+                    data_path = msg![env; data_path stringByAppendingPathExtension:extension];
+                }
+            }
+            let data_path_exists: bool = msg![env; file_manager fileExistsAtPath:data_path];
+            if data_path_exists {
+                log_dbg!("NSBundle: resolved {:?} via Unity Data/", data_path);
+                return data_path;
+            }
+        }
+    }
+
+    log_dbg!("NSBundle: resource not found for name={:?}", name);
     nil
 }
 

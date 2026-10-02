@@ -1,0 +1,40 @@
+name: Apply Walaber patch
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'patches/walaber-resource-lookup.patch'
+      - '.github/workflows/apply_walaber_patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/walaber-complete
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply patch if needed
+        run: |
+          set -euo pipefail
+          if grep -q 'guest_path_resolve::resolve_guest_path' src/libc/posix_io.rs; then
+            echo "Patch already present in sources"
+          else
+            git apply patches/walaber-resource-lookup.patch
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/libc/posix_io.rs src/libc/unistd.rs src/libc/stdlib.rs src/frameworks/foundation/ns_bundle.rs
+            git commit -m "fix: apply Walaber resource-lookup (posix_io, ns_bundle, unistd, assert stack)" || true
+            git push origin HEAD:fix/walaber-complete || true
+          fi
+
+      - name: Sync fix/walaber-skeleton-resource-lookup
+        run: |
+          set -euo pipefail
+          git push origin HEAD:fix/walaber-skeleton-resource-lookup --force
+          echo "Synced original branch name to $(git rev-parse HEAD)"
