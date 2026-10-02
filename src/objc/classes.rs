@@ -417,6 +417,11 @@ fn substitute_classes(
         || name.starts_with("ALIncentivized") // AppLovin incentivized ads
         || name.starts_with("ALTargeting") // AppLovin targeting
         || name.starts_with("ALPrivacy") // AppLovin privacy settings
+        // Burstly / AdColony / Chartboost: old ad SDKs (e.g. My Little Pony).
+        // Without fakes, network stubs leave half-init objects → NULL-PAGE / nil isa.
+        || name.starts_with("Burstly")
+        || name.starts_with("AdColony")
+        || name.starts_with("Chartboost")
     )
     // <-- ДОБАВЛЕНО ЗДЕСЬ
     {
@@ -661,6 +666,10 @@ impl ObjC {
                 || name.starts_with("UA")
                 || name.starts_with("GAD")
                 || name.starts_with("iSimulate")
+                || name.starts_with("Burstly")
+                || name.starts_with("AdColony")
+                || name.starts_with("Chartboost")
+                || name.starts_with("RevMob")
                 // SpringBoard private classes (e.g. "SBSceneFor%@" → "SBSceneFor(null)").
                 // Apps probing for jailbroken-device features look these up
                 // via NSClassFromString and only act if they exist; returning
