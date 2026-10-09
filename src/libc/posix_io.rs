@@ -413,9 +413,17 @@ pub fn read(
         return -1;
     };
 
+    let path = file.path.clone();
     let buffer_slice = env.mem.bytes_at_mut(buffer.cast(), size);
-    match file.file.read(buffer_slice) {
+    // Read into a host buffer, then copy into guest memory. On Windows, guest
+    // pages are committed lazily by a vectored exception handler, which a
+    // kernel-mode write from ReadFile never triggers: reading straight into a
+    // not-yet-touched guest page fails with ERROR_NOACCESS (998). The copy
+    // below is an ordinary user-mode write, so it commits pages as needed.
+    let mut host_buffer = vec![0u8; buffer_slice.len()];
+    match file.file.read(&mut host_buffer) {
         Ok(bytes_read) => {
+            buffer_slice[..bytes_read].copy_from_slice(&host_buffer[..bytes_read]);
             if bytes_read == 0 && size != 0 {
                 file.reached_eof = true;
             }
@@ -457,9 +465,10 @@ pub fn read(
                 _ => -1,
             };
             log!(
-                "Warning: read({:?}, {:?}, {:#x}) encountered error {:?}, \
+                "Warning: read({:?} {:?}, {:?}, {:#x}) encountered error {:?}, \
                  returning {}",
                 fd,
+                path,
                 buffer,
                 size,
                 e,

@@ -48,8 +48,10 @@ pub fn prep_stack_for_start(
 
     // We are arbitrarily putting the main thread's stack at the top of the
     // address space (see also: mem::Mem::MAIN_THREAD_STACK_LOW_END).
-    // Since the stack grows downwards, its first byte would be 0xffffffff.
-    let stack_base: usize = 1 << 32;
+    // Since the stack grows downwards, its first byte would be 0xffffffff,
+    // but we leave some headroom above it so overruns of buffers near the
+    // top of the stack stay in bounds (see MAIN_THREAD_STACK_TOP_HEADROOM).
+    let stack_base: usize = (1 << 32) - Mem::MAIN_THREAD_STACK_TOP_HEADROOM as usize;
 
     // Rust vectors grow upwards but we need to grow this one downwards, so
     // let's push the strings onto it reversed.
@@ -104,7 +106,7 @@ pub fn prep_stack_for_start(
         Ptr::from_bits((stack_base - reversed_data.len()).try_into().unwrap());
     let stack_height: GuestUSize = reversed_data.len().try_into().unwrap();
 
-    assert!(stack_height < Mem::MAIN_THREAD_STACK_SIZE);
+    assert!(stack_height < Mem::MAIN_THREAD_STACK_SIZE - Mem::MAIN_THREAD_STACK_TOP_HEADROOM);
 
     let stack_region = mem.bytes_at_mut(stack_ptr, stack_height);
 

@@ -388,6 +388,16 @@ impl Mem {
     /// space (see also: stack.rs), I have no idea if this matches iPhone OS.
     pub const MAIN_THREAD_STACK_LOW_END: VAddr = 0u32.wrapping_sub(Self::MAIN_THREAD_STACK_SIZE);
 
+    /// Bytes left unused (zeroed) at the top of the main thread's stack, above
+    /// the argv/envp/apple strings.
+    ///
+    /// On iPhone OS the kernel places the stack top well below the end of the
+    /// address space, so a buffer near the top of the stack that overruns
+    /// upwards lands in harmless memory. Without headroom such an overrun runs
+    /// past 0xFFFFFFFF and the whole access is discarded (e.g. Skate It's
+    /// 0x400-byte buffers, which then never receive their text/level data).
+    pub const MAIN_THREAD_STACK_TOP_HEADROOM: GuestUSize = 0x1000;
+
     /// iPhone OS secondary thread stack size.
     pub const SECONDARY_THREAD_DEFAULT_STACK_SIZE: GuestUSize = 512 * 1024;
 
