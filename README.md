@@ -4,7 +4,6 @@
 
 ---
 
-Hey everyone, HyperHLE hasn't received any updates for three months now, but KlugKlugTG has picked up where I left off—games run better there. Here is the link to his fork https://github.com/KlugKlugTG/HyperHLE-Fork
 
 ## Key Features
 * **Clean Codebase:** Developed completely independently without using or copying any code from touchHLE's GerritHub.
