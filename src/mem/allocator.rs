@@ -131,6 +131,13 @@ mod collections {
         pub fn get_size_with_base(&self, base: VAddr) -> Option<NonZeroU32> {
             self.chunks.get(&base).copied()
         }
+
+        /// Iterate over all chunks currently stored in this map.
+        pub fn iter(&self) -> impl Iterator<Item = Chunk> + '_ {
+            self.chunks
+                .iter()
+                .map(|(&base, &size)| Chunk { base, size })
+        }
     }
 
     #[derive(Default, Debug)]
@@ -430,5 +437,20 @@ impl Allocator {
         }
 
         freed.size.get()
+    }
+
+    /// Returns a snapshot of all currently-live allocations as
+    /// `(base_address, size_in_bytes)` pairs.
+    ///
+    /// This is used by the optional RTCV-style game-corruption engine
+    /// (see [`crate::corrupt`]) so that random byte corruption can be
+    /// restricted to memory the guest has actually allocated, instead of
+    /// blindly poking anywhere in the 4 GiB address space (which would
+    /// almost always hit unmapped pages and crash immediately).
+    pub fn live_allocations(&self) -> Vec<(VAddr, GuestUSize)> {
+        self.used_chunks
+            .iter()
+            .map(|chunk| (chunk.base, chunk.size.get()))
+            .collect()
     }
 }

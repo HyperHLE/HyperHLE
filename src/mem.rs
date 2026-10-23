@@ -896,6 +896,31 @@ impl Mem {
         self.allocator.is_known_allocation(addr)
     }
 
+    /// Returns a snapshot of all currently-live heap allocations as
+    /// `(base_address, size_in_bytes)` pairs.
+    ///
+    /// This is used by the RTCV-style memory corruption engine
+    /// ([crate::corrupt]) so it can target only memory the guest has actually
+    /// allocated, which keeps corruption "interesting" (it mangles live game
+    /// state) while avoiding writes to unmapped address space that would just
+    /// crash the emulator immediately.
+    pub fn live_allocations(&self) -> Vec<(GuestUSize, GuestUSize)> {
+        self.allocator.live_allocations()
+    }
+
+    /// Corrupt a single byte of guest memory at `addr` by replacing it with
+    /// `value`, RTCV "Blast"-style. Returns the previous byte value.
+    ///
+    /// SAFETY/CORRECTNESS: `addr` must lie within a live allocation (see
+    /// [Self::live_allocations]). The corruption engine guarantees this.
+    pub fn corrupt_byte(&mut self, addr: GuestUSize, value: u8) -> u8 {
+        let ptr: MutPtr<u8> = Ptr::from_bits(addr);
+        let slice = self.bytes_at_mut(ptr, 1);
+        let old = slice[0];
+        slice[0] = value;
+        old
+    }
+
     pub fn realloc(&mut self, old_ptr: MutVoidPtr, size: GuestUSize) -> MutVoidPtr {
         if old_ptr.is_null() {
             return self.alloc(size);
