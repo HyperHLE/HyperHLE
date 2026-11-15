@@ -30,7 +30,19 @@
 use crate::abi::{CallFromHost, GuestFunction};
 use crate::dyld::{ConstantExports, HostConstant, HostDylib};
 use crate::frameworks::foundation::ns_array;
+use crate::mem::ConstVoidPtr;
 use crate::objc::{id, nil, objc_classes, ClassExports};
+use crate::Environment;
+
+/// `extern const double GCHapticDurationInfinite`
+///
+/// CoreHaptics/GameController declare this as `INFINITY`: passing it as a
+/// duration means "keep playing until stopped". Apps built with a newer SDK
+/// reference it from an iOS 13+ code path, but the relocation is resolved at
+/// load time regardless, so the slot must hold a real value.
+fn haptic_duration_infinite(env: &mut Environment) -> ConstVoidPtr {
+    env.mem.alloc_and_write(f64::INFINITY).cast().cast_const()
+}
 
 pub const CONSTANTS: ConstantExports = &[
     (
@@ -40,6 +52,23 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_GCControllerDidDisconnectNotification",
         HostConstant::NSString("GCControllerDidDisconnectNotification"),
+    ),
+    // Haptic locality names (`GCHapticsLocality` in GameController.h, iOS 13+).
+    // Like the CoreHaptics constants in `core_haptics.rs`, the values are the
+    // documented names themselves; they only have to exist for the loader.
+    (
+        "_GCHapticsLocalityDefault",
+        HostConstant::NSString("Default"),
+    ),
+    ("_GCHapticsLocalityAll", HostConstant::NSString("All")),
+    ("_GCHapticsLocalityHandles", HostConstant::NSString("Handles")),
+    (
+        "_GCHapticsLocalityTriggers",
+        HostConstant::NSString("Triggers"),
+    ),
+    (
+        "_GCHapticDurationInfinite",
+        HostConstant::Custom(haptic_duration_infinite),
     ),
 ];
 

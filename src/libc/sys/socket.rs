@@ -2219,8 +2219,40 @@ pub(crate) fn socket_poll_events(
     ready
 }
 
+/// `int ___darwin_check_fd_set_overflow(int fd, const void *fdset,
+///      int fdsetsize)`
+///
+/// Newer SDKs implement `FD_ISSET` as a call to this helper instead of reading
+/// the bitmask inline, so builds from around iOS 10 on (RetroArch's armv7 slice
+/// included) bind it at load time and call it from every `select()` loop.
+/// Without a host implementation it stayed an `unhandled external relocation`:
+/// `FD_ISSET` then had no safe place to read and the readiness loop stalled.
+///
+/// It answers whether `fd`'s bit is set in `fdset`, exactly like the macro it
+/// replaced. `fdsetsize` is `sizeof(fd_set)`; a descriptor outside that range
+/// is reported as not set, which is what Darwin does instead of reading past
+/// the caller's buffer.
+/// https://opensource.apple.com/source/Libc/Libc-1158.1.2/include/sys/_types/_fd_def.h.auto.html
+fn ___darwin_check_fd_set_overflow(
+    env: &mut Environment,
+    fd: i32,
+    fdset: ConstPtr<u8>,
+    fdsetsize: i32,
+) -> i32 {
+    if fd < 0 || fdset.is_null() {
+        return 0;
+    }
+    let byte_index = (fd / 8) as u32;
+    if fdsetsize >= 0 && byte_index >= fdsetsize as u32 {
+        return 0;
+    }
+    let bytes = env.mem.bytes_at(fdset, byte_index + 1);
+    ((bytes[byte_index as usize] >> (fd % 8)) & 1) as i32
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(socket(_, _, _)),
+    export_c_func!(___darwin_check_fd_set_overflow(_, _, _)),
     export_c_func!(ioctl(_, _, _)),
     export_c_func!(getsockopt(_, _, _, _, _)),
     export_c_func!(setsockopt(_, _, _, _, _)),
