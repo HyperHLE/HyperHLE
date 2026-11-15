@@ -412,6 +412,83 @@ pub(crate) fn reset_out_of_memory_log_budget() {
     OUT_OF_MEMORY_LOG_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Allocation size at which a request is attributed to a guest call site.
+const ALLOCATION_SITE_MIN_SIZE: GuestUSize = 4096;
+/// How many call sites the attribution table keeps.
+const ALLOCATION_SITE_SLOTS: usize = 8;
+/// Bytes of attributed allocations between reports; doubles each time.
+const ALLOCATION_SITE_FIRST_REPORT: u64 = 256 * 1024 * 1024;
+
+/// Who asks for the guest heap's large allocations, keyed by the guest return
+/// address of the host call `(site, bytes, allocations)`.
+///
+/// The guest heap is one address space shared by the app and everything it
+/// embeds (Mono's Boehm GC, PhysX, Unity's own pools), so an app whose heap
+/// balloons can't be diagnosed from the total alone: Unity's own accounting
+/// can report a few tens of megabytes while the heap is gigabytes. Blaming the
+/// call sites turns that into an answer, and it costs nothing on the `malloc`
+/// fast path because only requests of at least
+/// `ALLOCATION_SITE_MIN_SIZE` are recorded.
+static ALLOCATION_SITES: std::sync::Mutex<Vec<(VAddr, u64, u64)>> =
+    std::sync::Mutex::new(Vec::new());
+static ALLOCATION_SITE_NEXT_REPORT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(ALLOCATION_SITE_FIRST_REPORT);
+
+/// Records that `size` bytes were allocated on the guest's behalf from the
+/// host call that returns to `site`.
+///
+/// Once the attributed total passes a threshold (256 MiB, then 512 MiB, then
+/// 1 GiB and so on) the biggest sites are logged, so a leak shows its caller
+/// instead of just filling the heap.
+pub(crate) fn note_allocation_site(site: VAddr, size: GuestUSize) {
+    if size < ALLOCATION_SITE_MIN_SIZE {
+        return;
+    }
+    let Ok(mut sites) = ALLOCATION_SITES.lock() else {
+        return;
+    };
+    match sites.iter_mut().find(|entry| entry.0 == site) {
+        Some(entry) => {
+            entry.1 += u64::from(size);
+            entry.2 += 1;
+        }
+        None => sites.push((site, u64::from(size), 1)),
+    }
+    if sites.len() > ALLOCATION_SITE_SLOTS {
+        sites.sort_by(|a, b| b.1.cmp(&a.1));
+        sites.truncate(ALLOCATION_SITE_SLOTS);
+    }
+    let total: u64 = sites.iter().map(|entry| entry.1).sum();
+    let threshold = ALLOCATION_SITE_NEXT_REPORT.load(std::sync::atomic::Ordering::Relaxed);
+    if total < threshold
+        || ALLOCATION_SITE_NEXT_REPORT
+            .compare_exchange(
+                threshold,
+                threshold.saturating_mul(2),
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+    {
+        return;
+    }
+    log!(
+        "Warning: guest heap attribution: {} MiB in large allocations ({} MiB live in the heap)",
+        total / (1024 * 1024),
+        guest_heap_bytes() / (1024 * 1024)
+    );
+    let mut biggest: Vec<(VAddr, u64, u64)> = sites.clone();
+    biggest.sort_by(|a, b| b.1.cmp(&a.1));
+    for (site, bytes, allocations) in biggest {
+        log!(
+            "Warning:   returns to {:#010x}: {} KiB in {} allocations",
+            site,
+            bytes / 1024,
+            allocations
+        );
+    }
+}
+
 /// Claim the one-shot null-write probe. Returns `true` for exactly one caller
 /// in the whole process, which must arrange for the resulting memory abort to
 /// be reported. Two flags rather than one: reusing a single flag let the
@@ -576,6 +653,13 @@ impl Mem {
         publish_guest_heap_bytes(0);
         GUEST_HEAP_LIMIT_BYTES.store(0, std::sync::atomic::Ordering::Relaxed);
         reset_out_of_memory_log_budget();
+        if let Ok(mut sites) = ALLOCATION_SITES.lock() {
+            sites.clear();
+        }
+        ALLOCATION_SITE_NEXT_REPORT.store(
+            ALLOCATION_SITE_FIRST_REPORT,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         Mem {
             bytes,
             null_segment_size: 0,

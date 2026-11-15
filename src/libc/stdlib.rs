@@ -130,6 +130,9 @@ fn malloc(env: &mut Environment, mut size: GuestUSize) -> MutVoidPtr {
     let ptr = env.mem.alloc(size);
     if ptr.is_null() {
         set_errno(env, crate::libc::errno::ENOMEM);
+    } else {
+        let site = env.cpu.regs()[crate::cpu::Cpu::LR];
+        crate::mem::note_allocation_site(site, size);
     }
     ptr.cast()
 }
@@ -173,7 +176,12 @@ fn calloc(env: &mut Environment, count: GuestUSize, size: GuestUSize) -> MutVoid
         total = 1;
         // Защита от падения
     }
-    env.mem.calloc(total)
+    let ptr = env.mem.calloc(total);
+    if !ptr.is_null() {
+        let site = env.cpu.regs()[crate::cpu::Cpu::LR];
+        crate::mem::note_allocation_site(site, total);
+    }
+    ptr
 }
 
 fn NSZoneMalloc(env: &mut Environment, _zone: id, mut size: GuestUSize) -> MutVoidPtr {

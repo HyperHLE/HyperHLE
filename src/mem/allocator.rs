@@ -429,10 +429,11 @@ impl Allocator {
         }
 
         let Some(alloc) = self.unused_chunks.allocate(aligned_size) else {
-            log!(
-                "Warning: Allocator::alloc: out of memory (could not find a large enough chunk for {:#x} bytes); returning NULL.",
-                aligned_size
-            );
+            // The heap is full (often fragmented rather than truly used up), or
+            // the RAM limiter's cap was reached above. Both share one
+            // rate-limited log budget: a guest that retries every frame would
+            // otherwise fill the log with this line.
+            super::log_out_of_memory("malloc (heap full)", aligned_size);
             return 0;
         };
         self.used_chunks.insert(alloc);

@@ -301,6 +301,7 @@ fn mmap(
         }
     }
 
+    crate::mem::note_allocation_site(env.cpu.regs()[crate::cpu::Cpu::LR], len);
     track_allocation(&mut env.libc_state.mmap.allocations, ptr, len);
     // A brand-new mapping cannot inherit "these pages are free" records from a
     // previous mapping that the allocator recycled the address from.

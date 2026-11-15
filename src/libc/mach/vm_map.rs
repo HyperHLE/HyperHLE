@@ -131,6 +131,7 @@ pub fn vm_allocate(
         return KERN_NO_SPACE;
     }
     assert!(address & PAGE_SIZE_ALIGN_MASK == 0);
+    crate::mem::note_allocation_site(env.cpu.regs()[crate::cpu::Cpu::LR], new_size);
     env.mem.write(address_ptr, address);
 
     assert!(!env.libc_state.mach_vm.allocations.contains_key(&address));
