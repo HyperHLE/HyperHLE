@@ -701,6 +701,13 @@ impl Environment {
         };
 
         let mut mem = mem::Mem::new();
+        // The RAM limiter caps the app's heap (see `--memory-limit=` and the
+        // "RAM Limiter" row of the graphical settings screen).
+        mem.set_memory_limit(
+            options
+                .memory_limit_mb
+                .map(|mb| mb.saturating_mul(1024 * 1024)),
+        );
 
         let is_spore = bundle.bundle_identifier().starts_with("com.ea.spore");
         let is_critter_crunch = bundle
@@ -1196,6 +1203,11 @@ impl Environment {
         )?));
 
         let mut mem = mem::Mem::new();
+        mem.set_memory_limit(
+            options
+                .memory_limit_mb
+                .map(|mb| mb.saturating_mul(1024 * 1024)),
+        );
 
         let bins = Vec::new();
 

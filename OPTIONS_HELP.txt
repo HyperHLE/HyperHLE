@@ -355,6 +355,20 @@ Other options:
         they present frames; increasing the limit will not increase their
         framerate, but may make it less consistent.
 
+    --memory-limit=...
+        Limit the RAM available to the emulated app's heap, in MiB ("RAM
+        Limiter" in the graphical settings screen). This is 'off' (the
+        default), to leave the heap uncapped, or a whole number of mebibytes
+        such as 128, 256, 512, 1024 or 2048.
+
+        When the cap is reached, the app's allocations fail and return NULL,
+        exactly like malloc() on a real device that has run out of memory.
+        Most apps handle that badly (they may crash or log errors), so this is
+        mainly a way to reproduce low-memory behaviour and to keep the
+        emulator inside a tight host memory budget. Mach-O segments, thread
+        stacks and other reserved memory are not part of the heap and do not
+        count against the cap.
+
     --force-composition
         Forces presentation of renderbuffer as if no fullscreen EAGL layer is
         present, i.e. renderbuffer will go through the compositor.

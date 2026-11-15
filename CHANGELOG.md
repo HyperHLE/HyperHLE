@@ -259,6 +259,10 @@ Usability:
 
 - The app picker's Settings > Graphics now has “Rotation fix” and “Movie player fix” switches for `--rotation-fix` and `--fix-movie-player`, so those compatibility fixes no longer have to be added to `touchHLE_options.txt` by hand (the bundled file now points at the switches too). Leaving a switch alone keeps the app-specific defaults (including the GTA III ones); turning it on or off passes an explicit flag that overrides them. The diagnostic “Trace GL errors” switch is gone, so `--trace-gl-errors` from an options file is no longer overridden by the picker.
 
+- The app picker's Settings > Display section now has an “FPS Limiter” segmented control (Default, 30, 60, Off) for `--fps-limit=`, and the “Rotation fix” switch has moved there from Graphics, next to the rest of the presentation options.
+
+- The app picker's Settings > Emulation section now starts with a “RAM Limiter” dropdown for the new `--memory-limit=` option. It offers Default (uncapped), 128 MB, 256 MB, 512 MB, 1 GB and 2 GB, and caps the emulated app's heap: once the cap is reached, the app's `malloc` calls fail and return NULL, like on a real device that ran out of RAM. Mach-O segments, thread stacks and the null segment are not part of the heap and are not counted.
+
 ## v0.2.3 (2026-01-02)
 
 Compatibility:

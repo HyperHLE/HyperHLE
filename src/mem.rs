@@ -1150,10 +1150,27 @@ impl Mem {
         }
     }
 
+    /// Caps the total size of the app's heap, in bytes.
+    ///
+    /// `None` (the default) leaves the heap uncapped. See `Options`'
+    /// `memory_limit_mb` field: the graphical settings screen's "RAM Limiter"
+    /// and `--memory-limit=` both end up here. Reserved segments (Mach-O
+    /// segments, the null segment, threads' stacks) are not part of the heap,
+    /// so they don't count against the cap.
+    pub fn set_memory_limit(&mut self, limit: Option<GuestUSize>) {
+        self.allocator.set_memory_limit(limit);
+    }
+
     /// Allocate `size` bytes.
+    ///
+    /// Returns NULL if the heap is full, including when the RAM limiter's cap
+    /// has been reached, just like `malloc` on a real device that ran out of
+    /// memory.
     pub fn alloc(&mut self, size: GuestUSize) -> MutVoidPtr {
         let ptr = Ptr::from_bits(self.allocator.alloc(size));
-        if !self.zero_memory_on_free {
+        // Do not touch guest memory when the allocation failed: the null page
+        // stub is only 64KiB and the request may be far larger.
+        if !self.zero_memory_on_free && !ptr.is_null() {
             self.bytes_at_mut(ptr.cast(), size).fill(0);
         }
 
@@ -1164,7 +1181,9 @@ impl Mem {
     /// Allocate `size` bytes initialized to 0.
     pub fn calloc(&mut self, size: GuestUSize) -> MutVoidPtr {
         let ptr = self.alloc(size);
-        self.bytes_at_mut(ptr.cast(), size).fill(0);
+        if !ptr.is_null() {
+            self.bytes_at_mut(ptr.cast(), size).fill(0);
+        }
         ptr
     }
 
@@ -1233,6 +1252,11 @@ impl Mem {
         }
 
         let new_ptr = self.alloc(size);
+        if new_ptr.is_null() {
+            // Like C's realloc(), leave the old block untouched: the caller
+            // still owns it, and there is nothing to copy into.
+            return new_ptr;
+        }
         self.memmove(new_ptr, old_ptr.cast_const(), old_size);
         self.free(old_ptr);
         new_ptr

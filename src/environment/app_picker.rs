@@ -392,6 +392,15 @@ struct AppPickerDelegateHostObject {
     rotation_fix: Option<bool>,
     /// `Some(..)` only when the user just flipped the switch.
     fix_movie_player: Option<bool>,
+    fps_limit_default: bool,
+    fps_limit30: bool,
+    fps_limit60: bool,
+    fps_limit_off: bool,
+    /// `Some(..)` only when the user just picked an entry of the RAM limiter
+    /// dropdown.
+    memory_limit_tag: Option<i32>,
+    memory_limit_toggle: bool,
+    memory_limit_scroll_to: Option<CGFloat>,
     preserve_aspect_ratio: Option<bool>,
     show_lock_screen: Option<bool>,
     force_composition: Option<bool>,
@@ -417,6 +426,77 @@ struct AppPickerDelegateHostObject {
 }
 impl HostObject for AppPickerDelegateHostObject {}
 
+/// The framerate limits offered by the Display section, besides "Default"
+/// (which leaves the command line and the options files in charge).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FpsLimit {
+    Fps30,
+    Fps60,
+    Off,
+}
+
+impl FpsLimit {
+    /// The value of `--fps-limit=`, and the name used in the settings file.
+    fn short_name(self) -> &'static str {
+        match self {
+            FpsLimit::Fps30 => "30",
+            FpsLimit::Fps60 => "60",
+            FpsLimit::Off => "off",
+        }
+    }
+
+    fn from_short_name(value: &str) -> Option<Self> {
+        match value {
+            "30" => Some(FpsLimit::Fps30),
+            "60" => Some(FpsLimit::Fps60),
+            "off" => Some(FpsLimit::Off),
+            _ => None,
+        }
+    }
+
+    /// The index of the segment button that shows this choice.
+    fn segment_index(self) -> usize {
+        match self {
+            FpsLimit::Fps30 => 1,
+            FpsLimit::Fps60 => 2,
+            FpsLimit::Off => 3,
+        }
+    }
+}
+
+/// The choices offered by the "RAM Limiter" dropdown, in display order:
+/// `None` leaves the app's heap uncapped, otherwise the cap in MiB.
+const MEMORY_LIMIT_CHOICES: &[Option<u32>] = &[
+    None,
+    Some(128),
+    Some(256),
+    Some(512),
+    Some(1024),
+    Some(2048),
+];
+
+/// The button title of the "RAM Limiter" dropdown for a choice.
+fn memory_limit_label(choice: Option<u32>) -> String {
+    match choice {
+        None => "Default".to_string(),
+        Some(mb) if mb >= 1024 => format!("{} GB", mb / 1024),
+        Some(mb) => format!("{mb} MB"),
+    }
+}
+
+/// The dropdown tag of a RAM limiter choice (`0` is "Default").
+fn memory_limit_tag(choice: Option<u32>) -> i32 {
+    MEMORY_LIMIT_CHOICES
+        .iter()
+        .position(|candidate| *candidate == choice)
+        .unwrap_or(0) as i32
+}
+
+/// The RAM limiter choice of a dropdown tag.
+fn memory_limit_choice(tag: Option<i32>) -> Option<u32> {
+    tag.and_then(|tag| MEMORY_LIMIT_CHOICES.get(tag as usize).copied().flatten())
+}
+
 #[derive(Clone, PartialEq)]
 struct PickerSettings {
     scale_hack: Option<NonZeroU32>,
@@ -435,6 +515,13 @@ struct PickerSettings {
     /// an options file which enables the fix (e.g. GTA III defaults).
     rotation_fix: Option<bool>,
     fix_movie_player: Option<bool>,
+    /// `None` leaves the FPS limit to the command line and the app-specific
+    /// options files. `Some(..)` is an explicit choice from the Display
+    /// section, which is re-emitted on every later launch.
+    fps_limit: Option<FpsLimit>,
+    /// `None` leaves the app's heap uncapped (or capped by an options file).
+    /// `Some(..)` is an explicit "RAM Limiter" choice, in MiB.
+    memory_limit_mb: Option<u32>,
     cheat_engine: bool,
     network: bool,
     game_center_authenticated: bool,
@@ -462,6 +549,11 @@ impl PickerSettings {
             // app-specific defaults in the options files still apply.
             rotation_fix: options.rotation_fix.then_some(true),
             fix_movie_player: options.fix_movie_player.then_some(true),
+            // Both start as "untouched": the command line already sticks
+            // around and the options files still get their say. Only the saved
+            // settings file below can make these explicit.
+            fps_limit: None,
+            memory_limit_mb: None,
             cheat_engine: quick_options_trainer_enabled(options),
             network: options.network_access,
             game_center_authenticated: options.game_center_authenticated,
@@ -512,6 +604,15 @@ impl PickerSettings {
                 }
                 "rotation_fix" => set_bool_override(value, &mut settings.rotation_fix),
                 "fix_movie_player" => set_bool_override(value, &mut settings.fix_movie_player),
+                "fps_limit" => {
+                    settings.fps_limit = FpsLimit::from_short_name(value);
+                }
+                "memory_limit_mb" => {
+                    settings.memory_limit_mb = match value {
+                        "default" => None,
+                        _ => value.parse().ok().filter(|mb| *mb > 0),
+                    };
+                }
                 "cheat_engine" => set_bool(value, &mut settings.cheat_engine),
                 "network" => set_bool(value, &mut settings.network),
                 "game_center_authenticated" => {
@@ -552,6 +653,8 @@ impl PickerSettings {
              overlay_corner={}\n\
              rotation_fix={}\n\
              fix_movie_player={}\n\
+             fps_limit={}\n\
+             memory_limit_mb={}\n\
              cheat_engine={}\n\
              network={}\n\
              game_center_authenticated={}\n\
@@ -570,6 +673,9 @@ impl PickerSettings {
             self.overlay_corner.short_name(),
             optional_bool(self.rotation_fix),
             optional_bool(self.fix_movie_player),
+            self.fps_limit.map_or("default", |limit| limit.short_name()),
+            self.memory_limit_mb
+                .map_or_else(|| "default".to_string(), |mb| mb.to_string()),
             self.cheat_engine,
             self.network,
             self.game_center_authenticated,
@@ -813,6 +919,30 @@ const CLASSES: ClassExports = objc_classes! {
 }
 - (())overlayCornerBottomLeft {
     env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).overlay_corner = Some(PerformanceOverlayCorner::BottomLeft);
+}
+- (())fpsLimitDefault {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).fps_limit_default = true;
+}
+- (())fpsLimit30 {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).fps_limit30 = true;
+}
+- (())fpsLimit60 {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).fps_limit60 = true;
+}
+- (())fpsLimitOff {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).fps_limit_off = true;
+}
+- (())memoryLimit:(id)sender { // UIButton*
+    let tag: NSInteger = msg![env; sender tag];
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).memory_limit_tag = Some(tag as i32);
+}
+- (())memoryLimitToggle {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).memory_limit_toggle = true;
+}
+- (())memoryLimitScroll:(id)sender forEvent:(id)event {
+    if let Some(position) = dropdown_scroll_position(env, sender, event) {
+        env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).memory_limit_scroll_to = Some(position);
+    }
 }
 - (())showFPS:(id)switch { // UISwitch*
     let switch_state: bool = msg![env; switch isOn];
@@ -1168,6 +1298,8 @@ fn app_picker_inner(
     let mut quick_options_overlay_corner = picker_settings.overlay_corner;
     let mut quick_options_rotation_fix = picker_settings.rotation_fix;
     let mut quick_options_fix_movie_player = picker_settings.fix_movie_player;
+    let mut quick_options_fps_limit = picker_settings.fps_limit;
+    let mut quick_options_memory_limit_mb = picker_settings.memory_limit_mb;
     let mut quick_options_preserve_aspect_ratio = picker_settings.preserve_aspect_ratio;
     let mut quick_options_show_lock_screen = picker_settings.show_lock_screen;
     let mut quick_options_force_composition_override = Some(picker_settings.force_composition);
@@ -1181,10 +1313,15 @@ fn app_picker_inner(
         selected: picker_settings.language_tag,
         ..Default::default()
     };
+    let mut memory_limit_state = DropdownState {
+        selected: Some(memory_limit_tag(picker_settings.memory_limit_mb)),
+        ..Default::default()
+    };
     let mut last_saved_picker_settings = picker_settings.clone();
 
     update_scale_hack_buttons(env, &settings.scale_hack_buttons, quick_options_scale_hack);
     update_orientation_buttons(env, &settings.orientation_buttons, quick_options_orientation);
+    update_fps_limit_buttons(env, &settings.fps_limit_buttons, quick_options_fps_limit);
     update_performance_overlay_buttons(
         env,
         &settings.overlay_mode_buttons,
@@ -1203,6 +1340,12 @@ fn app_picker_inner(
         &settings.language_dropdown,
         &language_label_for_tag(language_state.selected),
         &language_state,
+    );
+    refresh_dropdown(
+        env,
+        &settings.memory_limit_dropdown,
+        &memory_limit_label(quick_options_memory_limit_mb),
+        &memory_limit_state,
     );
 
     // Built after the settings screen, so that it is drawn on top of it.
@@ -1557,6 +1700,15 @@ fn app_picker_inner(
                     &language_state,
                 );
             }
+            if memory_limit_state.open {
+                memory_limit_state.open = false;
+                refresh_dropdown(
+                    env,
+                    &settings.memory_limit_dropdown,
+                    &memory_limit_label(quick_options_memory_limit_mb),
+                    &memory_limit_state,
+                );
+            }
             hide_settings_screen(env, main_run_loop, delegate, &settings);
         } else if std::mem::take(&mut host_obj.scale_hack_default) {
             quick_options_scale_hack = None;
@@ -1600,6 +1752,45 @@ fn app_picker_inner(
                 env,
                 &settings.orientation_buttons,
                 quick_options_orientation,
+            );
+        } else if std::mem::take(&mut host_obj.fps_limit_default) {
+            quick_options_fps_limit = None;
+            update_fps_limit_buttons(env, &settings.fps_limit_buttons, quick_options_fps_limit);
+        } else if std::mem::take(&mut host_obj.fps_limit30) {
+            quick_options_fps_limit = Some(FpsLimit::Fps30);
+            update_fps_limit_buttons(env, &settings.fps_limit_buttons, quick_options_fps_limit);
+        } else if std::mem::take(&mut host_obj.fps_limit60) {
+            quick_options_fps_limit = Some(FpsLimit::Fps60);
+            update_fps_limit_buttons(env, &settings.fps_limit_buttons, quick_options_fps_limit);
+        } else if std::mem::take(&mut host_obj.fps_limit_off) {
+            quick_options_fps_limit = Some(FpsLimit::Off);
+            update_fps_limit_buttons(env, &settings.fps_limit_buttons, quick_options_fps_limit);
+        } else if let Some(tag) = std::mem::take(&mut host_obj.memory_limit_tag) {
+            memory_limit_state.selected = Some(tag);
+            memory_limit_state.open = false;
+            quick_options_memory_limit_mb = memory_limit_choice(Some(tag));
+            refresh_dropdown(
+                env,
+                &settings.memory_limit_dropdown,
+                &memory_limit_label(quick_options_memory_limit_mb),
+                &memory_limit_state,
+            );
+        } else if std::mem::take(&mut host_obj.memory_limit_toggle) {
+            memory_limit_state.open = !memory_limit_state.open;
+            refresh_dropdown(
+                env,
+                &settings.memory_limit_dropdown,
+                &memory_limit_label(quick_options_memory_limit_mb),
+                &memory_limit_state,
+            );
+        } else if let Some(position) = std::mem::take(&mut host_obj.memory_limit_scroll_to) {
+            memory_limit_state.scroll =
+                dropdown_scroll_at(position, settings.memory_limit_dropdown.items.len());
+            refresh_dropdown(
+                env,
+                &settings.memory_limit_dropdown,
+                &memory_limit_label(quick_options_memory_limit_mb),
+                &memory_limit_state,
             );
         } else if let Some(tag) = std::mem::take(&mut host_obj.device_model_tag) {
             device_state.selected = Some(tag);
@@ -1744,10 +1935,13 @@ fn app_picker_inner(
         let wheel = PENDING_MOUSE_WHEEL.swap(0, Ordering::Relaxed);
         if wheel != 0 {
             let language_open = language_state.open;
+            let memory_limit_open = memory_limit_state.open;
             let dropdown = if language_open {
                 Some((&mut language_state, &settings.language_dropdown))
             } else if device_state.open {
                 Some((&mut device_state, &settings.device_dropdown))
+            } else if memory_limit_open {
+                Some((&mut memory_limit_state, &settings.memory_limit_dropdown))
             } else {
                 None
             };
@@ -1756,6 +1950,8 @@ fn app_picker_inner(
                     .clamp(0, dropdown_max_scroll(dropdown.items.len()));
                 let label = if language_open {
                     language_label_for_tag(state.selected)
+                } else if memory_limit_open {
+                    memory_limit_label(memory_limit_choice(state.selected))
                 } else {
                     device_model_label_for_tag(state.selected)
                 };
@@ -1785,6 +1981,8 @@ fn app_picker_inner(
         picker_settings.overlay_corner = quick_options_overlay_corner;
         picker_settings.rotation_fix = quick_options_rotation_fix;
         picker_settings.fix_movie_player = quick_options_fix_movie_player;
+        picker_settings.fps_limit = quick_options_fps_limit;
+        picker_settings.memory_limit_mb = quick_options_memory_limit_mb;
         picker_settings.cheat_engine = quick_options_cheat_engine;
         picker_settings.network = quick_options_network;
         picker_settings.analog_stick_tilt_controls = quick_options_analog_stick_tilt_controls;
@@ -1897,6 +2095,11 @@ fn app_picker_inner(
     if let Some(enabled) = quick_options_force_composition_override {
         option_args.push(quick_options_force_composition_argument(enabled).to_string());
     }
+
+    option_args.extend(quick_options_limiter_arguments(
+        quick_options_fps_limit,
+        quick_options_memory_limit_mb,
+    ));
 
     // The two compatibility fixes are only emitted when the Settings screen
     // actually set them (see `quick_options_fix_arguments`).
@@ -3617,6 +3820,10 @@ fn update_orientation_buttons(
     );
 }
 
+fn update_fps_limit_buttons(env: &mut Environment, buttons: &[id], value: Option<FpsLimit>) {
+    update_segment_buttons(env, buttons, value.map_or(0, |v| v.segment_index()));
+}
+
 fn update_performance_overlay_buttons(
     env: &mut Environment,
     mode_buttons: &[id],
@@ -3694,6 +3901,8 @@ enum SettingsRow {
     DeviceDropdown,
     /// The "Language" row (its dropdown is a root-level overlay).
     LanguageDropdown,
+    /// The "RAM Limiter" row (its dropdown is a root-level overlay).
+    MemoryLimitDropdown,
     /// Label and switch: (label, selector, initial state, enabled).
     Toggle(&'static str, &'static str, bool, bool),
 }
@@ -3733,12 +3942,15 @@ struct SettingsStuff {
     scroll_origin_y: CGFloat,
     scale_hack_buttons: [id; 5],
     orientation_buttons: [id; 4],
+    fps_limit_buttons: [id; 4],
     overlay_mode_buttons: Vec<id>,
     overlay_corner_buttons: Vec<id>,
     /// The "Device model" dropdown.
     device_dropdown: SettingsDropdown,
     /// The "Language" dropdown.
     language_dropdown: SettingsDropdown,
+    /// The "RAM Limiter" dropdown.
+    memory_limit_dropdown: SettingsDropdown,
 }
 
 /// The views of one settings dropdown: a button in a settings row, and a list
@@ -3967,6 +4179,18 @@ fn setup_settings(
                 ("↓", "orientationPortraitUpsideDown"),
             ],
         ),
+        // The FPS limiter belongs with the rest of the presentation options.
+        // "Default" emits nothing, so the command line and the app-specific
+        // options files keep their say.
+        SettingsRow::Segmented(
+            "FPS Limiter",
+            &[
+                ("Default", "fpsLimitDefault"),
+                ("30", "fpsLimit30"),
+                ("60", "fpsLimit60"),
+                ("Off", "fpsLimitOff"),
+            ],
+        ),
     ];
     if show_fullscreen_row {
         display_rows.push(SettingsRow::Toggle(
@@ -3976,6 +4200,15 @@ fn setup_settings(
             true,
         ));
     }
+    // Both compatibility fixes are opt-in and may be enabled per-app in the
+    // options files. Leaving a switch alone keeps those defaults; flipping it
+    // (either way) is an explicit override for every later launch.
+    display_rows.push(SettingsRow::Toggle(
+        "Rotation fix",
+        "rotationFix:",
+        picker_settings.rotation_fix.unwrap_or(false),
+        true,
+    ));
     sections.push(("DISPLAY", display_rows));
     let overlay_mode_options: &'static [(&'static str, &'static str)] =
         if cfg!(any(target_os = "android", target_os = "ios")) {
@@ -4011,15 +4244,6 @@ fn setup_settings(
                 ("Bottom left", "overlayCornerBottomLeft"),
             ],
         ),
-        // Both fixes are opt-in and may be enabled per-app in the options
-        // files. Leaving a switch alone keeps those defaults; flipping it
-        // (either way) is an explicit override for every later launch.
-        SettingsRow::Toggle(
-            "Rotation fix",
-            "rotationFix:",
-            picker_settings.rotation_fix.unwrap_or(false),
-            true,
-        ),
         SettingsRow::Toggle(
             "Movie player fix",
             "moviePlayerFix:",
@@ -4052,6 +4276,7 @@ fn setup_settings(
     sections.push((
         "EMULATION",
         vec![
+            SettingsRow::MemoryLimitDropdown,
             SettingsRow::Toggle("Cheat Engine", "cheatEngine:", picker_settings.cheat_engine, true),
             SettingsRow::Toggle("Network access", "network:", picker_settings.network, true),
             SettingsRow::Toggle(
@@ -4073,8 +4298,10 @@ fn setup_settings(
     let side = SETTINGS_ROW_SIDE_INSET;
     let mut scale_hack_buttons: Vec<id> = Vec::new();
     let mut orientation_buttons: Vec<id> = Vec::new();
+    let mut fps_limit_buttons: Vec<id> = Vec::new();
     let mut device_dropdown: Option<SettingsDropdown> = None;
     let mut language_dropdown: Option<SettingsDropdown> = None;
+    let mut memory_limit_dropdown: Option<SettingsDropdown> = None;
     let mut overlay_mode_buttons = Vec::new();
     let mut overlay_corner_buttons = Vec::new();
     let mut scroll_items: Vec<(id, CGFloat, CGFloat)> = Vec::new();
@@ -4139,6 +4366,7 @@ fn setup_settings(
                     match buttons[0].1 {
                         "scaleHackDefault" => scale_hack_buttons = seg_buttons,
                         "orientationDefault" => orientation_buttons = seg_buttons,
+                        "fpsLimitDefault" => fps_limit_buttons = seg_buttons,
                         "overlayModeFull" => overlay_mode_buttons = seg_buttons,
                         "overlayCornerTopLeft" => overlay_corner_buttons = seg_buttons,
                         _ => unreachable!(),
@@ -4162,6 +4390,26 @@ fn setup_settings(
                         rect(inner_width - side - 170.0, row_y + 7.0, 170.0, 30.0),
                         menu_origin,
                         device_model_dropdown_spec(),
+                    ));
+                }
+                SettingsRow::MemoryLimitDropdown => {
+                    let label_view = new_label(
+                        env,
+                        rect(side, row_y + 11.0, 150.0, 22.0),
+                        "RAM Limiter",
+                        16.0,
+                        false,
+                        black,
+                    );
+                    () = msg![env; group addSubview:label_view];
+                    memory_limit_dropdown = Some(make_settings_dropdown(
+                        env,
+                        delegate,
+                        group,
+                        settings_view,
+                        rect(inner_width - side - 170.0, row_y + 7.0, 170.0, 30.0),
+                        menu_origin,
+                        memory_limit_dropdown_spec(),
                     ));
                 }
                 SettingsRow::LanguageDropdown => {
@@ -4260,12 +4508,15 @@ fn setup_settings(
         scroll_origin_y: SETTINGS_NAV_BAR_HEIGHT + status_offset,
         scale_hack_buttons: scale_hack_buttons.try_into().unwrap(),
         orientation_buttons: orientation_buttons.try_into().unwrap(),
+        fps_limit_buttons: fps_limit_buttons.try_into().unwrap(),
         overlay_mode_buttons,
         overlay_corner_buttons,
         device_dropdown: device_dropdown
             .expect("the settings screen always has a device model row"),
         language_dropdown: language_dropdown
             .expect("the settings screen always has a language row"),
+        memory_limit_dropdown: memory_limit_dropdown
+            .expect("the settings screen always has a RAM limiter row"),
     }
 }
 
@@ -4345,6 +4596,20 @@ fn language_dropdown_spec() -> DropdownSpec {
         toggle_selector: "languageToggle",
         item_selector: "language:",
         scroll_selector: "languageScroll:forEvent:",
+    }
+}
+
+/// The spec of the "RAM Limiter" dropdown.
+fn memory_limit_dropdown_spec() -> DropdownSpec {
+    DropdownSpec {
+        entries: MEMORY_LIMIT_CHOICES
+            .iter()
+            .enumerate()
+            .map(|(idx, choice)| (memory_limit_label(*choice), idx as NSInteger))
+            .collect(),
+        toggle_selector: "memoryLimitToggle",
+        item_selector: "memoryLimit:",
+        scroll_selector: "memoryLimitScroll:forEvent:",
     }
 }
 
@@ -4899,6 +5164,23 @@ fn quick_options_fix_arguments(
     args
 }
 
+/// Launch arguments for the Display section's FPS limiter and the Emulation
+/// section's RAM limiter. `None` means "Default": nothing is emitted, so the
+/// command line and the app-specific options files stay in charge.
+fn quick_options_limiter_arguments(
+    fps_limit: Option<FpsLimit>,
+    memory_limit_mb: Option<u32>,
+) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(limit) = fps_limit {
+        args.push(format!("--fps-limit={}", limit.short_name()));
+    }
+    if let Some(mb) = memory_limit_mb {
+        args.push(format!("--memory-limit={mb}"));
+    }
+    args
+}
+
 /// Returns `(native_enabled, switch_enabled)` for the probed ANGLE state.
 fn quick_options_gles_native_state(options: &Options, angle_available: bool) -> (bool, bool) {
     (options.gles_native || !angle_available, angle_available)
@@ -5056,6 +5338,61 @@ mod quick_options_fix_tests {
         // (or the other way round).
         set_bool_override("garbage", &mut setting);
         assert_eq!(setting, Some(true));
+    }
+}
+
+#[cfg(test)]
+mod limiter_option_tests {
+    use super::*;
+
+    #[test]
+    fn fps_limit_choices_map_to_arguments_and_back() {
+        assert_eq!(FpsLimit::Fps30.short_name(), "30");
+        assert_eq!(FpsLimit::Fps60.short_name(), "60");
+        assert_eq!(FpsLimit::Off.short_name(), "off");
+        for choice in [FpsLimit::Fps30, FpsLimit::Fps60, FpsLimit::Off] {
+            assert_eq!(FpsLimit::from_short_name(choice.short_name()), Some(choice));
+        }
+        assert_eq!(FpsLimit::from_short_name("default"), None);
+        assert_eq!(FpsLimit::from_short_name("45"), None);
+        // The segment buttons are Default, 30, 60, Off.
+        assert_eq!(FpsLimit::Fps30.segment_index(), 1);
+        assert_eq!(FpsLimit::Fps60.segment_index(), 2);
+        assert_eq!(FpsLimit::Off.segment_index(), 3);
+    }
+
+    #[test]
+    fn ram_limiter_choices_map_to_labels_and_tags() {
+        assert_eq!(memory_limit_label(None), "Default");
+        assert_eq!(memory_limit_label(Some(128)), "128 MB");
+        assert_eq!(memory_limit_label(Some(512)), "512 MB");
+        assert_eq!(memory_limit_label(Some(1024)), "1 GB");
+        assert_eq!(memory_limit_label(Some(2048)), "2 GB");
+
+        for (idx, choice) in MEMORY_LIMIT_CHOICES.iter().enumerate() {
+            assert_eq!(memory_limit_tag(*choice), idx as i32);
+            assert_eq!(memory_limit_choice(Some(idx as i32)), *choice);
+        }
+        // "Default" is the fallback for a tag that isn't offered.
+        assert_eq!(memory_limit_tag(Some(64)), 0);
+        assert_eq!(memory_limit_choice(Some(i32::MAX)), None);
+    }
+
+    #[test]
+    fn limiter_arguments_are_only_emitted_for_explicit_choices() {
+        assert!(quick_options_limiter_arguments(None, None).is_empty());
+        assert_eq!(
+            quick_options_limiter_arguments(Some(FpsLimit::Fps30), None),
+            vec!["--fps-limit=30"]
+        );
+        assert_eq!(
+            quick_options_limiter_arguments(None, Some(1024)),
+            vec!["--memory-limit=1024"]
+        );
+        assert_eq!(
+            quick_options_limiter_arguments(Some(FpsLimit::Off), Some(256)),
+            vec!["--fps-limit=off", "--memory-limit=256"]
+        );
     }
 }
 
