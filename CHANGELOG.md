@@ -269,6 +269,8 @@ Usability:
 
 - With the RAM limiter left on “Default”, the app's heap is now capped at half of the Device model's RAM (at least 256 MB, at most 2 GB) instead of being uncapped. iOS kills a foreground app for using too much memory at roughly that point, and the guest has a 4 GiB address space whatever model is chosen, so an uncapped heap let a Unity game's Boehm GC balloon to 4 GB and take the host phone down with it. The ceiling is logged at startup and shown by the overlay as VMEM used/limit; choosing a size in the RAM Limiter still overrides it.
 
+- The RAM Limiter also offers 32 MB and 64 MB, and a “Custom…” row at the bottom of its list. Custom opens a keypad where the size is typed in megabytes — 10 is 10 MB, 3000 is about 3 GB — between 1 and 3072 MB, and a custom size keeps the row ticked afterwards.
+
 - The guest heap now reports who is filling it. The guest heap is one shared address space, so an app whose heap grows to gigabytes gives no clue where the memory went (a Unity game can report a few tens of megabytes used while the heap holds everything). Every large allocation (4 KiB and up) made through `malloc`, `calloc`, `vm_allocate` or `mmap` is attributed to the guest return address it came from, and the biggest call sites are logged as the attributed total passes 256 MiB, 512 MiB, 1 GiB and so on. Requests of 8 MiB or more, and releases of that size, are logged individually with the heap total, so a sudden multi-hundred-megabyte jump names the request behind it. The "out of memory (could not find a large enough chunk)" warning now shares the rate-limited budget too.
 
 ## v0.2.3 (2026-01-02)
