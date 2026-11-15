@@ -1891,7 +1891,7 @@ fn CFNetServiceBrowserSearchForDomains(
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFNetServiceCreate(_, _, _, _, _)),
-    export_c_func!(CFNetServiceCreateCopy(_, _, _)),
+    export_c_func!(CFNetServiceCreateCopy(_, _)),
     export_c_func!(CFNetServiceCreateTXTDataWithDictionary(_, _)),
     export_c_func!(CFNetServiceSetTXTData(_, _)),
     export_c_func!(CFNetServiceRetain(_)),

@@ -3,8 +3,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <exception>
 
 #include "dynarmic/interface/A32/a32.h"
 #include "dynarmic/interface/A32/config.h"
@@ -481,7 +483,33 @@ void touchHLE_DynarmicWrapper_invalidate_cache_range(DynarmicWrapper *cpu,
 std::int32_t touchHLE_DynarmicWrapper_run_or_step(DynarmicWrapper *cpu,
                                                   touchHLE_Mem *mem,
                                                   std::uint64_t *ticks) {
-  return cpu->run_or_step(mem, ticks);
+  // The guest can steer the emulated PC into data, and Dynarmic reports
+  // anything it cannot compile by failing an assertion (see
+  // externals/mcl/src/assert.cpp in the vendored copy, which throws instead of
+  // calling std::terminate()). Catching it here keeps a bogus guest jump from
+  // killing the host process: the emulator sees an UndefinedInstruction and
+  // runs its usual trap diagnostics and recovery, which is also what produces
+  // an actionable log line naming the fault.
+  static std::atomic_bool reported = false;
+  try {
+    return cpu->run_or_step(mem, ticks);
+  } catch (const std::exception &e) {
+    if (!reported.exchange(true)) {
+      std::fprintf(stderr,
+                   "touchHLE: dynarmic raised while compiling guest code: %s\n",
+                   e.what());
+      std::fflush(stderr);
+    }
+    return -3; // UndefinedInstruction
+  } catch (...) {
+    if (!reported.exchange(true)) {
+      std::fprintf(stderr,
+                   "touchHLE: dynarmic raised an unknown exception while "
+                   "compiling guest code\n");
+      std::fflush(stderr);
+    }
+    return -3; // UndefinedInstruction
+  }
 }
 }
 
