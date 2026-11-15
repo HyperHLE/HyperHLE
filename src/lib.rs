@@ -57,6 +57,7 @@ mod stack;
 mod guest_clock;
 mod trainer;
 mod trainer_ui;
+mod quick_menu;
 mod window;
 
 // Environment is used very frequently used and used to be in this module, so

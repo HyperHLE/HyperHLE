@@ -269,7 +269,7 @@ Usability:
 
 - With the RAM limiter left on “Default”, the app's heap is now capped at half of the Device model's RAM (at least 256 MB, at most 2 GB) instead of being uncapped. iOS kills a foreground app for using too much memory at roughly that point, and the guest has a 4 GiB address space whatever model is chosen, so an uncapped heap let a Unity game's Boehm GC balloon to 4 GB and take the host phone down with it. The ceiling is logged at startup and shown by the overlay as VMEM used/limit; choosing a size in the RAM Limiter still overrides it.
 
-- The Emulation section has a new “Quick menu” switch for `--quick-menu` (off by default).
+- The Emulation section has a new “Quick menu” switch for `--quick-menu` (off by default). When it is on, a pause button (two bars) sits in the top-left corner of the screen while an app runs; tapping it opens a panel in the style of the Cheat Engine overlay with the performance display, the FPS limiter, the RAM limiter and Cheat Engine, plus “Resume” and “Exit emulator”, which returns to the app picker. Changes are collected in the panel and applied together when it is closed with “Resume”, so the app never sees a half-finished edit.
 
 - The RAM Limiter also offers 32 MB and 64 MB, and a “Custom…” row at the bottom of its list. Custom opens a keypad where the size is typed in megabytes — 10 is 10 MB, 3000 is about 3 GB — between 1 and 3072 MB, and a custom size keeps the row ticked afterwards.
 
