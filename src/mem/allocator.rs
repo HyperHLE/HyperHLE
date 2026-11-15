@@ -11,13 +11,6 @@ use std::num::NonZeroU32;
 /// is also the minimum allocation size.
 pub const MIN_CHUNK_SIZE: GuestUSize = 16;
 
-/// How many heap-cap refusals have been logged. An app can retry a failing
-/// allocation in a loop, so the message is rate-limited instead of flooding
-/// the log (the same approach the GL error paths use).
-static MEMORY_LIMIT_REFUSAL_LOGS: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-const MEMORY_LIMIT_REFUSAL_LOG_LIMIT: usize = 8;
-
 /// A non-empty range of bytes in virtual address space.
 ///
 /// Similar to [`RangeInclusive<u32>`][std::ops::RangeInclusive] but with a
@@ -339,8 +332,6 @@ impl Allocator {
     /// cope. See `Options::memory_limit_mb`.
     pub fn set_memory_limit(&mut self, limit: Option<GuestUSize>) {
         self.memory_limit = limit;
-        // A new cap gets its own refusal log budget.
-        MEMORY_LIMIT_REFUSAL_LOGS.store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Updates the heap total and mirrors it to the process-wide counter the
@@ -431,21 +422,9 @@ impl Allocator {
         };
 
         if !self.fits_under_limit(aligned_size) {
-            let refusal = MEMORY_LIMIT_REFUSAL_LOGS
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if refusal < MEMORY_LIMIT_REFUSAL_LOG_LIMIT {
-                log!(
-                    "Warning: Allocator::alloc: the RAM limiter's cap is reached ({:#x} of at most {:#x} bytes in use); returning NULL for {:#x} bytes{}",
-                    self.allocated_bytes,
-                    self.memory_limit.unwrap_or(0),
-                    aligned_size,
-                    if refusal + 1 == MEMORY_LIMIT_REFUSAL_LOG_LIMIT {
-                        " (further refusals won't be logged)"
-                    } else {
-                        ""
-                    }
-                );
-            }
+            // Shared with the Mach VM and mmap paths, and rate-limited: an app
+            // that retries a failing allocation would otherwise flood the log.
+            super::log_out_of_memory("malloc", aligned_size);
             return 0;
         }
 

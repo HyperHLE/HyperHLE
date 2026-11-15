@@ -369,10 +369,12 @@ Other options:
         When the cap is reached, the app's allocations fail and return NULL,
         exactly like malloc() on a real device that has run out of memory
         (vm_allocate() reports KERN_NO_SPACE, mmap() reports MAP_FAILED). The
-        performance overlay shows the cap as VMEM used/limit, and the first few
-        refusals are logged. Most apps handle that badly (they may crash or log
-        errors), so this is mainly a way to reproduce low-memory behaviour and
-        to keep the emulator inside a tight host memory budget.
+        performance overlay shows the cap as VMEM used/limit. Refusals are
+        logged, but only a handful for the whole run, with one line saying the
+        rest are silenced, because apps tend to retry in a loop. Most apps
+        handle that badly (they may crash or log errors), so this is mainly a
+        way to reproduce low-memory behaviour and to keep the emulator inside a
+        tight host memory budget.
 
         Mach-O segments, thread stacks and other reserved memory are not part
         of the heap and do not count against the cap, and the cap does not

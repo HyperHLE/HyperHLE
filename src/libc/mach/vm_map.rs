@@ -127,10 +127,7 @@ pub fn vm_allocate(
         // Out of guest memory (including the RAM limiter's cap). Reporting
         // success with address 0 would hand the guest a null "mapping" it
         // believes it owns, so fail like the kernel does instead.
-        log!(
-            "vm_allocate: could not allocate {:#x} bytes; returning KERN_NO_SPACE",
-            new_size
-        );
+        crate::mem::log_out_of_memory("vm_allocate", new_size);
         return KERN_NO_SPACE;
     }
     assert!(address & PAGE_SIZE_ALIGN_MASK == 0);
@@ -376,10 +373,7 @@ fn vm_remap(
     if address == 0 {
         // Out of guest memory (including the RAM limiter's cap). Failing here
         // matters: the copy below would write through a null pointer.
-        log!(
-            "vm_remap: could not allocate {:#x} bytes; returning KERN_NO_SPACE",
-            new_size
-        );
+        crate::mem::log_out_of_memory("vm_remap", new_size);
         return KERN_NO_SPACE;
     }
     assert!(address & PAGE_SIZE_ALIGN_MASK == 0);

@@ -358,6 +358,60 @@ pub fn guest_heap_limit_bytes() -> u64 {
     GUEST_HEAP_LIMIT_BYTES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// How many out-of-memory warnings have been printed since the last reset.
+///
+/// A guest app that has run out of memory usually retries the same failing
+/// allocation on every frame, so every allocation path shares this one small
+/// budget instead of each flooding the log with identical lines.
+static OUT_OF_MEMORY_LOG_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+const OUT_OF_MEMORY_LOG_LIMIT: usize = 8;
+
+/// Reports that `site` could not allocate `requested` bytes because the guest
+/// heap is full or has hit the RAM limiter's cap.
+///
+/// The first `OUT_OF_MEMORY_LOG_LIMIT` refusals are reported together with
+/// the heap's current usage, then a single notice says the rest are silenced,
+/// so a game that keeps retrying can't drown the log (the same approach
+/// `Mem::warn_wild_host_ptr` and the nil-isa warnings use).
+pub(crate) fn log_out_of_memory(site: &str, requested: GuestUSize) {
+    let count = OUT_OF_MEMORY_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let used = guest_heap_bytes();
+    let limit = guest_heap_limit_bytes();
+    if count < OUT_OF_MEMORY_LOG_LIMIT {
+        if limit > 0 {
+            log!(
+                "Warning: {}: can't allocate {:#x} bytes; the guest heap is using \
+                 {:#x} of its {:#x}-byte RAM limiter cap",
+                site,
+                requested,
+                used,
+                limit
+            );
+        } else {
+            log!(
+                "Warning: {}: can't allocate {:#x} bytes; the guest heap is using \
+                 {:#x} bytes and has no room left",
+                site,
+                requested,
+                used
+            );
+        }
+    } else if count == OUT_OF_MEMORY_LOG_LIMIT {
+        log!(
+            "Warning: out-of-memory warnings are silenced from now on ({} already \
+             logged)",
+            OUT_OF_MEMORY_LOG_LIMIT
+        );
+    }
+}
+
+/// Re-arms `log_out_of_memory`, e.g. for a new run or after the RAM limiter's
+/// cap changed, so the new situation gets its own few lines of diagnostics.
+pub(crate) fn reset_out_of_memory_log_budget() {
+    OUT_OF_MEMORY_LOG_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Claim the one-shot null-write probe. Returns `true` for exactly one caller
 /// in the whole process, which must arrange for the resulting memory abort to
 /// be reported. Two flags rather than one: reusing a single flag let the
@@ -521,6 +575,7 @@ impl Mem {
         let allocator = allocator::Allocator::new();
         publish_guest_heap_bytes(0);
         GUEST_HEAP_LIMIT_BYTES.store(0, std::sync::atomic::Ordering::Relaxed);
+        reset_out_of_memory_log_budget();
         Mem {
             bytes,
             null_segment_size: 0,
@@ -1202,6 +1257,7 @@ impl Mem {
             limit.unwrap_or(0) as u64,
             std::sync::atomic::Ordering::Relaxed,
         );
+        reset_out_of_memory_log_budget();
     }
 
     /// Allocate `size` bytes.

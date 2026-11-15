@@ -225,6 +225,7 @@ fn mmap(
     // TODO: use vm_allocate() instead
     let ptr = env.mem.calloc(len);
     if ptr.is_null() {
+        crate::mem::log_out_of_memory("mmap", len);
         set_errno(env, ENOMEM);
         return MAP_FAILED;
     }
@@ -354,6 +355,9 @@ fn mmap_fixed(
     ) {
         Ok(result) => result,
         Err(errno) => {
+            if errno == ENOMEM {
+                crate::mem::log_out_of_memory("mmap MAP_FIXED", len);
+            }
             set_errno(env, errno);
             return MAP_FAILED;
         }
