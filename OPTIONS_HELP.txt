@@ -391,6 +391,18 @@ Other options:
         change how much RAM the app thinks the device has: that still comes
         from the Device model.
 
+    --quick-menu
+        Show a pause button in the top-left corner of the screen while an app
+        runs ("Quick menu" in the graphical settings screen's Emulation
+        section). It opens a menu with the settings that are worth changing
+        mid-game - scale hack, Cheat Engine, network access, the performance
+        display, the FPS limiter and the RAM limiter - and an "Exit emulator"
+        button that returns to the app picker. The app is paused while the
+        menu is open.
+
+    --no-quick-menu
+        Hide the quick menu button (the default).
+
     --force-composition
         Forces presentation of renderbuffer as if no fullscreen EAGL layer is
         present, i.e. renderbuffer will go through the compositor.

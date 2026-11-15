@@ -171,6 +171,12 @@ pub struct Options {
     /// Disable the Cheat Engine-style memory trainer overlay. The trainer
     /// is off by default; opt in with `--trainer`.
     pub trainer_disabled: bool,
+    /// `--quick-menu`: show a pause button in the top-left corner of the
+    /// emulated screen while an app runs. It opens a menu with the settings
+    /// that are worth changing mid-game (scale hack, trainer, network access,
+    /// performance display, FPS limiter, RAM limiter) and an "Exit emulator"
+    /// button that goes back to the app picker.
+    pub quick_menu: bool,
     pub initial_orientation: DeviceOrientation,
     /// iOS version reported to guest applications. `None` uses the latest compatibility version.
     pub ios_version: Option<(i32, i32, i32)>,
@@ -372,6 +378,7 @@ impl Default for Options {
             fullscreen: false,
             preserve_aspect_ratio: false,
             trainer_disabled: true,
+            quick_menu: false,
             device_family: None,
             auto_device_family: false,
             host_screen_size: None,
@@ -805,6 +812,10 @@ impl Options {
             self.trainer_disabled = true;
         } else if arg == "--trainer" {
             self.trainer_disabled = false;
+        } else if arg == "--quick-menu" {
+            self.quick_menu = true;
+        } else if arg == "--no-quick-menu" {
+            self.quick_menu = false;
         } else {
             return Ok(false);
         };
@@ -920,6 +931,18 @@ mod option_parsing_tests {
 
         assert!(options.parse_argument("--no-force-composition").unwrap());
         assert!(!options.force_composition);
+    }
+
+    #[test]
+    fn quick_menu_is_opt_in_and_can_be_disabled() {
+        let mut options = Options::default();
+        assert!(!options.quick_menu);
+
+        assert!(options.parse_argument("--quick-menu").unwrap());
+        assert!(options.quick_menu);
+
+        assert!(options.parse_argument("--no-quick-menu").unwrap());
+        assert!(!options.quick_menu);
     }
 
     #[test]

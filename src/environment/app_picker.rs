@@ -387,6 +387,7 @@ struct AppPickerDelegateHostObject {
     overlay_mode: Option<PerformanceOverlayMode>,
     overlay_corner: Option<PerformanceOverlayCorner>,
     cheat_engine: Option<bool>,
+    quick_menu: Option<bool>,
     /// `Some(..)` only when the user just flipped the switch: `None` means no
     /// change is pending. The saved state is tri-state (see `PickerSettings`).
     rotation_fix: Option<bool>,
@@ -589,6 +590,8 @@ struct PickerSettings {
     /// `Some(..)` is an explicit "RAM Limiter" choice, in MiB.
     memory_limit_mb: Option<u32>,
     cheat_engine: bool,
+    /// Show the in-game quick menu (the pause button in the top-left corner).
+    quick_menu: bool,
     network: bool,
     game_center_authenticated: bool,
     analog_stick_tilt_controls: bool,
@@ -621,6 +624,7 @@ impl PickerSettings {
             fps_limit: None,
             memory_limit_mb: None,
             cheat_engine: quick_options_trainer_enabled(options),
+            quick_menu: options.quick_menu,
             network: options.network_access,
             game_center_authenticated: options.game_center_authenticated,
             analog_stick_tilt_controls: options.analog_stick_tilt_controls,
@@ -680,6 +684,7 @@ impl PickerSettings {
                     };
                 }
                 "cheat_engine" => set_bool(value, &mut settings.cheat_engine),
+                "quick_menu" => set_bool(value, &mut settings.quick_menu),
                 "network" => set_bool(value, &mut settings.network),
                 "game_center_authenticated" => {
                     set_bool(value, &mut settings.game_center_authenticated)
@@ -722,6 +727,7 @@ impl PickerSettings {
              fps_limit={}\n\
              memory_limit_mb={}\n\
              cheat_engine={}\n\
+             quick_menu={}\n\
              network={}\n\
              game_center_authenticated={}\n\
              analog_stick_tilt_controls={}\n\
@@ -743,6 +749,7 @@ impl PickerSettings {
             self.memory_limit_mb
                 .map_or_else(|| "default".to_string(), |mb| mb.to_string()),
             self.cheat_engine,
+            self.quick_menu,
             self.network,
             self.game_center_authenticated,
             self.analog_stick_tilt_controls,
@@ -1028,6 +1035,10 @@ const CLASSES: ClassExports = objc_classes! {
 - (())cheatEngine:(id)switch { // UISwitch*
     let switch_state: bool = msg![env; switch isOn];
     env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).cheat_engine = Some(switch_state);
+}
+- (())quickMenu:(id)switch { // UISwitch*
+    let switch_state: bool = msg![env; switch isOn];
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).quick_menu = Some(switch_state);
 }
 - (())fullscreen:(id)switch { // UISwitch*
     let switch_state: bool = msg![env; switch isOn];
@@ -1380,6 +1391,7 @@ fn app_picker_inner(
     let mut quick_options_show_lock_screen = picker_settings.show_lock_screen;
     let mut quick_options_force_composition_override = Some(picker_settings.force_composition);
     let mut quick_options_cheat_engine = picker_settings.cheat_engine;
+    let mut quick_options_quick_menu = picker_settings.quick_menu;
     let mut quick_options_gles_native = picker_settings.gles_native;
     let mut device_state = DropdownState {
         selected: picker_settings.device_model_tag,
@@ -2002,6 +2014,8 @@ fn app_picker_inner(
             quick_options_network = enabled;
         } else if let Some(enabled) = std::mem::take(&mut host_obj.game_center_authenticated) {
             picker_settings.game_center_authenticated = enabled;
+        } else if let Some(enabled) = std::mem::take(&mut host_obj.quick_menu) {
+            quick_options_quick_menu = enabled;
         } else if let Some(enabled) = std::mem::take(&mut host_obj.cheat_engine) {
             quick_options_cheat_engine = enabled;
         } else if let Some(enabled) = std::mem::take(&mut host_obj.show_fps) {
@@ -2108,6 +2122,7 @@ fn app_picker_inner(
         picker_settings.fps_limit = quick_options_fps_limit;
         picker_settings.memory_limit_mb = quick_options_memory_limit_mb;
         picker_settings.cheat_engine = quick_options_cheat_engine;
+        picker_settings.quick_menu = quick_options_quick_menu;
         picker_settings.network = quick_options_network;
         picker_settings.analog_stick_tilt_controls = quick_options_analog_stick_tilt_controls;
         picker_settings.device_model_tag = device_state.selected;
@@ -2189,6 +2204,14 @@ fn app_picker_inner(
         option_args.push("--no-network-access".to_string());
     }
     option_args.push(quick_options_trainer_argument(quick_options_cheat_engine).to_string());
+    option_args.push(
+        if picker_settings.quick_menu {
+            "--quick-menu"
+        } else {
+            "--no-quick-menu"
+        }
+        .to_string(),
+    );
     option_args.push(
         if picker_settings.game_center_authenticated {
             "--game-center-authenticated"
@@ -4406,6 +4429,7 @@ fn setup_settings(
         vec![
             SettingsRow::MemoryLimitDropdown,
             SettingsRow::Toggle("Cheat Engine", "cheatEngine:", picker_settings.cheat_engine, true),
+            SettingsRow::Toggle("Quick menu", "quickMenu:", picker_settings.quick_menu, true),
             SettingsRow::Toggle("Network access", "network:", picker_settings.network, true),
             SettingsRow::Toggle(
                 "Local Game Center sign-in",
