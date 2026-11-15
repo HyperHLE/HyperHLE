@@ -2233,7 +2233,7 @@ pub(crate) fn socket_poll_events(
 /// is reported as not set, which is what Darwin does instead of reading past
 /// the caller's buffer.
 /// https://opensource.apple.com/source/Libc/Libc-1158.1.2/include/sys/_types/_fd_def.h.auto.html
-fn ___darwin_check_fd_set_overflow(
+fn __darwin_check_fd_set_overflow(
     env: &mut Environment,
     fd: i32,
     fdset: ConstPtr<u8>,
@@ -2252,7 +2252,7 @@ fn ___darwin_check_fd_set_overflow(
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(socket(_, _, _)),
-    export_c_func!(___darwin_check_fd_set_overflow(_, _, _)),
+    export_c_func!(__darwin_check_fd_set_overflow(_, _, _)),
     export_c_func!(ioctl(_, _, _)),
     export_c_func!(getsockopt(_, _, _, _, _)),
     export_c_func!(setsockopt(_, _, _, _, _)),

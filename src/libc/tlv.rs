@@ -56,7 +56,7 @@ unsafe impl SafeRead for TlvDescriptor {}
 static TLV_STORAGE: Mutex<Option<HashMap<(usize, u32), u32>>> = Mutex::new(None);
 
 /// `void *__tlv_bootstrap(struct tlv_descriptor *descriptor)`
-fn __tlv_bootstrap(env: &mut Environment, descriptor: ConstVoidPtr) -> MutVoidPtr {
+fn _tlv_bootstrap(env: &mut Environment, descriptor: ConstVoidPtr) -> MutVoidPtr {
     if descriptor.is_null() {
         return MutVoidPtr::null();
     }
@@ -102,4 +102,4 @@ fn __tlv_bootstrap(env: &mut Environment, descriptor: ConstVoidPtr) -> MutVoidPt
     block
 }
 
-pub const FUNCTIONS: FunctionExports = &[export_c_func!(__tlv_bootstrap(_))];
+pub const FUNCTIONS: FunctionExports = &[export_c_func!(_tlv_bootstrap(_))];

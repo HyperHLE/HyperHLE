@@ -13,6 +13,8 @@ use crate::{export_c_func, Environment};
 
 // Специфичный для Apple флаг защиты от отладки
 const PT_DENY_ATTACH: i32 = 31;
+/// `PT_TRACE_ME`, from Apple's `<sys/ptrace.h>`.
+const PT_TRACE_ME: i32 = 0;
 
 pub(crate) fn ptrace(
     env: &mut Environment,
@@ -36,6 +38,14 @@ pub(crate) fn ptrace(
             // Если отладчика нет, вызов успешен. Возвращаем 0.
             // Это позволит игре пройти проверку безопасности и продолжить
             // загрузку.
+            0
+        }
+        // PT_TRACE_ME (0): "declare that this process is being traced by its
+        // parent". There is no parent debugger here, but the call is legal and
+        // always succeeds on a real device; answering -1 made apps that call it
+        // before installing their own signal setup believe the trace failed.
+        PT_TRACE_ME => {
+            log_dbg!("ptrace(PT_TRACE_ME) accepted");
             0
         }
         _ => {
