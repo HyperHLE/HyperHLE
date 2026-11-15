@@ -908,28 +908,6 @@ pub struct Fs {
     /// first extracted here and the VFS node is upgraded to a writable Path.
     cow_dir: Option<PathBuf>,
 }
-/// Log a read-only-parent warning once per distinct path.
-///
-/// Apps retry the same `createDirectory`/`removeItem` call every frame (or
-/// every time a menu opens) and the guest sees only `EPERM`, so repeating the
-/// line adds nothing. The set of paths is bounded by the number of distinct
-/// directories the app touches, which is small.
-fn warn_readonly_parent_once(path: &GuestPath, action: &str) {
-    use std::collections::HashSet;
-    use std::sync::Mutex;
-    static SEEN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-    let mut guard = SEEN.lock().unwrap();
-    let set = guard.get_or_insert_with(HashSet::new);
-    if !set.insert(path.to_string()) {
-        return;
-    }
-    log!(
-        "touchHLE::fs: Warning: attempt to {} at path {:?}, but parent directory is read-only (further attempts for this path are not logged)",
-        action,
-        path
-    );
-}
-
 impl Fs {
     /// Construct a filesystem containing a home directory for the app, its
     /// bundle and documents, and the bundled shared libraries.
@@ -2007,7 +1985,7 @@ impl Fs {
         };
 
         if !dir_writeable.is_some() {
-            warn_readonly_parent_once(path, "delete file or directory");
+            log!("Warning: attempt to delete file or directroy at path {:?}, but parent directory is read-only", path);
             return Err(FsError::ReadonlyParentDir);
         };
 
@@ -2123,7 +2101,7 @@ impl Fs {
         }
 
         let Some(dir_host_path) = dir_host_path else {
-            warn_readonly_parent_once(path, "create directory");
+            log!("Warning: attempt to create directory at path {:?}, but parent directory is read-only", path);
             return Err(FsError::ReadonlyParentDir);
         };
 

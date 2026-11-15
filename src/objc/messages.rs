@@ -1071,25 +1071,10 @@ Type mismatch when sending message {} to {:?}!
             let class_name = env.objc.try_get_class_name(class).map(|s| s.to_owned());
             let orig_name = env.objc.try_get_class_name(orig_class).map(|s| s.to_owned());
             let type_name = host_object.type_name();
-            // One line per (selector, offending type) is enough: an engine
-            // that walks a mismatched object graph hits this on every message
-            // send, and the identical lines only push the useful ones away.
-            {
-                use std::collections::HashSet;
-                use std::sync::Mutex;
-                static SEEN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-                let key = format!("{}/{}", sel_name, type_name);
-                let first = {
-                    let mut guard = SEEN.lock().unwrap();
-                    guard.get_or_insert_with(HashSet::new).insert(key)
-                };
-                if first {
-                    log!(
-                        "Item {class:?} ({:?}) in superclass chain of object {receiver:?}'s class {orig_class:?} ({:?}) has an unexpected host object type ({}). Selector: \"{}\". Behaving as if message was sent to nil (further reports for this selector are suppressed).",
-                        class_name, orig_name, type_name, sel_name
-                    );
-                }
-            }
+            log!(
+                "Item {class:?} ({:?}) in superclass chain of object {receiver:?}'s class {orig_class:?} ({:?}) has an unexpected host object type ({}). Selector: \"{}\". Behaving as if message was sent to nil.",
+                class_name, orig_name, type_name, sel_name
+            );
             env.cpu.regs_mut()[0..2].fill(0);
             return;
         }
