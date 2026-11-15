@@ -290,6 +290,14 @@ use collections::{ChunkMap, SizeBucketedChunkMap};
 pub struct Allocator {
     used_chunks: ChunkMap,
     unused_chunks: SizeBucketedChunkMap,
+    /// Cap on the total size of the chunks handed out by [`Self::alloc`], in
+    /// bytes. `None` means the heap is uncapped (the default).
+    memory_limit: Option<GuestUSize>,
+    /// Total size of the chunks currently handed out by [`Self::alloc`].
+    /// Chunks only reserved with [`Self::reserve`] (Mach-O segments, the null
+    /// segment, the main thread stack) don't count, because the cap models
+    /// the app's heap and not the whole address space.
+    allocated_bytes: GuestUSize,
 }
 
 impl Allocator {
@@ -311,6 +319,36 @@ impl Allocator {
         Allocator {
             used_chunks,
             unused_chunks,
+            memory_limit: None,
+            allocated_bytes: 0,
+        }
+    }
+
+    /// Caps the total size of the live allocations made with [`Self::alloc`].
+    ///
+    /// `None` (the default) leaves the heap uncapped. When the cap is
+    /// reached, [`Self::alloc`] returns NULL, which is what a real device
+    /// does when an app runs out of RAM: `malloc` fails and the app has to
+    /// cope. See `Options::memory_limit_mb`.
+    pub fn set_memory_limit(&mut self, limit: Option<GuestUSize>) {
+        self.memory_limit = limit;
+    }
+
+    /// Updates the heap total and mirrors it to the process-wide counter the
+    /// performance overlay's VMEM field reads.
+    fn set_allocated_bytes(&mut self, bytes: GuestUSize) {
+        self.allocated_bytes = bytes;
+        super::publish_guest_heap_bytes(bytes);
+    }
+
+    /// Whether `extra` more bytes of heap still fit under the cap.
+    fn fits_under_limit(&self, extra: GuestUSize) -> bool {
+        match self.memory_limit {
+            None => true,
+            Some(limit) => self
+                .allocated_bytes
+                .checked_add(extra)
+                .is_some_and(|total| total <= limit),
         }
     }
 
@@ -383,14 +421,23 @@ impl Allocator {
             return 0;
         };
 
+        if !self.fits_under_limit(aligned_size) {
+            // Shared with the Mach VM and mmap paths, and rate-limited: an app
+            // that retries a failing allocation would otherwise flood the log.
+            super::log_out_of_memory("malloc", aligned_size);
+            return 0;
+        }
+
         let Some(alloc) = self.unused_chunks.allocate(aligned_size) else {
-            log!(
-                "Warning: Allocator::alloc: out of memory (could not find a large enough chunk for {:#x} bytes); returning NULL.",
-                aligned_size
-            );
+            // The heap is full (often fragmented rather than truly used up), or
+            // the RAM limiter's cap was reached above. Both share one
+            // rate-limited log budget: a guest that retries every frame would
+            // otherwise fill the log with this line.
+            super::log_out_of_memory("malloc (heap full)", aligned_size);
             return 0;
         };
         self.used_chunks.insert(alloc);
+        self.set_allocated_bytes(self.allocated_bytes.saturating_add(alloc.size.get()));
 
         alloc.base
     }
@@ -499,6 +546,15 @@ impl Allocator {
             return None;
         }
 
+        // The real growth is known now (taking over a whole adjacent chunk can
+        // cost much more than `extra`), so check it against the heap cap. The
+        // caller falls back to allocate-copy-free, which fails the same way if
+        // the cap is really reached.
+        if !self.fits_under_limit(grown_size - old_size) {
+            self.unused_chunks.insert(adjacent);
+            return None;
+        }
+
         if adjacent_size < PAGE_SIZE {
             let remainder = adjacent_size - extra;
             if remainder >= MIN_CHUNK_SIZE {
@@ -513,6 +569,10 @@ impl Allocator {
 
         assert!(self.used_chunks.remove_with_base(base).is_some());
         self.used_chunks.insert(Chunk::new(base, grown_size));
+        self.set_allocated_bytes(
+            self.allocated_bytes
+                .saturating_add(grown_size - old_size),
+        );
 
         Some(grown_size)
     }
@@ -524,6 +584,9 @@ impl Allocator {
             log!("Can't free {:#x}, unknown allocation!", base);
             return 0;
         };
+        // Chunks reserved by `reserve` were never counted, so the saturating
+        // subtraction keeps the bookkeeping harmless for them.
+        self.set_allocated_bytes(self.allocated_bytes.saturating_sub(freed.size.get()));
 
         if let Some(adjacent) = self
             .unused_chunks
@@ -566,6 +629,65 @@ impl Allocator {
             .iter()
             .map(|chunk| (chunk.base, chunk.size.get()))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod memory_limit_tests {
+    use super::{Allocator, Chunk, PAGE_SIZE};
+
+    /// The allocator starts with no free memory at all (in production the
+    /// null segment and the Mach-O segments are reserved before the app runs),
+    /// so tests must reserve an arena first.
+    fn arena() -> Allocator {
+        let mut allocator = Allocator::new();
+        // As in `grow_in_place_tests`: reserve the null segment at address 0
+        // first, so that the first allocation cannot legally return base 0.
+        allocator.reserve(Chunk::new(0, PAGE_SIZE));
+        allocator.reserve(Chunk::new(PAGE_SIZE, 64 * PAGE_SIZE));
+        allocator
+    }
+
+    #[test]
+    fn allocations_fail_once_the_cap_is_reached() {
+        let mut allocator = arena();
+        allocator.set_memory_limit(Some(128));
+
+        let first = allocator.alloc(64);
+        let second = allocator.alloc(64);
+        assert_ne!(first, 0);
+        assert_ne!(second, 0);
+
+        // 128 bytes are in use, so a third allocation of the same size must
+        // fail the way malloc() does on a device with no RAM left.
+        assert_eq!(allocator.alloc(64), 0);
+
+        // Freeing gives the room back.
+        assert_eq!(allocator.free(first), 64);
+        let third = allocator.alloc(64);
+        assert_ne!(third, 0);
+    }
+
+    #[test]
+    fn growing_in_place_counts_the_extra_bytes() {
+        let mut allocator = arena();
+        allocator.set_memory_limit(Some(64));
+
+        let base = allocator.alloc(16);
+        assert_ne!(base, 0);
+        assert_eq!(allocator.grow_in_place(base, 16, 64), Some(64));
+
+        // The allocation now fills the whole cap, so it can't grow further.
+        assert_eq!(allocator.grow_in_place(base, 64, 128), None);
+    }
+
+    #[test]
+    fn an_uncapped_heap_never_rejects_an_allocation() {
+        let mut allocator = arena();
+        allocator.set_memory_limit(None);
+        // Half of the reserved arena: the default (uncapped) configuration
+        // must not hold anything back.
+        assert_ne!(allocator.alloc(32 * PAGE_SIZE), 0);
     }
 }
 

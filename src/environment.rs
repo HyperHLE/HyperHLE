@@ -468,6 +468,29 @@ fn generate_binary_load_order(graph: &[BinaryDependencyNode]) -> Result<Vec<usiz
 static ENVIRONMENT_INSTANCE_EXISTS: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// Ceiling for the app's heap when the RAM limiter is left on "Default".
+///
+/// iOS does not let an app have the whole device: jetsam kills a foreground
+/// app somewhere around half of physical memory, which is why a game that
+/// grows its heap without collecting never gets past a few hundred megabytes
+/// on a real phone. Without a ceiling the same game takes all 4 GiB of the
+/// guest address space and, on an Android host, takes the phone down with it
+/// (a crowd of apps and the GPU share the same RAM, and the kernel kills the
+/// biggest process last).
+///
+/// So "Default" means half of the Device model's RAM, which makes the Device
+/// choice matter for real, with two practical clamps: at least 256 MiB, because
+/// the earliest device profiles only report 128-256 MiB and games that run
+/// today already use 150-200 MiB, and at most 2 GiB, because the app's own
+/// segments, thread stacks and the null segment share the same 4 GiB address
+/// space.
+fn default_guest_heap_cap(device_family: DeviceFamily) -> GuestUSize {
+    const FLOOR: u64 = 256 * 1024 * 1024;
+    const CEILING: u64 = 2 * 1024 * 1024 * 1024;
+    let half = device_family.physical_memory() / 2;
+    half.clamp(FLOOR, CEILING) as GuestUSize
+}
+
 impl Environment {
     /// Loads the binary and sets up the emulator.
     pub fn new(
@@ -701,6 +724,26 @@ impl Environment {
         };
 
         let mut mem = mem::Mem::new();
+        // The RAM limiter caps the app's heap (see `--memory-limit=` and the
+        // "RAM Limiter" row of the graphical settings screen). With no choice
+        // made, the ceiling still comes from the Device model, standing in for
+        // iOS's jetsam limit: see `default_guest_heap_cap`.
+        let heap_cap = match options.memory_limit_mb {
+            Some(mb) => mb.saturating_mul(1024 * 1024),
+            None => default_guest_heap_cap(device_family),
+        };
+        mem.set_memory_limit(Some(heap_cap));
+        match options.memory_limit_mb {
+            Some(mb) => log!(
+                "RAM limiter: the app's heap is capped at {} MiB; the overlay shows it as VMEM used/limit.",
+                mb
+            ),
+            None => log!(
+                "Guest heap: capped at {} MiB, half of the {:?} model's RAM (iOS would kill the app around there); the overlay shows it as VMEM used/limit. Set RAM Limiter to change it.",
+                heap_cap / (1024 * 1024),
+                device_family
+            ),
+        }
 
         let is_spore = bundle.bundle_identifier().starts_with("com.ea.spore");
         let is_critter_crunch = bundle
@@ -1196,6 +1239,15 @@ impl Environment {
         )?));
 
         let mut mem = mem::Mem::new();
+        let heap_cap = match options.memory_limit_mb {
+            Some(mb) => mb.saturating_mul(1024 * 1024),
+            None => default_guest_heap_cap(
+                window
+                    .as_ref()
+                    .map_or(DeviceFamily::iPhone3GS, |window| window.device_family()),
+            ),
+        };
+        mem.set_memory_limit(Some(heap_cap));
 
         let bins = Vec::new();
 

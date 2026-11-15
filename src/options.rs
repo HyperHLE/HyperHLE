@@ -216,6 +216,12 @@ pub struct Options {
     pub performance_overlay_mode: PerformanceOverlayMode,
     pub performance_overlay_corner: PerformanceOverlayCorner,
     pub fps_limit: Option<f64>,
+    /// `--memory-limit=...`: cap on the emulated app's heap (its `malloc`
+    /// pool), in MiB. `None` is the default and means "let the Device model
+    /// decide": half of its RAM, like iOS's jetsam limit (see
+    /// `crate::environment::default_guest_heap_cap`). See
+    /// `crate::mem::Mem::set_memory_limit`.
+    pub memory_limit_mb: Option<u32>,
     pub force_composition: bool,
     /// See [PresentMode]. Can also be set with the `TOUCHHLE_PRESENT_MODE`
     /// environment variable (the option takes precedence).
@@ -400,6 +406,7 @@ impl Default for Options {
             },
             performance_overlay_corner: PerformanceOverlayCorner::TopRight,
             fps_limit: Some(60.0),
+            memory_limit_mb: None,
             force_composition: false,
             present_mode: std::env::var("TOUCHHLE_PRESENT_MODE")
                 .ok()
@@ -691,6 +698,8 @@ impl Options {
                     .ok_or_else(|| "Invalid value for --fps-limit=".to_string())?;
                 self.fps_limit = Some(limit);
             }
+        } else if let Some(value) = arg.strip_prefix("--memory-limit=") {
+            self.memory_limit_mb = parse_memory_limit_mb(value)?;
         } else if arg == "--force-composition" {
             self.force_composition = true;
         } else if arg == "--no-force-composition" {
@@ -846,6 +855,28 @@ pub fn get_options_from_file<F: Read>(file: F, app_id: &str) -> Result<Option<St
     Ok(None)
 }
 
+/// Parses the value of `--memory-limit=` into a heap cap in MiB.
+///
+/// Accepts a positive whole number of mebibytes, or `off`/`default` for the
+/// ceiling derived from the Device model. Zero is rejected: it would make the
+/// very first guest allocation fail, so the emulator could never start an app.
+fn parse_memory_limit_mb(value: &str) -> Result<Option<u32>, String> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("off") || value.eq_ignore_ascii_case("default") {
+        return Ok(None);
+    }
+    let mb: u32 = value.parse().map_err(|_| {
+        "Invalid value for --memory-limit= (expected a whole number of MiB, or off)".to_string()
+    })?;
+    if mb == 0 {
+        return Err(
+            "Invalid value for --memory-limit= (expected a positive number of MiB, or off)"
+                .to_string(),
+        );
+    }
+    Ok(Some(mb))
+}
+
 #[derive(Default, Clone)]
 pub struct DumpingOptions {
     pub linking_info: bool,
@@ -979,6 +1010,25 @@ mod option_parsing_tests {
         assert_eq!(options.performance_overlay_corner, PerformanceOverlayCorner::BottomLeft);
         assert!(options.parse_argument("--overlay-mode=invalid").is_err());
         assert!(options.parse_argument("--overlay-corner=invalid").is_err());
+    }
+
+    #[test]
+    fn memory_limit_parses_mib_and_off() {
+        let mut options = Options::default();
+        assert_eq!(options.memory_limit_mb, None);
+
+        assert!(options.parse_argument("--memory-limit=128").unwrap());
+        assert_eq!(options.memory_limit_mb, Some(128));
+
+        assert!(options.parse_argument("--memory-limit=off").unwrap());
+        assert_eq!(options.memory_limit_mb, None);
+
+        assert!(options.parse_argument("--memory-limit=0").is_err());
+        assert!(options.parse_argument("--memory-limit=lots").is_err());
+        // A rejected value must leave the previous setting alone.
+        assert!(options.parse_argument("--memory-limit=64").unwrap());
+        assert!(options.parse_argument("--memory-limit=-1").is_err());
+        assert_eq!(options.memory_limit_mb, Some(64));
     }
 
     #[test]

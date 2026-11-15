@@ -328,10 +328,15 @@ Other options:
         Show all counters and the frame-time graph, only FPS/CPU/GPU/time, or
         the minimal summary in the desktop window title bar. On Android/iOS,
         titlebar falls back to Minimal because the OS has no window title bar.
-        Metrics unavailable from the host remain N/A; MEM is process resident
-        memory. Q DIRECT and GLALLOC describe HyperHLE's GLES path, not Vulkan.
-        GC stays 0/0/0 because the Rust runtime has no garbage collector. Android
-        GPU load is read from vendor kernel counters when the app can access them.
+        Metrics unavailable from the host remain N/A; MEM is the emulator
+        process's resident memory, VMEM is the guest's own heap (what the
+        emulated app has allocated with malloc; while --memory-limit= is in
+        effect it reads used/limit), and BUF/IMG are the memory used by GL
+        buffers and textures. Q DIRECT and GLALLOC describe
+        HyperHLE's GLES path, not Vulkan. CPU is the process's usage of one
+        core, like top's %CPU, so a value above 100% means more than one core
+        is busy. Android GPU load is read from vendor kernel counters when the
+        app can access them.
 
     --overlay-corner=topleft|topright|bottomright|bottomleft
         Choose the saved corner for the on-screen panel. F2 changes the corner
@@ -354,6 +359,32 @@ Other options:
         Note that many apps have an internal timer that determines how often
         they present frames; increasing the limit will not increase their
         framerate, but may make it less consistent.
+
+    --memory-limit=...
+        Limit the RAM available to the emulated app's heap, in MiB ("RAM
+        Limiter" in the graphical settings screen). This is a whole number of
+        mebibytes such as 128, 256, 512, 1024 or 2048, or 'off' (the default)
+        to let the Device model decide: the heap is then capped at half of the
+        model's RAM, which is roughly where iOS would kill the app for using
+        too much. That matters because the guest has a 4 GiB address space
+        regardless of the model, so without a ceiling a runtime that keeps
+        growing its heap (Mono's Boehm GC does) can take all of it and take the
+        host device down with it.
+
+        When the cap is reached, the app's allocations fail and return NULL,
+        exactly like malloc() on a real device that has run out of memory
+        (vm_allocate() reports KERN_NO_SPACE, mmap() reports MAP_FAILED). The
+        performance overlay shows the cap as VMEM used/limit. Refusals are
+        logged, but only a handful for the whole run, with one line saying the
+        rest are silenced, because apps tend to retry in a loop. Most apps
+        handle that badly (they may crash or log errors), so this is mainly a
+        way to reproduce low-memory behaviour and to keep the emulator inside a
+        tight host memory budget.
+
+        Mach-O segments, thread stacks and other reserved memory are not part
+        of the heap and do not count against the cap, and the cap does not
+        change how much RAM the app thinks the device has: that still comes
+        from the Device model.
 
     --force-composition
         Forces presentation of renderbuffer as if no fullscreen EAGL layer is

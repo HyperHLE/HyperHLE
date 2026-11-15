@@ -225,6 +225,7 @@ fn mmap(
     // TODO: use vm_allocate() instead
     let ptr = env.mem.calloc(len);
     if ptr.is_null() {
+        crate::mem::log_out_of_memory("mmap", len);
         set_errno(env, ENOMEM);
         return MAP_FAILED;
     }
@@ -300,6 +301,7 @@ fn mmap(
         }
     }
 
+    crate::mem::note_allocation_site(env.cpu.regs()[crate::cpu::Cpu::LR], len);
     track_allocation(&mut env.libc_state.mmap.allocations, ptr, len);
     // A brand-new mapping cannot inherit "these pages are free" records from a
     // previous mapping that the allocator recycled the address from.
@@ -354,6 +356,9 @@ fn mmap_fixed(
     ) {
         Ok(result) => result,
         Err(errno) => {
+            if errno == ENOMEM {
+                crate::mem::log_out_of_memory("mmap MAP_FIXED", len);
+            }
             set_errno(env, errno);
             return MAP_FAILED;
         }

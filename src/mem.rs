@@ -321,6 +321,216 @@ static NULL_WRITE_PROBE_FIRED: std::sync::atomic::AtomicBool =
 static NULL_WRITE_PROBE_PENDING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// Total size of the live guest heap allocations, in bytes, mirrored for the
+/// performance overlay's VMEM counter. The authoritative bookkeeping lives in
+/// [`allocator::Allocator`]; this copy exists because the overlay runs on the
+/// GL thread and must not lock the guest allocator.
+static GUEST_HEAP_BYTES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// The RAM limiter's cap in bytes, or zero when the heap is uncapped. Mirrored
+/// like [`GUEST_HEAP_BYTES`] so the overlay can show `VMEM used/limit`.
+/// Zero can't be a real cap: `--memory-limit=0` is rejected and the graphical
+/// settings screen doesn't offer it.
+static GUEST_HEAP_LIMIT_BYTES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Publishes the allocator's heap total to [`GUEST_HEAP_BYTES`]. Called by
+/// [`allocator::Allocator`] whenever the total changes.
+pub(super) fn publish_guest_heap_bytes(bytes: GuestUSize) {
+    GUEST_HEAP_BYTES.store(bytes as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How much RAM the emulated app's heap currently uses, in bytes.
+///
+/// This is everything allocated in guest memory through the guest's own
+/// `malloc` and friends, including the objects the emulator allocates on the
+/// app's behalf. It is what the emulated process is holding, not the host
+/// process's whole working set, which also includes the emulator's own
+/// memory, the lazily-committed guest address space and the per-allocation
+/// overhead the allocator doesn't model.
+pub fn guest_heap_bytes() -> u64 {
+    GUEST_HEAP_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The RAM limiter's cap in bytes, or zero when the guest heap is uncapped.
+pub fn guest_heap_limit_bytes() -> u64 {
+    GUEST_HEAP_LIMIT_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How many out-of-memory warnings have been printed since the last reset.
+///
+/// A guest app that has run out of memory usually retries the same failing
+/// allocation on every frame, so every allocation path shares this one small
+/// budget instead of each flooding the log with identical lines.
+static OUT_OF_MEMORY_LOG_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+const OUT_OF_MEMORY_LOG_LIMIT: usize = 8;
+
+/// Reports that `site` could not allocate `requested` bytes because the guest
+/// heap is full or has hit the RAM limiter's cap.
+///
+/// The first `OUT_OF_MEMORY_LOG_LIMIT` refusals are reported together with
+/// the heap's current usage, then a single notice says the rest are silenced,
+/// so a game that keeps retrying can't drown the log (the same approach
+/// `Mem::warn_wild_host_ptr` and the nil-isa warnings use).
+pub(crate) fn log_out_of_memory(site: &str, requested: GuestUSize) {
+    let count = OUT_OF_MEMORY_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let used = guest_heap_bytes();
+    let limit = guest_heap_limit_bytes();
+    if count < OUT_OF_MEMORY_LOG_LIMIT {
+        if limit > 0 {
+            log!(
+                "Warning: {}: can't allocate {:#x} bytes; the guest heap is using \
+                 {:#x} of its {:#x}-byte RAM limiter cap",
+                site,
+                requested,
+                used,
+                limit
+            );
+        } else {
+            log!(
+                "Warning: {}: can't allocate {:#x} bytes; the guest heap is using \
+                 {:#x} bytes and has no room left",
+                site,
+                requested,
+                used
+            );
+        }
+    } else if count == OUT_OF_MEMORY_LOG_LIMIT {
+        log!(
+            "Warning: out-of-memory warnings are silenced from now on ({} already \
+             logged)",
+            OUT_OF_MEMORY_LOG_LIMIT
+        );
+    }
+}
+
+/// Re-arms `log_out_of_memory`, e.g. for a new run or after the RAM limiter's
+/// cap changed, so the new situation gets its own few lines of diagnostics.
+pub(crate) fn reset_out_of_memory_log_budget() {
+    OUT_OF_MEMORY_LOG_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Allocation size at which a request is attributed to a guest call site.
+const ALLOCATION_SITE_MIN_SIZE: GuestUSize = 4096;
+/// Allocations of this size or more are also logged one by one: a heap that
+/// jumps by hundreds of megabytes comes from a handful of huge requests, and a
+/// warning per request names them directly.
+const LARGE_ALLOCATION_LOG_BYTES: u64 = 8 * 1024 * 1024;
+const LARGE_ALLOCATION_LOG_LIMIT: usize = 24;
+static LARGE_ALLOCATION_LOGS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+const LARGE_RELEASE_LOG_LIMIT: usize = 24;
+static LARGE_RELEASE_LOGS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Logs a release of at least [`LARGE_ALLOCATION_LOG_BYTES`], so the log shows
+/// whether the huge blocks behind a heap spike ever go back to the allocator.
+fn note_large_release(size: GuestUSize) {
+    if u64::from(size) < LARGE_ALLOCATION_LOG_BYTES {
+        return;
+    }
+    let logged = LARGE_RELEASE_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if logged < LARGE_RELEASE_LOG_LIMIT {
+        log!(
+            "Warning: {} MiB released; the guest heap now holds {} MiB",
+            u64::from(size) / (1024 * 1024),
+            guest_heap_bytes() / (1024 * 1024)
+        );
+    } else if logged == LARGE_RELEASE_LOG_LIMIT {
+        log!("Warning: further large-release warnings are silenced");
+    }
+}
+/// How many call sites the attribution table keeps.
+const ALLOCATION_SITE_SLOTS: usize = 8;
+/// Bytes of attributed allocations between reports; doubles each time.
+const ALLOCATION_SITE_FIRST_REPORT: u64 = 256 * 1024 * 1024;
+
+/// Who asks for the guest heap's large allocations, keyed by the guest return
+/// address of the host call `(site, bytes, allocations)`.
+///
+/// The guest heap is one address space shared by the app and everything it
+/// embeds (Mono's Boehm GC, PhysX, Unity's own pools), so an app whose heap
+/// balloons can't be diagnosed from the total alone: Unity's own accounting
+/// can report a few tens of megabytes while the heap is gigabytes. Blaming the
+/// call sites turns that into an answer, and it costs nothing on the `malloc`
+/// fast path because only requests of at least
+/// `ALLOCATION_SITE_MIN_SIZE` are recorded.
+static ALLOCATION_SITES: std::sync::Mutex<Vec<(VAddr, u64, u64)>> =
+    std::sync::Mutex::new(Vec::new());
+static ALLOCATION_SITE_NEXT_REPORT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(ALLOCATION_SITE_FIRST_REPORT);
+
+/// Records that `size` bytes were allocated on the guest's behalf from the
+/// host call that returns to `site`.
+///
+/// Once the attributed total passes a threshold (256 MiB, then 512 MiB, then
+/// 1 GiB and so on) the biggest sites are logged, so a leak shows its caller
+/// instead of just filling the heap.
+pub(crate) fn note_allocation_site(site: VAddr, size: GuestUSize) {
+    if u64::from(size) >= LARGE_ALLOCATION_LOG_BYTES {
+        let logged = LARGE_ALLOCATION_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if logged < LARGE_ALLOCATION_LOG_LIMIT {
+            log!(
+                "Warning: {} MiB requested by guest code returning to {:#010x}; \
+                 the guest heap now holds {} MiB",
+                u64::from(size) / (1024 * 1024),
+                site,
+                guest_heap_bytes() / (1024 * 1024)
+            );
+        } else if logged == LARGE_ALLOCATION_LOG_LIMIT {
+            log!("Warning: further large-allocation warnings are silenced");
+        }
+    }
+    if size < ALLOCATION_SITE_MIN_SIZE {
+        return;
+    }
+    let Ok(mut sites) = ALLOCATION_SITES.lock() else {
+        return;
+    };
+    match sites.iter_mut().find(|entry| entry.0 == site) {
+        Some(entry) => {
+            entry.1 += u64::from(size);
+            entry.2 += 1;
+        }
+        None => sites.push((site, u64::from(size), 1)),
+    }
+    if sites.len() > ALLOCATION_SITE_SLOTS {
+        sites.sort_by(|a, b| b.1.cmp(&a.1));
+        sites.truncate(ALLOCATION_SITE_SLOTS);
+    }
+    let total: u64 = sites.iter().map(|entry| entry.1).sum();
+    let threshold = ALLOCATION_SITE_NEXT_REPORT.load(std::sync::atomic::Ordering::Relaxed);
+    if total < threshold
+        || ALLOCATION_SITE_NEXT_REPORT
+            .compare_exchange(
+                threshold,
+                threshold.saturating_mul(2),
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+    {
+        return;
+    }
+    log!(
+        "Warning: guest heap attribution: {} MiB in large allocations ({} MiB live in the heap)",
+        total / (1024 * 1024),
+        guest_heap_bytes() / (1024 * 1024)
+    );
+    let mut biggest: Vec<(VAddr, u64, u64)> = sites.clone();
+    biggest.sort_by(|a, b| b.1.cmp(&a.1));
+    for (site, bytes, allocations) in biggest {
+        log!(
+            "Warning:   returns to {:#010x}: {} KiB in {} allocations",
+            site,
+            bytes / 1024,
+            allocations
+        );
+    }
+}
+
 /// Claim the one-shot null-write probe. Returns `true` for exactly one caller
 /// in the whole process, which must arrange for the resulting memory abort to
 /// be reported. Two flags rather than one: reusing a single flag let the
@@ -482,6 +692,18 @@ impl Mem {
         };
 
         let allocator = allocator::Allocator::new();
+        publish_guest_heap_bytes(0);
+        GUEST_HEAP_LIMIT_BYTES.store(0, std::sync::atomic::Ordering::Relaxed);
+        reset_out_of_memory_log_budget();
+        if let Ok(mut sites) = ALLOCATION_SITES.lock() {
+            sites.clear();
+        }
+        ALLOCATION_SITE_NEXT_REPORT.store(
+            ALLOCATION_SITE_FIRST_REPORT,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        LARGE_ALLOCATION_LOGS.store(0, std::sync::atomic::Ordering::Relaxed);
+        LARGE_RELEASE_LOGS.store(0, std::sync::atomic::Ordering::Relaxed);
         Mem {
             bytes,
             null_segment_size: 0,
@@ -1150,10 +1372,32 @@ impl Mem {
         }
     }
 
+    /// Caps the total size of the app's heap, in bytes.
+    ///
+    /// `None` (the default) leaves the heap uncapped. See `Options`'
+    /// `memory_limit_mb` field: the graphical settings screen's "RAM Limiter"
+    /// and `--memory-limit=` both end up here. Reserved segments (Mach-O
+    /// segments, the null segment, threads' stacks) are not part of the heap,
+    /// so they don't count against the cap.
+    pub fn set_memory_limit(&mut self, limit: Option<GuestUSize>) {
+        self.allocator.set_memory_limit(limit);
+        GUEST_HEAP_LIMIT_BYTES.store(
+            limit.unwrap_or(0) as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        reset_out_of_memory_log_budget();
+    }
+
     /// Allocate `size` bytes.
+    ///
+    /// Returns NULL if the heap is full, including when the RAM limiter's cap
+    /// has been reached, just like `malloc` on a real device that ran out of
+    /// memory.
     pub fn alloc(&mut self, size: GuestUSize) -> MutVoidPtr {
         let ptr = Ptr::from_bits(self.allocator.alloc(size));
-        if !self.zero_memory_on_free {
+        // Do not touch guest memory when the allocation failed: the null page
+        // stub is only 64KiB and the request may be far larger.
+        if !self.zero_memory_on_free && !ptr.is_null() {
             self.bytes_at_mut(ptr.cast(), size).fill(0);
         }
 
@@ -1164,7 +1408,9 @@ impl Mem {
     /// Allocate `size` bytes initialized to 0.
     pub fn calloc(&mut self, size: GuestUSize) -> MutVoidPtr {
         let ptr = self.alloc(size);
-        self.bytes_at_mut(ptr.cast(), size).fill(0);
+        if !ptr.is_null() {
+            self.bytes_at_mut(ptr.cast(), size).fill(0);
+        }
         ptr
     }
 
@@ -1233,6 +1479,11 @@ impl Mem {
         }
 
         let new_ptr = self.alloc(size);
+        if new_ptr.is_null() {
+            // Like C's realloc(), leave the old block untouched: the caller
+            // still owns it, and there is nothing to copy into.
+            return new_ptr;
+        }
         self.memmove(new_ptr, old_ptr.cast_const(), old_size);
         self.free(old_ptr);
         new_ptr
@@ -1256,6 +1507,7 @@ impl Mem {
             return;
         }
         let size = self.allocator.free(addr);
+        note_large_release(size);
         if self.zero_memory_on_free {
             self.bytes_at_mut(ptr.cast(), size).fill(0);
         }

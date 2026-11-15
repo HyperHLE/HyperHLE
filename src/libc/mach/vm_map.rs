@@ -9,7 +9,8 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::libc::mach::init::MACH_TASK_SELF;
 use crate::libc::mach::port::mach_port_t;
 use crate::libc::mach::thread_info::{
-    kern_return_t, KERN_INVALID_ADDRESS, KERN_INVALID_ARGUMENT, KERN_INVALID_TASK, KERN_SUCCESS,
+    kern_return_t, KERN_INVALID_ADDRESS, KERN_INVALID_ARGUMENT, KERN_INVALID_TASK, KERN_NO_SPACE,
+    KERN_SUCCESS,
 };
 use crate::mem::{
     ConstPtr, Mem, MutPtr, Ptr, SafeRead, SafeWrite, PAGE_SIZE, PAGE_SIZE_ALIGN_MASK,
@@ -122,7 +123,15 @@ pub fn vm_allocate(
     log_dbg!("vm_allocate() implemented atop standard allocator");
     let allocated = env.mem.alloc(new_size);
     let address = allocated.to_bits();
+    if address == 0 {
+        // Out of guest memory (including the RAM limiter's cap). Reporting
+        // success with address 0 would hand the guest a null "mapping" it
+        // believes it owns, so fail like the kernel does instead.
+        crate::mem::log_out_of_memory("vm_allocate", new_size);
+        return KERN_NO_SPACE;
+    }
     assert!(address & PAGE_SIZE_ALIGN_MASK == 0);
+    crate::mem::note_allocation_site(env.cpu.regs()[crate::cpu::Cpu::LR], new_size);
     env.mem.write(address_ptr, address);
 
     assert!(!env.libc_state.mach_vm.allocations.contains_key(&address));
@@ -362,6 +371,12 @@ fn vm_remap(
 
     let allocated = env.mem.alloc(new_size);
     let address = allocated.to_bits();
+    if address == 0 {
+        // Out of guest memory (including the RAM limiter's cap). Failing here
+        // matters: the copy below would write through a null pointer.
+        crate::mem::log_out_of_memory("vm_remap", new_size);
+        return KERN_NO_SPACE;
+    }
     assert!(address & PAGE_SIZE_ALIGN_MASK == 0);
 
     // Copy the source region's bytes so the new mapping reads back the same
