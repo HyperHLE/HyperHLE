@@ -198,6 +198,13 @@ pub struct Environment {
     /// pointer. See `debug_cpu_error`.
     cpu_error_bypass_last_lr: Option<u32>,
     cpu_error_bypass_lr_count: u32,
+    /// Tracks consecutive guest CPU-trap bypasses at the same faulting PC,
+    /// regardless of the return address. The `(pc, lr)` pair and the
+    /// "same LR" counters above both miss the case where one bogus PC is
+    /// reached from many different callers, which is what a wild jump into the
+    /// image header or a data blob looks like. See `debug_cpu_error`.
+    cpu_error_bypass_last_pc: Option<u32>,
+    cpu_error_bypass_pc_count: u32,
     /// Thread and stack pointer of the most recent deliberate guest trap
     /// (`udf`/`trap`/`bkpt`) that was bypassed.
     last_deliberate_trap_bypass: Option<(ThreadId, u32)>,
@@ -1053,6 +1060,8 @@ impl Environment {
             cpu_error_bypass_total: 0,
             cpu_error_bypass_last_lr: None,
             cpu_error_bypass_lr_count: 0,
+            cpu_error_bypass_last_pc: None,
+            cpu_error_bypass_pc_count: 0,
             last_deliberate_trap_bypass: None,
             cpu_skipped_instruction_sites: HashMap::new(),
             guest_termination_requested: None,
@@ -1241,6 +1250,8 @@ impl Environment {
             cpu_error_bypass_total: 0,
             cpu_error_bypass_last_lr: None,
             cpu_error_bypass_lr_count: 0,
+            cpu_error_bypass_last_pc: None,
+            cpu_error_bypass_pc_count: 0,
             last_deliberate_trap_bypass: None,
             cpu_skipped_instruction_sites: HashMap::new(),
             guest_termination_requested: None,
@@ -1313,6 +1324,8 @@ impl Environment {
             cpu_error_bypass_total: 0,
             cpu_error_bypass_last_lr: None,
             cpu_error_bypass_lr_count: 0,
+            cpu_error_bypass_last_pc: None,
+            cpu_error_bypass_pc_count: 0,
             last_deliberate_trap_bypass: None,
             cpu_skipped_instruction_sites: HashMap::new(),
             guest_termination_requested: None,
@@ -2818,6 +2831,8 @@ impl Environment {
                 self.cpu_error_bypass_count = 0;
                 self.cpu_error_bypass_last_lr = None;
                 self.cpu_error_bypass_lr_count = 0;
+                self.cpu_error_bypass_last_pc = None;
+                self.cpu_error_bypass_pc_count = 0;
             }
         }
     }
@@ -3242,6 +3257,37 @@ impl Environment {
                     1
                 };
 
+                // Count consecutive bypasses at the same faulting PC too. A
+                // guest that calls through one bad function pointer bounces
+                // back to the *same* bogus address from many different return
+                // sites: every `(pc, lr)` pair is new, so `count` stays 1, and
+                // LR differs each time, so `lr_count` stays 1 as well. Neither
+                // counter escalates and the guest keeps jumping until it
+                // wanders into data and dynarmic aborts the host process while
+                // compiling a block there (RetroArch, wild PC 0x4000 reached
+                // from eight different scripts, then 0x100000).
+                let pc_count = if self.cpu_error_bypass_last_pc == Some(pc) {
+                    self.cpu_error_bypass_pc_count = self.cpu_error_bypass_pc_count.saturating_add(1);
+                    self.cpu_error_bypass_pc_count
+                } else {
+                    self.cpu_error_bypass_last_pc = Some(pc);
+                    self.cpu_error_bypass_pc_count = 1;
+                    1
+                };
+                // Bypasses at one PC before the emulator stops trusting
+                // "return to LR" for it.
+                const PC_BYPASS_LIMIT: u32 = 4096;
+                if pc_count >= PC_BYPASS_LIMIT {
+                    panic!(
+                        "{error:?} bypass returned from PC={:#x} {} times in a row \
+                         (most recent LR {:#x}); giving up to avoid hanging. The \
+                         guest keeps jumping to one bogus address from many \
+                         different call sites — usually a function pointer that \
+                         points at an image header or a data blob.",
+                        pc, pc_count, lr
+                    );
+                }
+
                 if lr_count >= LR_BYPASS_LIMIT {
                     panic!(
                         "{error:?} bypass faked a return to LR={:#x} \
@@ -3334,7 +3380,7 @@ impl Environment {
                         }
                     }
                     GuestTrapKind::OutsideCode | GuestTrapKind::ExecutionInData { .. }
-                        if count >= UNWIND_AFTER_REPEATS =>
+                        if count.max(pc_count) >= UNWIND_AFTER_REPEATS =>
                     {
                         match self.validated_guest_frame_record() {
                             Some(frame) => GuestTrapRecovery::UnwindFrame {
