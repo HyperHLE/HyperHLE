@@ -291,6 +291,23 @@ impl Trainer {
         }
     }
 
+    /// Turns the trainer on or off while an app is running, so the quick
+    /// menu's "Cheat Engine" row takes effect without restarting anything.
+    ///
+    /// Switching it off also drops the app the trainer was attached to and
+    /// hides the overlay; switching it back on makes the next `tick()`
+    /// re-announce the running app (which reloads that app's saved hacks).
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if self.enabled == enabled {
+            return;
+        }
+        self.enabled = enabled;
+        self.state.app_id = None;
+        if !enabled {
+            crate::trainer_ui::reset_for_app(None);
+        }
+    }
+
     /// Called from the main loop. `app_id` is the identifier of the
     /// currently running app, if any.
     pub fn tick(&mut self, mem: &mut Mem, app_id: Option<&str>, objc: &crate::objc::ObjC) {

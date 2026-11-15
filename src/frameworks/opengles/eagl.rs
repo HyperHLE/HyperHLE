@@ -2112,6 +2112,7 @@ unsafe fn present_renderbuffer_es2(
     // drivers (Android), where the fixed-function GLES 1.x path is unusable.
     crate::gles::perf_overlay::draw_es2(gles, viewport, context_token);
     crate::trainer_ui::draw_es2(gles, viewport, context_token);
+    crate::quick_menu::draw_es2(gles, viewport, context_token);
 
     // Optional: virtual cursor.
     if let Some((cx, cy, pressed)) = virtual_cursor_visible_at {

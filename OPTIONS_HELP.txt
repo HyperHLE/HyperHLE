@@ -363,13 +363,13 @@ Other options:
     --memory-limit=...
         Limit the RAM available to the emulated app's heap, in MiB ("RAM
         Limiter" in the graphical settings screen). This is a whole number of
-        mebibytes such as 128, 256, 512, 1024 or 2048, or 'off' (the default)
-        to let the Device model decide: the heap is then capped at half of the
-        model's RAM, which is roughly where iOS would kill the app for using
-        too much. That matters because the guest has a 4 GiB address space
-        regardless of the model, so without a ceiling a runtime that keeps
-        growing its heap (Mono's Boehm GC does) can take all of it and take the
-        host device down with it.
+        mebibytes such as 32, 64, 128, 256, 512, 1024 or 2048, or 'off' (the
+        default) to let the Device model decide: the heap is then capped at
+        half of the model's RAM, which is roughly where iOS would kill the app
+        for using too much. That matters because the guest has a 4 GiB address
+        space regardless of the model, so without a ceiling a runtime that
+        keeps growing its heap (Mono's Boehm GC does) can take all of it and
+        take the host device down with it.
 
         When the cap is reached, the app's allocations fail and return NULL,
         exactly like malloc() on a real device that has run out of memory
@@ -381,10 +381,27 @@ Other options:
         way to reproduce low-memory behaviour and to keep the emulator inside a
         tight host memory budget.
 
+        The graphical RAM Limiter offers Default, 32, 64, 128, 256 and 512 MB,
+        1 GB, 2 GB and Custom… at the bottom of the list. Custom opens a
+        keypad where the size is typed in mebibytes, so 10 means 10 MB and
+        3000 means about 3 GB (1 to 3072 MB).
+
         Mach-O segments, thread stacks and other reserved memory are not part
         of the heap and do not count against the cap, and the cap does not
         change how much RAM the app thinks the device has: that still comes
         from the Device model.
+
+    --quick-menu
+        Show a pause button in the top-left corner of the screen while an app
+        runs ("Quick menu" in the graphical settings screen's Emulation
+        section). It opens a menu with the settings that are worth changing
+        mid-game - the performance display, the FPS limiter, the RAM limiter
+        and Cheat Engine - and an "Exit emulator" button that returns to the
+        app picker. Tapping a row changes it in the menu, and the whole batch
+        of changes takes effect when the menu is closed with "Resume".
+
+    --no-quick-menu
+        Hide the quick menu button (the default).
 
     --force-composition
         Forces presentation of renderbuffer as if no fullscreen EAGL layer is

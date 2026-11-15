@@ -1757,6 +1757,9 @@ impl Window {
                     ..
                 } => {
                     let abs_coords = self.mouse_drawable_coords((x, y));
+                    if crate::quick_menu::touch_down(abs_coords, self.viewport()) {
+                        continue;
+                    }
                     if crate::trainer_ui::touch_down(abs_coords, self.viewport()) {
                         continue;
                     }
@@ -1771,6 +1774,9 @@ impl Window {
                     x, y, mousestate, ..
                 } if mousestate.left() => {
                     let abs_coords = self.mouse_drawable_coords((x, y));
+                    if crate::quick_menu::touch_motion(abs_coords, self.viewport()) {
+                        continue;
+                    }
                     if crate::trainer_ui::touch_motion(abs_coords, self.viewport()) {
                         continue;
                     }
@@ -1785,6 +1791,9 @@ impl Window {
                     ..
                 } => {
                     let abs_coords = self.mouse_drawable_coords((x, y));
+                    if crate::quick_menu::touch_up(abs_coords, self.viewport()) {
+                        continue;
+                    }
                     if crate::trainer_ui::touch_up(abs_coords, self.viewport()) {
                         continue;
                     }
@@ -2013,8 +2022,17 @@ impl Window {
                     // TODO: handle out of order touches
                     let curr_timestamp = timestamp;
                     let abs_coords = finger_absolute_coords(self, (x, y));
-                    // The trainer overlay (Cheat Engine-style) gets first
-                    // dibs on touches that land on its button or panel.
+                    // The quick menu's button and panel get first dibs,
+                    // then the trainer overlay (Cheat Engine-style).
+                    let quick_menu_consumed = match event {
+                        E::FingerDown { .. } => {
+                            crate::quick_menu::touch_down(abs_coords, self.viewport())
+                        }
+                        E::FingerUp { .. } => {
+                            crate::quick_menu::touch_up(abs_coords, self.viewport())
+                        }
+                        _ => crate::quick_menu::touch_motion(abs_coords, self.viewport()),
+                    };
                     let trainer_consumed = match event {
                         E::FingerDown { .. } => {
                             crate::trainer_ui::touch_down(abs_coords, self.viewport())
@@ -2026,7 +2044,7 @@ impl Window {
                     };
                     let coords = transform_input_coords(self, abs_coords, false);
                     log_dbg!("Finger event x {}, y {}, coords {:?}", x, y, coords);
-                    let mut map = if trainer_consumed {
+                    let mut map = if quick_menu_consumed || trainer_consumed {
                         HashMap::new()
                     } else {
                         HashMap::from([(FingerId::Touch(finger_id), coords)])

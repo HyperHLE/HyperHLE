@@ -1116,6 +1116,15 @@ impl Environment {
 
         env.trainer = crate::trainer::Trainer::new(!env.options.trainer_disabled);
         env.set_tpidruro_for_current_thread();
+        // Seed the in-game quick menu with what the app was actually launched
+        // with, so its panel starts from the real state rather than defaults.
+        crate::quick_menu::init(
+            env.options.quick_menu,
+            env.options.performance_overlay_enabled,
+            env.options.fps_limit,
+            env.options.memory_limit_mb,
+            !env.options.trainer_disabled,
+        );
 
         if env.options.dumping_options.any() {
             env.dump_file =
@@ -1326,6 +1335,9 @@ impl Environment {
         }
 
         env.cpu.set_cpsr(cpu::Cpu::CPSR_USER_MODE);
+
+        // The quick menu belongs to games, not to the picker's own screen.
+        crate::quick_menu::disable();
 
         // GDB server setup would be done here, but there's no need for it.
 
@@ -1968,6 +1980,40 @@ impl Environment {
 
     /// Run the emulator. This is the main loop and won't return until app exit.
     /// Only `main.rs` should call this.
+    /// Applies the batch of changes the quick menu collected while its panel
+    /// was open.
+    ///
+    /// Everything lands here at once, on purpose: the FPS limiter, the RAM
+    /// limiter, the performance display and the trainer are read all over the
+    /// emulator, so changing them one by one while the panel is still being
+    /// edited would make the game react to a half-finished edit.
+    fn apply_quick_menu(&mut self, applied: &crate::quick_menu::Applied) {
+        self.options.performance_overlay_enabled = applied.perf_display;
+        self.options.fps_limit = applied.fps_limit;
+        if let Some(window) = self.window.as_mut() {
+            window.set_show_fps_counter(applied.perf_display);
+        }
+        let cap = match applied.memory_limit_mb {
+            Some(mb) => mb.saturating_mul(1024 * 1024),
+            None => default_guest_heap_cap(
+                self.window
+                    .as_ref()
+                    .map_or(DeviceFamily::iPhone3GS, |window| window.device_family()),
+            ),
+        };
+        self.mem.set_memory_limit(Some(cap));
+        self.trainer.set_enabled(applied.trainer);
+        log!(
+            "Quick menu applied: performance display {}, FPS limit {}, RAM limit {} MiB, trainer {}.",
+            if applied.perf_display { "on" } else { "off" },
+            applied
+                .fps_limit
+                .map_or_else(|| "off".to_string(), |fps| format!("{fps:.0}")),
+            cap / (1024 * 1024),
+            if applied.trainer { "on" } else { "off" }
+        );
+    }
+
     pub(crate) fn run(mut self) -> Option<GuestTermination> {
         let mut curr_host_context = self.threads[0].host_context.take().unwrap();
         let panic_cell = self.panic_cell.clone();
@@ -2042,6 +2088,15 @@ impl Environment {
                     Some(self.bundle.bundle_identifier()),
                     &self.objc,
                 );
+            }
+            // Edits the quick menu collected while its panel was open, applied
+            // as one batch now that it has closed.
+            if let Some(applied) = crate::quick_menu::take_applied() {
+                self.apply_quick_menu(&applied);
+            }
+            if crate::quick_menu::take_exit_request() {
+                self.threads[self.current_thread].host_context = Some(curr_host_context);
+                return Some(GuestTermination::ReturnToPicker);
             }
             if let Some(speed) = crate::trainer_ui::take_speed_request() {
                 self.guest_clock.set_speed(speed);

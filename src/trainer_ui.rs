@@ -1203,7 +1203,7 @@ pub unsafe fn draw(gles: &mut dyn GLES, viewport: (u32, u32, u32, u32)) {
 
 /// Entry point for native OpenGL ES 2.0 present paths (see
 /// present_renderbuffer_es2), which lack the fixed-function pipeline.
-fn prepare_es2_overlay_context(context_token: usize) {
+pub(crate) fn prepare_overlay_context(context_token: usize) {
     let mut stored = OVERLAY_CONTEXT_TOKEN.lock().unwrap();
     if *stored != Some(context_token) {
         *stored = Some(context_token);
@@ -1220,7 +1220,7 @@ pub unsafe fn draw_es2(
     viewport: (u32, u32, u32, u32),
     context_token: usize,
 ) {
-    prepare_es2_overlay_context(context_token);
+    prepare_overlay_context(context_token);
     let Some(quads) = build_scene(gles, viewport) else {
         return;
     };
@@ -1235,7 +1235,7 @@ pub unsafe fn draw_texture_es2(
     rect: (f32, f32, f32, f32),
     uv: (f32, f32),
 ) {
-    prepare_es2_overlay_context(context_token);
+    prepare_overlay_context(context_token);
     let quad = Quad {
         tex: texture,
         x: rect.0,
@@ -1249,6 +1249,83 @@ pub unsafe fn draw_texture_es2(
         col: (1.0, 1.0, 1.0, 1.0),
     };
     render_es2(gles, viewport, &[quad]);
+}
+
+/// A scene of rectangles and text that another on-screen overlay can build and
+/// hand to `draw_scene` or `draw_scene_es2`.
+///
+/// Other overlays (the quick menu, for one) need the same glyph atlas and the
+/// same two renderers, and duplicating the font machinery for each of them
+/// would be silly, so it is exposed here instead.
+pub struct OverlayScene {
+    quads: Vec<Quad>,
+}
+
+impl Default for OverlayScene {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OverlayScene {
+    pub fn new() -> Self {
+        Self { quads: Vec::new() }
+    }
+
+    /// Adds a solid rectangle, in viewport pixel space.
+    pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: (f32, f32, f32, f32)) {
+        push_rect(&mut self.quads, Rect { x, y, w, h }, color);
+    }
+
+    /// Adds `text` with its top-left at `(x, y)` and glyphs `px_size` pixels
+    /// high, and returns the width it took. `gles` is needed because the glyph
+    /// atlas is built lazily, on first use.
+    pub unsafe fn text(
+        &mut self,
+        gles: &mut dyn GLES,
+        text: &str,
+        x: f32,
+        y: f32,
+        px_size: f32,
+        color: (f32, f32, f32, f32),
+    ) -> f32 {
+        if ensure_atlas(gles).is_none() {
+            return 0.0;
+        }
+        let atlas_guard = ATLAS.get().unwrap().lock().unwrap();
+        let Some(atlas) = atlas_guard.as_ref() else {
+            return 0.0;
+        };
+        push_text(&mut self.quads, atlas, text, x, y, px_size, color)
+    }
+}
+
+/// Draws a scene built with `OverlayScene` on a fixed-function (GLES 1.x)
+/// present path.
+pub unsafe fn draw_scene(
+    gles: &mut dyn GLES,
+    viewport: (u32, u32, u32, u32),
+    scene: &OverlayScene,
+) {
+    if scene.quads.is_empty() {
+        return;
+    }
+    render_gles1(gles, viewport, &scene.quads);
+}
+
+/// Draws a scene built with `OverlayScene` on a native OpenGL ES 2.0 present
+/// path.
+pub unsafe fn draw_scene_es2(
+    gles: &mut dyn GLES,
+    viewport: (u32, u32, u32, u32),
+    context_token: usize,
+    scene: &OverlayScene,
+) {
+    prepare_overlay_context(context_token);
+    if scene.quads.is_empty() {
+        return;
+    }
+    render_es2(gles, viewport, &scene.quads);
 }
 
 /// Build the overlay scene (shared by both renderers). Returns None when the

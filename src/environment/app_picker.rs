@@ -387,6 +387,7 @@ struct AppPickerDelegateHostObject {
     overlay_mode: Option<PerformanceOverlayMode>,
     overlay_corner: Option<PerformanceOverlayCorner>,
     cheat_engine: Option<bool>,
+    quick_menu: Option<bool>,
     /// `Some(..)` only when the user just flipped the switch: `None` means no
     /// change is pending. The saved state is tri-state (see `PickerSettings`).
     rotation_fix: Option<bool>,
@@ -401,6 +402,11 @@ struct AppPickerDelegateHostObject {
     memory_limit_tag: Option<i32>,
     memory_limit_toggle: bool,
     memory_limit_scroll_to: Option<CGFloat>,
+    /// `Some(..)` when a key of the custom-size keypad was tapped: a digit
+    /// `0`-`9`, or [CUSTOM_LIMIT_BACKSPACE_KEY].
+    memory_limit_custom_key: Option<i32>,
+    memory_limit_custom_confirm: bool,
+    memory_limit_custom_cancel: bool,
     preserve_aspect_ratio: Option<bool>,
     show_lock_screen: Option<bool>,
     force_composition: Option<bool>,
@@ -466,8 +472,12 @@ impl FpsLimit {
 
 /// The choices offered by the "RAM Limiter" dropdown, in display order:
 /// `None` is "Default" (the Device model decides), otherwise the cap in MiB.
+/// The "Custom…" entry that opens the size keypad is appended by
+/// [memory_limit_dropdown_spec] and tagged [MEMORY_LIMIT_CUSTOM_TAG].
 const MEMORY_LIMIT_CHOICES: &[Option<u32>] = &[
     None,
+    Some(32),
+    Some(64),
     Some(128),
     Some(256),
     Some(512),
@@ -475,26 +485,82 @@ const MEMORY_LIMIT_CHOICES: &[Option<u32>] = &[
     Some(2048),
 ];
 
+/// The dropdown tag of the "Custom…" entry, which is not a size of its own.
+const MEMORY_LIMIT_CUSTOM_TAG: i32 = MEMORY_LIMIT_CHOICES.len() as i32;
+
 /// The button title of the "RAM Limiter" dropdown for a choice.
 fn memory_limit_label(choice: Option<u32>) -> String {
     match choice {
         None => "Default".to_string(),
-        Some(mb) if mb >= 1024 => format!("{} GB", mb / 1024),
+        Some(mb) if mb >= 1024 && mb % 1024 == 0 => format!("{} GB", mb / 1024),
         Some(mb) => format!("{mb} MB"),
     }
 }
 
 /// The dropdown tag of a RAM limiter choice (`0` is "Default").
+///
+/// A size that isn't one of the presets is a custom one: it keeps the
+/// "Custom…" row ticked, so reopening the settings screen still shows where
+/// the current value came from.
 fn memory_limit_tag(choice: Option<u32>) -> i32 {
     MEMORY_LIMIT_CHOICES
         .iter()
         .position(|candidate| *candidate == choice)
-        .unwrap_or(0) as i32
+        .map_or(MEMORY_LIMIT_CUSTOM_TAG, |index| index as i32)
 }
 
 /// The RAM limiter choice of a dropdown tag.
+///
+/// The "Custom…" tag has no size of its own (it opens the keypad), so it maps
+/// to `None` like any other tag that names no preset.
 fn memory_limit_choice(tag: Option<i32>) -> Option<u32> {
     tag.and_then(|tag| MEMORY_LIMIT_CHOICES.get(tag as usize).copied().flatten())
+}
+
+/// Digits a custom size may have. Four allows "3072" and still refuses
+/// nonsense like a pasted phone number.
+const CUSTOM_LIMIT_MAX_DIGITS: usize = 4;
+/// Smallest and largest custom sizes, in MiB. The upper bound leaves room for
+/// the app's segments, stacks and the null segment inside the guest's 4 GiB
+/// address space.
+const CUSTOM_LIMIT_MIN_MB: u32 = 1;
+const CUSTOM_LIMIT_MAX_MB: u32 = 3072;
+/// Keypad tag of the backspace key (`0`-`9` are the digits).
+const CUSTOM_LIMIT_BACKSPACE_KEY: i32 = 10;
+
+/// The size a custom-limit keypad input means, in MiB.
+///
+/// This is the whole point of the keypad: the digits are mebibytes, so "10" is
+/// 10 MB and "3000" is about 3 GB. `None` for an empty, non-numeric or
+/// zero input, which leaves the previous cap alone; anything above the
+/// ceiling is clamped rather than refused, since typing one digit too many
+/// shouldn't lose the value.
+fn custom_memory_limit_mb(input: &str) -> Option<u32> {
+    if input.is_empty()
+        || input.len() > CUSTOM_LIMIT_MAX_DIGITS
+        || !input.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let mb: u32 = input.parse().ok()?;
+    if mb < CUSTOM_LIMIT_MIN_MB {
+        return None;
+    }
+    Some(mb.min(CUSTOM_LIMIT_MAX_MB))
+}
+
+/// What the keypad shows above the digits: the size as the dropdown would
+/// label it, so "3000" reads as "3000 MB" and "3072" as "3 GB".
+fn custom_memory_limit_display(input: &str) -> String {
+    if input.is_empty() {
+        return "—".to_string();
+    }
+    match custom_memory_limit_mb(input) {
+        Some(mb) => memory_limit_label(Some(mb)),
+        // Only reachable for "0": show what was typed so the keypad still
+        // echoes the finger presses.
+        None => format!("{input} MB"),
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -524,6 +590,8 @@ struct PickerSettings {
     /// `Some(..)` is an explicit "RAM Limiter" choice, in MiB.
     memory_limit_mb: Option<u32>,
     cheat_engine: bool,
+    /// Show the in-game quick menu (the pause button in the top-left corner).
+    quick_menu: bool,
     network: bool,
     game_center_authenticated: bool,
     analog_stick_tilt_controls: bool,
@@ -556,6 +624,7 @@ impl PickerSettings {
             fps_limit: None,
             memory_limit_mb: None,
             cheat_engine: quick_options_trainer_enabled(options),
+            quick_menu: options.quick_menu,
             network: options.network_access,
             game_center_authenticated: options.game_center_authenticated,
             analog_stick_tilt_controls: options.analog_stick_tilt_controls,
@@ -615,6 +684,7 @@ impl PickerSettings {
                     };
                 }
                 "cheat_engine" => set_bool(value, &mut settings.cheat_engine),
+                "quick_menu" => set_bool(value, &mut settings.quick_menu),
                 "network" => set_bool(value, &mut settings.network),
                 "game_center_authenticated" => {
                     set_bool(value, &mut settings.game_center_authenticated)
@@ -657,6 +727,7 @@ impl PickerSettings {
              fps_limit={}\n\
              memory_limit_mb={}\n\
              cheat_engine={}\n\
+             quick_menu={}\n\
              network={}\n\
              game_center_authenticated={}\n\
              analog_stick_tilt_controls={}\n\
@@ -678,6 +749,7 @@ impl PickerSettings {
             self.memory_limit_mb
                 .map_or_else(|| "default".to_string(), |mb| mb.to_string()),
             self.cheat_engine,
+            self.quick_menu,
             self.network,
             self.game_center_authenticated,
             self.analog_stick_tilt_controls,
@@ -945,6 +1017,16 @@ const CLASSES: ClassExports = objc_classes! {
         env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).memory_limit_scroll_to = Some(position);
     }
 }
+- (())memoryLimitCustomKey:(id)sender { // UIButton*
+    let tag: NSInteger = msg![env; sender tag];
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).memory_limit_custom_key = Some(tag as i32);
+}
+- (())memoryLimitCustomConfirm {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).memory_limit_custom_confirm = true;
+}
+- (())memoryLimitCustomCancel {
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).memory_limit_custom_cancel = true;
+}
 - (())showFPS:(id)switch { // UISwitch*
     let switch_state: bool = msg![env; switch isOn];
     env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).show_fps = Some(switch_state);
@@ -953,6 +1035,10 @@ const CLASSES: ClassExports = objc_classes! {
 - (())cheatEngine:(id)switch { // UISwitch*
     let switch_state: bool = msg![env; switch isOn];
     env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).cheat_engine = Some(switch_state);
+}
+- (())quickMenu:(id)switch { // UISwitch*
+    let switch_state: bool = msg![env; switch isOn];
+    env.objc.borrow_mut::<AppPickerDelegateHostObject>(this).quick_menu = Some(switch_state);
 }
 - (())fullscreen:(id)switch { // UISwitch*
     let switch_state: bool = msg![env; switch isOn];
@@ -1305,6 +1391,7 @@ fn app_picker_inner(
     let mut quick_options_show_lock_screen = picker_settings.show_lock_screen;
     let mut quick_options_force_composition_override = Some(picker_settings.force_composition);
     let mut quick_options_cheat_engine = picker_settings.cheat_engine;
+    let mut quick_options_quick_menu = picker_settings.quick_menu;
     let mut quick_options_gles_native = picker_settings.gles_native;
     let mut device_state = DropdownState {
         selected: picker_settings.device_model_tag,
@@ -1351,6 +1438,10 @@ fn app_picker_inner(
 
     // Built after the settings screen, so that it is drawn on top of it.
     let delete_dialog = make_delete_dialog(env, delegate, main_view, app_frame.size);
+    // Same for the RAM limiter's "Custom…" keypad.
+    let custom_limit_dialog = make_custom_limit_dialog(env, delegate, main_view, app_frame.size);
+    // What has been typed into the keypad so far, in decimal digits.
+    let mut custom_limit_input = String::new();
 
     () = msg![env; window makeKeyAndVisible];
 
@@ -1769,7 +1860,51 @@ fn app_picker_inner(
         } else if let Some(tag) = std::mem::take(&mut host_obj.memory_limit_tag) {
             memory_limit_state.selected = Some(tag);
             memory_limit_state.open = false;
-            quick_options_memory_limit_mb = memory_limit_choice(Some(tag));
+            if tag == MEMORY_LIMIT_CUSTOM_TAG {
+                // The "Custom…" row opens a keypad instead of setting a size.
+                // It starts from the current cap, so an existing custom value
+                // is easy to adjust.
+                custom_limit_input = quick_options_memory_limit_mb
+                    .map(|mb| mb.to_string())
+                    .unwrap_or_default();
+                show_custom_limit_dialog(env, &custom_limit_dialog, &custom_limit_input);
+            } else {
+                quick_options_memory_limit_mb = memory_limit_choice(Some(tag));
+                refresh_dropdown(
+                    env,
+                    &settings.memory_limit_dropdown,
+                    &memory_limit_label(quick_options_memory_limit_mb),
+                    &memory_limit_state,
+                );
+            }
+        } else if let Some(key) = std::mem::take(&mut host_obj.memory_limit_custom_key) {
+            if key == CUSTOM_LIMIT_BACKSPACE_KEY {
+                let _ = custom_limit_input.pop();
+            } else if (0..=9).contains(&key)
+                && custom_limit_input.len() < CUSTOM_LIMIT_MAX_DIGITS
+                // A leading zero would make "010" out of "10".
+                && !(custom_limit_input.is_empty() && key == 0)
+            {
+                custom_limit_input.push(char::from(b'0' + key as u8));
+            }
+            set_custom_limit_dialog_text(env, &custom_limit_dialog, &custom_limit_input);
+        } else if std::mem::take(&mut host_obj.memory_limit_custom_confirm) {
+            if let Some(mb) = custom_memory_limit_mb(&custom_limit_input) {
+                quick_options_memory_limit_mb = Some(mb);
+                memory_limit_state.selected = Some(MEMORY_LIMIT_CUSTOM_TAG);
+                hide_custom_limit_dialog(env, &custom_limit_dialog);
+                refresh_dropdown(
+                    env,
+                    &settings.memory_limit_dropdown,
+                    &memory_limit_label(quick_options_memory_limit_mb),
+                    &memory_limit_state,
+                );
+            }
+            // An empty or zero size leaves the dialog open: there is nothing
+            // to apply, and closing it would look like it had been applied.
+        } else if std::mem::take(&mut host_obj.memory_limit_custom_cancel) {
+            hide_custom_limit_dialog(env, &custom_limit_dialog);
+            memory_limit_state.selected = Some(memory_limit_tag(quick_options_memory_limit_mb));
             refresh_dropdown(
                 env,
                 &settings.memory_limit_dropdown,
@@ -1879,6 +2014,8 @@ fn app_picker_inner(
             quick_options_network = enabled;
         } else if let Some(enabled) = std::mem::take(&mut host_obj.game_center_authenticated) {
             picker_settings.game_center_authenticated = enabled;
+        } else if let Some(enabled) = std::mem::take(&mut host_obj.quick_menu) {
+            quick_options_quick_menu = enabled;
         } else if let Some(enabled) = std::mem::take(&mut host_obj.cheat_engine) {
             quick_options_cheat_engine = enabled;
         } else if let Some(enabled) = std::mem::take(&mut host_obj.show_fps) {
@@ -1985,6 +2122,7 @@ fn app_picker_inner(
         picker_settings.fps_limit = quick_options_fps_limit;
         picker_settings.memory_limit_mb = quick_options_memory_limit_mb;
         picker_settings.cheat_engine = quick_options_cheat_engine;
+        picker_settings.quick_menu = quick_options_quick_menu;
         picker_settings.network = quick_options_network;
         picker_settings.analog_stick_tilt_controls = quick_options_analog_stick_tilt_controls;
         picker_settings.device_model_tag = device_state.selected;
@@ -2066,6 +2204,14 @@ fn app_picker_inner(
         option_args.push("--no-network-access".to_string());
     }
     option_args.push(quick_options_trainer_argument(quick_options_cheat_engine).to_string());
+    option_args.push(
+        if picker_settings.quick_menu {
+            "--quick-menu"
+        } else {
+            "--no-quick-menu"
+        }
+        .to_string(),
+    );
     option_args.push(
         if picker_settings.game_center_authenticated {
             "--game-center-authenticated"
@@ -4283,6 +4429,7 @@ fn setup_settings(
         vec![
             SettingsRow::MemoryLimitDropdown,
             SettingsRow::Toggle("Cheat Engine", "cheatEngine:", picker_settings.cheat_engine, true),
+            SettingsRow::Toggle("Quick menu", "quickMenu:", picker_settings.quick_menu, true),
             SettingsRow::Toggle("Network access", "network:", picker_settings.network, true),
             SettingsRow::Toggle(
                 "Local Game Center sign-in",
@@ -4604,13 +4751,18 @@ fn language_dropdown_spec() -> DropdownSpec {
     }
 }
 
-/// The spec of the "RAM Limiter" dropdown.
+/// The spec of the "RAM Limiter" dropdown: the presets, then a "Custom…" row
+/// at the bottom that opens the size keypad.
 fn memory_limit_dropdown_spec() -> DropdownSpec {
     DropdownSpec {
         entries: MEMORY_LIMIT_CHOICES
             .iter()
             .enumerate()
             .map(|(idx, choice)| (memory_limit_label(*choice), idx as NSInteger))
+            .chain(std::iter::once((
+                "Custom…".to_string(),
+                MEMORY_LIMIT_CUSTOM_TAG as NSInteger,
+            )))
             .collect(),
         toggle_selector: "memoryLimitToggle",
         item_selector: "memoryLimit:",
@@ -5134,6 +5286,237 @@ fn hide_delete_dialog(
     () = msg![env; (dialog.panel) setHidden:true];
 }
 
+/// Size of the custom-size keypad card, before it is shrunk to fit the screen.
+const CUSTOM_LIMIT_DIALOG_WIDTH: CGFloat = 300.0;
+const CUSTOM_LIMIT_DIALOG_HEIGHT: CGFloat = 320.0;
+/// Height of the Cancel/Set row at the bottom of the card.
+const CUSTOM_LIMIT_ACTION_HEIGHT: CGFloat = 40.0;
+/// Where the keypad starts inside the card: below the title, hint and value.
+const CUSTOM_LIMIT_KEYPAD_TOP: CGFloat = 84.0;
+
+/// The "Custom…" size keypad: a dimmed screen and a white card showing the
+/// size being typed above a tray of digit keys, in the style of the delete
+/// dialog below. It is hidden until [show_custom_limit_dialog].
+struct CustomLimitDialog {
+    /// Covers the picker. Tapping it cancels.
+    dimmer: id,
+    /// The card with the digits and the value.
+    panel: id,
+    /// Shows what the typed digits currently mean ("10 MB", "3 GB").
+    value: id,
+}
+
+/// Builds one key of the custom-size keypad.
+fn make_custom_limit_key(
+    env: &mut Environment,
+    delegate: id,
+    frame: CGRect,
+    title: &str,
+    tag: NSInteger,
+    color: id,
+) -> id {
+    let button: id = msg_class![env; UIButton buttonWithType:UIButtonTypeCustom];
+    () = msg![env; button setFrame:frame];
+    let clear: id = msg_class![env; UIColor clearColor];
+    () = msg![env; button setBackgroundColor:clear];
+    let text = ns_string::from_rust_string(env, title.to_string());
+    () = msg![env; button setTitle:text forState:UIControlStateNormal];
+    release(env, text);
+    () = msg![env; button setTitleColor:color forState:UIControlStateNormal];
+    // FIXME: manually calling layoutSubviews shouldn't be needed?
+    () = msg![env; button layoutSubviews];
+    let label: id = msg![env; button titleLabel];
+    let font: id = msg_class![env; UIFont boldSystemFontOfSize:(20.0 as CGFloat)];
+    () = msg![env; label setFont:font];
+    // The key's meaning travels as the button's tag, so one delegate method
+    // handles every digit plus Delete.
+    () = msg![env; button setTag:tag];
+    let sel = env.objc.lookup_selector("memoryLimitCustomKey:").unwrap();
+    () = msg![env; button addTarget:delegate
+                             action:sel
+                   forControlEvents:UIControlEventTouchUpInside];
+    button
+}
+
+/// Builds the custom-size keypad (see [CustomLimitDialog]).
+fn make_custom_limit_dialog(
+    env: &mut Environment,
+    delegate: id,
+    main_view: id,
+    screen_size: CGSize,
+) -> CustomLimitDialog {
+    let dimmer: id = msg_class![env; UIButton buttonWithType:UIButtonTypeCustom];
+    () = msg![env; dimmer setFrame:(rect(0.0, 0.0, screen_size.width, screen_size.height))];
+    let dim_color = ui_color(env, 0.0, 0.0, 0.0, 0.4);
+    () = msg![env; dimmer setBackgroundColor:dim_color];
+    let cancel_sel = env.objc.lookup_selector("memoryLimitCustomCancel").unwrap();
+    () = msg![env; dimmer addTarget:delegate
+                             action:cancel_sel
+                   forControlEvents:UIControlEventTouchUpInside];
+    () = msg![env; dimmer setHidden:true];
+    () = msg![env; main_view addSubview:dimmer];
+
+    // Like the delete dialog, but the card shrinks to fit: the keypad has to
+    // work on a 480x320 screen as well as on a tall one.
+    let width = (screen_size.width - 24.0)
+        .min(CUSTOM_LIMIT_DIALOG_WIDTH)
+        .max(190.0);
+    let height = (screen_size.height - 24.0)
+        .min(CUSTOM_LIMIT_DIALOG_HEIGHT)
+        .max(220.0);
+    let white: id = msg_class![env; UIColor whiteColor];
+    let panel = new_view(
+        env,
+        rect(
+            (screen_size.width - width) / 2.0,
+            (screen_size.height - height) / 2.0,
+            width,
+            height,
+        ),
+        white,
+    );
+    let panel_layer: id = msg![env; panel layer];
+    () = msg![env; panel_layer setCornerRadius:(12.0 as CGFloat)];
+    let border = ui_color(env, 0.70, 0.72, 0.75, 1.0);
+    let border_cg: id = msg![env; border CGColor];
+    () = msg![env; panel_layer setBorderColor:border_cg];
+    () = msg![env; panel_layer setBorderWidth:(1.0 as CGFloat)];
+    () = msg![env; panel setHidden:true];
+    () = msg![env; main_view addSubview:panel];
+
+    let black: id = msg_class![env; UIColor blackColor];
+    let title = new_label(
+        env,
+        rect(10.0, 8.0, width - 20.0, 22.0),
+        "RAM Limiter",
+        16.0,
+        true,
+        black,
+    );
+    () = msg![env; title setTextAlignment:UITextAlignmentCenter];
+    () = msg![env; panel addSubview:title];
+
+    let hint_color = ui_color(env, 0.25, 0.25, 0.25, 1.0);
+    let hint = new_label(
+        env,
+        rect(10.0, 30.0, width - 20.0, 16.0),
+        "Size in MB: 10 = 10 MB, 3000 = 3 GB",
+        11.0,
+        false,
+        hint_color,
+    );
+    () = msg![env; hint setTextAlignment:UITextAlignmentCenter];
+    () = msg![env; panel addSubview:hint];
+
+    let blue = ui_color(env, 0.0, 0.478, 1.0, 1.0);
+    let value = new_label(
+        env,
+        rect(10.0, 48.0, width - 20.0, 30.0),
+        "—",
+        22.0,
+        true,
+        blue,
+    );
+    () = msg![env; value setTextAlignment:UITextAlignmentCenter];
+    () = msg![env; panel addSubview:value];
+
+    // 1-9, then Delete and 0, so the layout matches a phone keypad.
+    let keys = [
+        ["1", "2", "3"],
+        ["4", "5", "6"],
+        ["7", "8", "9"],
+        ["Del", "0", ""],
+    ];
+    let keypad_height = (height - CUSTOM_LIMIT_ACTION_HEIGHT - CUSTOM_LIMIT_KEYPAD_TOP)
+        .max(4.0 * 28.0);
+    let key_height = keypad_height / 4.0;
+    let key_width = width / 3.0;
+    for (row, row_keys) in keys.iter().enumerate() {
+        for (column, key) in row_keys.iter().enumerate() {
+            if key.is_empty() {
+                continue;
+            }
+            let tag = if *key == "Del" {
+                CUSTOM_LIMIT_BACKSPACE_KEY as NSInteger
+            } else {
+                key.parse::<NSInteger>().unwrap_or(0)
+            };
+            let button = make_custom_limit_key(
+                env,
+                delegate,
+                rect(
+                    column as CGFloat * key_width,
+                    CUSTOM_LIMIT_KEYPAD_TOP + row as CGFloat * key_height,
+                    key_width,
+                    key_height,
+                ),
+                key,
+                tag,
+                blue,
+            );
+            () = msg![env; panel addSubview:button];
+        }
+    }
+
+    let separator_color = ui_color(env, 0.82, 0.83, 0.85, 1.0);
+    let actions_top = height - CUSTOM_LIMIT_ACTION_HEIGHT;
+    let separator = new_view(env, rect(0.0, actions_top, width, 1.0), separator_color);
+    () = msg![env; panel addSubview:separator];
+    let half = width / 2.0;
+    let v_separator = new_view(
+        env,
+        rect(half, actions_top, 1.0, CUSTOM_LIMIT_ACTION_HEIGHT),
+        separator_color,
+    );
+    () = msg![env; panel addSubview:v_separator];
+    let cancel = make_alert_button(
+        env,
+        delegate,
+        rect(0.0, actions_top, half, CUSTOM_LIMIT_ACTION_HEIGHT),
+        "Cancel",
+        blue,
+        false,
+        "memoryLimitCustomCancel",
+    );
+    () = msg![env; panel addSubview:cancel];
+    let set = make_alert_button(
+        env,
+        delegate,
+        rect(half, actions_top, half, CUSTOM_LIMIT_ACTION_HEIGHT),
+        "Set",
+        blue,
+        true,
+        "memoryLimitCustomConfirm",
+    );
+    () = msg![env; panel addSubview:set];
+
+    CustomLimitDialog {
+        dimmer,
+        panel,
+        value,
+    }
+}
+
+/// Shows the keypad with `input` already in it.
+fn show_custom_limit_dialog(env: &mut Environment, dialog: &CustomLimitDialog, input: &str) {
+    set_custom_limit_dialog_text(env, dialog, input);
+    () = msg![env; (dialog.dimmer) setHidden:false];
+    () = msg![env; (dialog.panel) setHidden:false];
+}
+
+/// Hides the keypad without changing the cap.
+fn hide_custom_limit_dialog(env: &mut Environment, dialog: &CustomLimitDialog) {
+    () = msg![env; (dialog.dimmer) setHidden:true];
+    () = msg![env; (dialog.panel) setHidden:true];
+}
+
+/// Updates the value line of the keypad to match `input`.
+fn set_custom_limit_dialog_text(env: &mut Environment, dialog: &CustomLimitDialog, input: &str) {
+    let text = ns_string::from_rust_string(env, custom_memory_limit_display(input));
+    () = msg![env; (dialog.value) setText:text];
+    release(env, text);
+}
+
 fn quick_options_trainer_enabled(options: &Options) -> bool {
     !options.trainer_disabled
 }
@@ -5393,13 +5776,60 @@ mod limiter_option_tests {
         assert_eq!(memory_limit_label(Some(1024)), "1 GB");
         assert_eq!(memory_limit_label(Some(2048)), "2 GB");
 
+        assert_eq!(memory_limit_label(Some(32)), "32 MB");
+        assert_eq!(memory_limit_label(Some(64)), "64 MB");
+        assert_eq!(memory_limit_label(Some(3000)), "3000 MB");
+        // A size that isn't a round number of gigabytes stays in megabytes.
+        assert_eq!(memory_limit_label(Some(1536)), "1536 MB");
+        assert_eq!(memory_limit_label(Some(3072)), "3 GB");
+
         for (idx, choice) in MEMORY_LIMIT_CHOICES.iter().enumerate() {
             assert_eq!(memory_limit_tag(*choice), idx as i32);
             assert_eq!(memory_limit_choice(Some(idx as i32)), *choice);
         }
-        // "Default" is the fallback for a tag that isn't offered.
-        assert_eq!(memory_limit_tag(Some(64)), 0);
+        // A size that isn't a preset keeps the "Custom…" row ticked.
+        assert_eq!(memory_limit_tag(Some(10)), MEMORY_LIMIT_CUSTOM_TAG);
+        assert_eq!(memory_limit_tag(Some(3000)), MEMORY_LIMIT_CUSTOM_TAG);
+        // The "Custom…" row names no size of its own, so it applies nothing.
+        assert_eq!(memory_limit_choice(Some(MEMORY_LIMIT_CUSTOM_TAG)), None);
         assert_eq!(memory_limit_choice(Some(i32::MAX)), None);
+    }
+
+    #[test]
+    fn custom_ram_limiter_sizes_are_typed_in_megabytes() {
+        assert_eq!(custom_memory_limit_mb("10"), Some(10));
+        assert_eq!(custom_memory_limit_mb("3000"), Some(3000));
+        assert_eq!(custom_memory_limit_mb("1"), Some(1));
+        assert_eq!(custom_memory_limit_mb("3072"), Some(3072));
+        // One digit too many is clamped rather than refused.
+        assert_eq!(custom_memory_limit_mb("5000"), Some(CUSTOM_LIMIT_MAX_MB));
+        // Nothing to apply.
+        assert_eq!(custom_memory_limit_mb(""), None);
+        assert_eq!(custom_memory_limit_mb("0"), None);
+        assert_eq!(custom_memory_limit_mb("0000"), None);
+        assert_eq!(custom_memory_limit_mb("12a"), None);
+        assert_eq!(custom_memory_limit_mb("12345"), None);
+        // The keypad echoes the size the way the dropdown would name it.
+        assert_eq!(custom_memory_limit_display(""), "—");
+        assert_eq!(custom_memory_limit_display("10"), "10 MB");
+        assert_eq!(custom_memory_limit_display("3000"), "3000 MB");
+        assert_eq!(custom_memory_limit_display("3072"), "3 GB");
+        assert_eq!(custom_memory_limit_display("0"), "0 MB");
+    }
+
+    #[test]
+    fn the_ram_limiter_dropdown_ends_with_a_custom_row() {
+        let spec = memory_limit_dropdown_spec();
+        assert_eq!(spec.entries.len(), MEMORY_LIMIT_CHOICES.len() + 1);
+        let (title, tag) = spec.entries.last().unwrap();
+        assert_eq!(title.as_str(), "Custom…");
+        assert_eq!(*tag, MEMORY_LIMIT_CUSTOM_TAG as NSInteger);
+        // Every preset keeps the tag its position gives it.
+        for (idx, (title, tag)) in spec.entries.iter().enumerate().take(MEMORY_LIMIT_CHOICES.len())
+        {
+            assert_eq!(*tag, idx as NSInteger);
+            assert_eq!(title.as_str(), memory_limit_label(MEMORY_LIMIT_CHOICES[idx]).as_str());
+        }
     }
 
     #[test]

@@ -211,6 +211,8 @@ pub unsafe fn present_frame(
     // Cheat Engine-style trainer overlay (floating button + panel). Drawn
     // last so it sits on top of everything, including the performance display.
     crate::trainer_ui::draw(gles, viewport);
+    // Quick menu button + panel (top-left corner).
+    crate::quick_menu::draw(gles, viewport);
 
     gles.ColorMask(gles11::TRUE, gles11::TRUE, gles11::TRUE, gles11::TRUE);
 }
