@@ -900,6 +900,39 @@ fn CFNetServiceCreate(
     service
 }
 
+/// `CFNetServiceRef CFNetServiceCreateCopy(CFAllocatorRef alloc,
+///     CFNetServiceRef service)`
+///
+/// Returns a new service object carrying the same domain, type, name and port.
+/// BSD sockets/CFNetwork-based discovery code (RetroArch links them for its
+/// LAN netplay advertisement) calls it while duplicating a registration
+/// request; without it the symbol stayed an unimplemented return-0 stub and the
+/// copy was nil, which the caller then dereferenced.
+/// https://developer.apple.com/documentation/corefoundation/1543223-cfnetservicecreatecopy
+fn CFNetServiceCreateCopy(
+    env: &mut Environment,
+    _alloc: ConstPtr<crate::frameworks::core_foundation::cf_allocator::CFAllocatorHostObject>,
+    service: CFNetServiceRef,
+) -> CFNetServiceRef {
+    if service == nil {
+        return nil;
+    }
+    let &CFNetServiceHostObject {
+        domain,
+        service_type,
+        name,
+        port,
+        ..
+    } = env.objc.borrow(service);
+    let new_service: CFNetServiceRef = msg_class![env; CFNetService alloc];
+    let host = env.objc.borrow_mut::<CFNetServiceHostObject>(new_service);
+    host.domain = domain;
+    host.service_type = service_type;
+    host.name = name;
+    host.port = port;
+    new_service
+}
+
 fn CFNetServiceRetain(env: &mut Environment, service: CFNetServiceRef) -> CFNetServiceRef {
     CFRetain(env, service)
 }
@@ -1858,6 +1891,7 @@ fn CFNetServiceBrowserSearchForDomains(
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFNetServiceCreate(_, _, _, _, _)),
+    export_c_func!(CFNetServiceCreateCopy(_, _, _)),
     export_c_func!(CFNetServiceCreateTXTDataWithDictionary(_, _)),
     export_c_func!(CFNetServiceSetTXTData(_, _)),
     export_c_func!(CFNetServiceRetain(_)),

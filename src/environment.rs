@@ -3424,7 +3424,21 @@ impl Environment {
                         count,
                         BYPASS_LIMIT
                     );
-                    if count == 1 {
+                    // The diagnostics describe the *site*: the bytes around the
+                    // trapping PC, the call that produced the LR and (for an
+                    // in-section trap) a stack trace. A wild PC reached from a
+                    // dozen different callers produces a dozen distinct
+                    // (PC, LR) counters but one and the same site, so only the
+                    // first report per PC is printed; later ones add nothing
+                    // and push the rest of the log away.
+                    let first_report_for_pc = {
+                        use std::collections::HashSet;
+                        use std::sync::Mutex;
+                        static REPORTED_PCS: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
+                        let mut guard = REPORTED_PCS.lock().unwrap();
+                        guard.get_or_insert_with(HashSet::new).insert(pc)
+                    };
+                    if first_report_for_pc {
                         log_no_panic!(
                             "Guest trap diagnostics: {}. {}.",
                             self.dump_guest_code_around(pc, is_thumb),

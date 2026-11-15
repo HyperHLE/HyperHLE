@@ -579,7 +579,18 @@ impl Mem {
         // values it stored.
         static SEEN_READS: Mutex<Option<HashSet<VAddr>>> = Mutex::new(None);
         static SEEN_WRITES: Mutex<Option<HashSet<VAddr>>> = Mutex::new(None);
-        const MAX_UNIQUE_LOGS: usize = 64;
+        /// Reads through nil are mostly an engine walking a zeroed struct field
+        /// by field (RetroArch's `video_driver` callback table does exactly
+        /// that when a pointer is missing): the interesting information is the
+        /// *first* access, not the forty-eighth. Writes keep the larger budget
+        /// because each distinct write address is a real store the guest made.
+        const MAX_UNIQUE_READ_LOGS: usize = 16;
+        const MAX_UNIQUE_WRITE_LOGS: usize = 64;
+        let max_unique_logs = if is_write {
+            MAX_UNIQUE_WRITE_LOGS
+        } else {
+            MAX_UNIQUE_READ_LOGS
+        };
 
         let mut guard = if is_write {
             SEEN_WRITES.lock().unwrap()
@@ -590,15 +601,15 @@ impl Mem {
         if set.contains(&at) {
             return;
         }
-        if set.len() >= MAX_UNIQUE_LOGS {
-            if set.len() == MAX_UNIQUE_LOGS {
+        if set.len() >= max_unique_logs {
+            if set.len() == max_unique_logs {
                 // Insert a sentinel to emit the notice only once.
                 set.insert(0xFFFF_FFFE);
                 log!(
                     "touchHLE::mem: further NULL-PAGE {} warnings silenced \
                      after {} unique sites",
                     if is_write { "WRITE" } else { "READ" },
-                    MAX_UNIQUE_LOGS
+                    max_unique_logs
                 );
             }
             return;
@@ -633,7 +644,7 @@ impl Mem {
             caller,
             context,
             set.len(),
-            MAX_UNIQUE_LOGS
+            max_unique_logs
         );
         if !is_write {
             return;
