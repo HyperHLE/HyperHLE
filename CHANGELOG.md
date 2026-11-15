@@ -259,9 +259,13 @@ Usability:
 
 - The app picker's Settings > Graphics now has “Rotation fix” and “Movie player fix” switches for `--rotation-fix` and `--fix-movie-player`, so those compatibility fixes no longer have to be added to `touchHLE_options.txt` by hand (the bundled file now points at the switches too). Leaving a switch alone keeps the app-specific defaults (including the GTA III ones); turning it on or off passes an explicit flag that overrides them. The diagnostic “Trace GL errors” switch is gone, so `--trace-gl-errors` from an options file is no longer overridden by the picker.
 
+- The performance overlay's CPU counter is now a percentage of one core, like `top`'s %CPU, instead of being divided by the number of logical processors. On an 8-core phone a saturated core used to read as 13% — as if the emulator were idle while it was pegging a core — and now reads as 100%; a value above 100% means more than one core is busy.
+
+- The full performance overlay shows a new VMEM counter next to MEM: the emulated app's own heap, i.e. everything it has allocated with `malloc`, as opposed to MEM (the whole emulator process's resident memory). The GL buffer and texture totals moved up to the ALLOC row, which the removal of the always-zero GC counter freed room for.
+
 - The app picker's Settings > Display section now has an “FPS Limiter” segmented control (Default, 30, 60, Off) for `--fps-limit=`, and the “Rotation fix” switch has moved there from Graphics, next to the rest of the presentation options.
 
-- The app picker's Settings > Emulation section now starts with a “RAM Limiter” dropdown for the new `--memory-limit=` option. It offers Default (uncapped), 128 MB, 256 MB, 512 MB, 1 GB and 2 GB, and caps the emulated app's heap: once the cap is reached, the app's `malloc` calls fail and return NULL, like on a real device that ran out of RAM. Mach-O segments, thread stacks and the null segment are not part of the heap and are not counted.
+- The app picker's Settings > Emulation section now starts with a “RAM Limiter” dropdown for the new `--memory-limit=` option. It offers Default (uncapped), 128 MB, 256 MB, 512 MB, 1 GB and 2 GB, and caps the emulated app's heap: once the cap is reached, the app's `malloc` calls fail and return NULL, like on a real device that ran out of RAM. Mach-O segments, thread stacks and the null segment are not part of the heap and are not counted. The RAM Limiter list is short enough to fit, so it no longer draws an empty scrollbar.
 
 ## v0.2.3 (2026-01-02)
 

@@ -321,6 +321,31 @@ static NULL_WRITE_PROBE_FIRED: std::sync::atomic::AtomicBool =
 static NULL_WRITE_PROBE_PENDING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// Total size of the live guest heap allocations, in bytes, mirrored for the
+/// performance overlay's VMEM counter. The authoritative bookkeeping lives in
+/// [`allocator::Allocator`]; this copy exists because the overlay runs on the
+/// GL thread and must not lock the guest allocator.
+static GUEST_HEAP_BYTES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Publishes the allocator's heap total to [`GUEST_HEAP_BYTES`]. Called by
+/// [`allocator::Allocator`] whenever the total changes.
+pub(super) fn publish_guest_heap_bytes(bytes: GuestUSize) {
+    GUEST_HEAP_BYTES.store(bytes as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How much RAM the emulated app's heap currently uses, in bytes.
+///
+/// This is everything allocated in guest memory through the guest's own
+/// `malloc` and friends, including the objects the emulator allocates on the
+/// app's behalf. It is what the emulated process is holding, not the host
+/// process's whole working set, which also includes the emulator's own
+/// memory, the lazily-committed guest address space and the per-allocation
+/// overhead the allocator doesn't model.
+pub fn guest_heap_bytes() -> u64 {
+    GUEST_HEAP_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Claim the one-shot null-write probe. Returns `true` for exactly one caller
 /// in the whole process, which must arrange for the resulting memory abort to
 /// be reported. Two flags rather than one: reusing a single flag let the
@@ -482,6 +507,7 @@ impl Mem {
         };
 
         let allocator = allocator::Allocator::new();
+        publish_guest_heap_bytes(0);
         Mem {
             bytes,
             null_segment_size: 0,

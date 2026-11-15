@@ -3964,8 +3964,11 @@ struct SettingsDropdown {
     dimmer: id,
     /// One button per choice, in the order of the spec's entries.
     items: Vec<id>,
-    /// The scrollbar thumb shown alongside the list.
+    /// The scrollbar thumb shown alongside the list, or `nil` when all the
+    /// entries fit and the list needs no scrollbar.
     thumb: id,
+    /// Width of the list itself, excluding the scrollbar (if there is one).
+    list_width: CGFloat,
 }
 
 /// What a settings dropdown offers, and which delegate selectors its buttons
@@ -4009,6 +4012,7 @@ fn refresh_dropdown(
         dropdown.thumb,
         state.selected,
         state.scroll,
+        dropdown.list_width,
     );
     let arrow = if state.open { "▲" } else { "▼" };
     let title = ns_string::from_rust_string(env, format!("{label} {arrow}"));
@@ -4653,9 +4657,9 @@ fn update_dropdown_menu(
     thumb: id,
     selected: Option<i32>,
     scroll: isize,
+    list_width: CGFloat,
 ) {
     let visible_menu_height = (DEVICE_MENU_VISIBLE_ITEMS as CGFloat) * DEVICE_MENU_ITEM_HEIGHT;
-    let list_width: CGFloat = 256.0;
     let max_scroll = (items.len() as isize).saturating_sub(DEVICE_MENU_VISIBLE_ITEMS as isize);
 
     for (j, &item) in items.iter().enumerate() {
@@ -4680,7 +4684,11 @@ fn update_dropdown_menu(
         () = msg![env; item setTitleColor:text_color forState:UIControlStateNormal];
     }
 
-    // Position the scrollbar thumb proportionally to the scroll offset.
+    // Position the scrollbar thumb proportionally to the scroll offset. A list
+    // that fits has no thumb (and no track).
+    if thumb == nil {
+        return;
+    }
     let thumb_height: CGFloat = 54.0;
     let travel = (visible_menu_height - thumb_height).max(0.0);
     let thumb_y = if max_scroll > 0 {
@@ -4722,8 +4730,15 @@ fn make_settings_dropdown(
         item_selector,
         scroll_selector,
     } = spec;
-    let list_width: CGFloat = 256.0;
+    // Lists whose entries all fit need no scrollbar, so they use the whole
+    // menu width instead of leaving a bare track next to the rows.
+    let scrollable = entries.len() > DEVICE_MENU_VISIBLE_ITEMS;
     let scrollbar_width: CGFloat = 24.0;
+    let list_width: CGFloat = if scrollable {
+        SETTINGS_DROPDOWN_MENU_WIDTH - scrollbar_width
+    } else {
+        SETTINGS_DROPDOWN_MENU_WIDTH
+    };
     let dark_gray: id = msg_class![env; UIColor darkGrayColor];
     let root_size: CGSize = {
         let bounds: CGRect = msg![env; root_view bounds];
@@ -4806,48 +4821,55 @@ fn make_settings_dropdown(
         items.push(item_btn);
     }
 
-    // Scrollbar track (full height) and thumb.
-    let track_view: id = msg_class![env; UIView alloc];
-    let track_frame = CGRect {
-        origin: CGPoint {
-            x: list_width,
-            y: 0.0,
-        },
-        size: CGSize {
-            width: scrollbar_width,
-            height: visible_menu_height,
-        },
-    };
-    let track_view: id = msg![env; track_view initWithFrame:track_frame];
-    let track_color = ui_color(env, 0.87, 0.87, 0.89, 1.0);
-    () = msg![env; track_view setBackgroundColor:track_color];
-    () = msg![env; menu_view addSubview:track_view];
+    // Scrollbar track (full height), thumb, and the control that supports
+    // clicking the track and dragging the thumb. A list that fits gets none of
+    // them: there is nothing to scroll.
+    let thumb_view: id = if scrollable {
+        let track_view: id = msg_class![env; UIView alloc];
+        let track_frame = CGRect {
+            origin: CGPoint {
+                x: list_width,
+                y: 0.0,
+            },
+            size: CGSize {
+                width: scrollbar_width,
+                height: visible_menu_height,
+            },
+        };
+        let track_view: id = msg![env; track_view initWithFrame:track_frame];
+        let track_color = ui_color(env, 0.87, 0.87, 0.89, 1.0);
+        () = msg![env; track_view setBackgroundColor:track_color];
+        () = msg![env; menu_view addSubview:track_view];
 
-    let thumb_view: id = msg_class![env; UIView alloc];
-    let thumb_frame = CGRect {
-        origin: CGPoint {
-            x: list_width,
-            y: 0.0,
-        },
-        size: CGSize {
-            width: scrollbar_width,
-            height: 54.0,
-        },
-    };
-    let thumb_view: id = msg![env; thumb_view initWithFrame:thumb_frame];
-    let thumb_color = ui_color(env, 0.55, 0.55, 0.58, 1.0);
-    () = msg![env; thumb_view setBackgroundColor:thumb_color];
-    () = msg![env; menu_view addSubview:thumb_view];
+        let thumb_view: id = msg_class![env; UIView alloc];
+        let thumb_frame = CGRect {
+            origin: CGPoint {
+                x: list_width,
+                y: 0.0,
+            },
+            size: CGSize {
+                width: scrollbar_width,
+                height: 54.0,
+            },
+        };
+        let thumb_view: id = msg![env; thumb_view initWithFrame:thumb_frame];
+        let thumb_color = ui_color(env, 0.55, 0.55, 0.58, 1.0);
+        () = msg![env; thumb_view setBackgroundColor:thumb_color];
+        () = msg![env; menu_view addSubview:thumb_view];
 
-    // A single control supports clicking the track and dragging the thumb.
-    let clear: id = msg_class![env; UIColor clearColor];
-    let scroll_btn: id = msg_class![env; UIButton buttonWithType:UIButtonTypeCustom];
-    () = msg![env; scroll_btn setFrame:track_frame];
-    () = msg![env; scroll_btn setBackgroundColor:clear];
-    () = msg![env; scroll_btn addTarget:delegate
-                               action:(env.objc.lookup_selector(scroll_selector).unwrap())
-                     forControlEvents:(UIControlEventTouchDown | UIControlEventTouchDragInside | UIControlEventTouchDragExit | UIControlEventTouchDragOutside)];
-    () = msg![env; menu_view addSubview:scroll_btn];
+        let clear: id = msg_class![env; UIColor clearColor];
+        let scroll_btn: id = msg_class![env; UIButton buttonWithType:UIButtonTypeCustom];
+        () = msg![env; scroll_btn setFrame:track_frame];
+        () = msg![env; scroll_btn setBackgroundColor:clear];
+        () = msg![env; scroll_btn addTarget:delegate
+                                   action:(env.objc.lookup_selector(scroll_selector).unwrap())
+                         forControlEvents:(UIControlEventTouchDown | UIControlEventTouchDragInside | UIControlEventTouchDragExit | UIControlEventTouchDragOutside)];
+        () = msg![env; menu_view addSubview:scroll_btn];
+
+        thumb_view
+    } else {
+        nil
+    };
 
     SettingsDropdown {
         button,
@@ -4855,6 +4877,7 @@ fn make_settings_dropdown(
         dimmer,
         items,
         thumb: thumb_view,
+        list_width,
     }
 }
 

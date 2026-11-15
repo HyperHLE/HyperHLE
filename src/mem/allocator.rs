@@ -334,6 +334,13 @@ impl Allocator {
         self.memory_limit = limit;
     }
 
+    /// Updates the heap total and mirrors it to the process-wide counter the
+    /// performance overlay's VMEM field reads.
+    fn set_allocated_bytes(&mut self, bytes: GuestUSize) {
+        self.allocated_bytes = bytes;
+        super::publish_guest_heap_bytes(bytes);
+    }
+
     /// Whether `extra` more bytes of heap still fit under the cap.
     fn fits_under_limit(&self, extra: GuestUSize) -> bool {
         match self.memory_limit {
@@ -432,7 +439,7 @@ impl Allocator {
             return 0;
         };
         self.used_chunks.insert(alloc);
-        self.allocated_bytes = self.allocated_bytes.saturating_add(alloc.size.get());
+        self.set_allocated_bytes(self.allocated_bytes.saturating_add(alloc.size.get()));
 
         alloc.base
     }
@@ -564,9 +571,10 @@ impl Allocator {
 
         assert!(self.used_chunks.remove_with_base(base).is_some());
         self.used_chunks.insert(Chunk::new(base, grown_size));
-        self.allocated_bytes = self
-            .allocated_bytes
-            .saturating_add(grown_size - old_size);
+        self.set_allocated_bytes(
+            self.allocated_bytes
+                .saturating_add(grown_size - old_size),
+        );
 
         Some(grown_size)
     }
@@ -580,7 +588,7 @@ impl Allocator {
         };
         // Chunks reserved by `reserve` were never counted, so the saturating
         // subtraction keeps the bookkeeping harmless for them.
-        self.allocated_bytes = self.allocated_bytes.saturating_sub(freed.size.get());
+        self.set_allocated_bytes(self.allocated_bytes.saturating_sub(freed.size.get()));
 
         if let Some(adjacent) = self
             .unused_chunks

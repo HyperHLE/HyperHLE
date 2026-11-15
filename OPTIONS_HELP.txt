@@ -328,10 +328,14 @@ Other options:
         Show all counters and the frame-time graph, only FPS/CPU/GPU/time, or
         the minimal summary in the desktop window title bar. On Android/iOS,
         titlebar falls back to Minimal because the OS has no window title bar.
-        Metrics unavailable from the host remain N/A; MEM is process resident
-        memory. Q DIRECT and GLALLOC describe HyperHLE's GLES path, not Vulkan.
-        GC stays 0/0/0 because the Rust runtime has no garbage collector. Android
-        GPU load is read from vendor kernel counters when the app can access them.
+        Metrics unavailable from the host remain N/A; MEM is the emulator
+        process's resident memory, VMEM is the guest's own heap (what the
+        emulated app has allocated with malloc), and BUF/IMG are the memory
+        used by GL buffers and textures. Q DIRECT and GLALLOC describe
+        HyperHLE's GLES path, not Vulkan. CPU is the process's usage of one
+        core, like top's %CPU, so a value above 100% means more than one core
+        is busy. Android GPU load is read from vendor kernel counters when the
+        app can access them.
 
     --overlay-corner=topleft|topright|bottomright|bottomleft
         Choose the saved corner for the on-screen panel. F2 changes the corner
