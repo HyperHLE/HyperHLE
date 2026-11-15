@@ -278,11 +278,15 @@ pub fn main<T: Iterator<Item = String>>(args: T) -> Result<Option<GuestTerminati
     let program = original_args.first().cloned().unwrap_or_default();
     let mut next_args = original_args;
     let mut returning_to_picker = false;
+    // A guest session can be followed by another one in the same process on
+    // both desktop and Android: the app picker already hands over to a game
+    // that way, and the quick menu's "Exit emulator" uses the reverse. iOS
+    // keeps its old behaviour, because there the forwarding entry point owns
+    // the UI window.
+    let can_return_to_picker = cfg!(not(target_os = "ios"));
     loop {
         let result = run_session(next_args.into_iter(), returning_to_picker)?;
-        if cfg!(not(any(target_os = "android", target_os = "ios")))
-            && matches!(result, Some(GuestTermination::ReturnToPicker))
-        {
+        if can_return_to_picker && matches!(result, Some(GuestTermination::ReturnToPicker)) {
             next_args = vec![program.clone()];
             returning_to_picker = true;
         } else {

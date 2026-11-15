@@ -2002,7 +2002,7 @@ impl Environment {
             ),
         };
         self.mem.set_memory_limit(Some(cap));
-        self.trainer.enabled = applied.trainer;
+        self.trainer.set_enabled(applied.trainer);
         log!(
             "Quick menu applied: performance display {}, FPS limit {}, RAM limit {} MiB, trainer {}.",
             if applied.perf_display { "on" } else { "off" },
