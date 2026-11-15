@@ -128,20 +128,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation UITextField: UIControl
 
-// MARK: - Smart typography (iOS 11+)
-
-// RetroArch's iOS build calls these on its text fields at startup. They only
-// configure how the on-screen keyboard would substitute characters, which the
-// emulator does not model, so accepting and ignoring them matches the effect
-// on a real device that has the feature switched off, and keeps the app from
-// taking the "does not respond to selector" path.
-
-- (())setSmartQuotesType:(NSInteger)_type {}
-- (())setSmartDashesType:(NSInteger)_type {}
-- (())setSmartInsertDeleteType:(NSInteger)_type {}
-- (NSInteger)smartQuotesType      { 0 }
-- (NSInteger)smartDashesType      { 0 }
-- (NSInteger)smartInsertDeleteType { 0 }
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::<UITextFieldHostObject>::default();
@@ -547,6 +533,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setPosition:(CGPoint)position { todo_objc_setter!(this, position); }
+
+// MARK: - Smart typography (iOS 11+)
+
+// RetroArch's iOS build calls these on its text fields at startup. They only
+// configure how the on-screen keyboard would substitute characters, which the
+// emulator does not model, so accepting and ignoring them matches the effect
+// on a real device that has the feature switched off, and keeps the app from
+// taking the "does not respond to selector" path.
+- (())setSmartQuotesType:(NSInteger)_type {}
+- (())setSmartDashesType:(NSInteger)_type {}
+- (())setSmartInsertDeleteType:(NSInteger)_type {}
+- (NSInteger)smartQuotesType { 0 }
+- (NSInteger)smartDashesType { 0 }
+- (NSInteger)smartInsertDeleteType { 0 }
 
 @end
 

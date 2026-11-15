@@ -295,18 +295,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // MARK: - Refresh rate
 
-/// `- (NSInteger)maximumFramesPerSecond` (iOS 10.3+)
-///
-/// The emulated hardware is a 60 Hz iPhone, which is what the device classes
-/// this emulator models actually run at. Apps query it to pick their video
-/// timing; the unimplemented selector answered 0 (via the "does not respond"
-/// path), which reads as "unknown refresh rate".
-/// https://developer.apple.com/documentation/uikit/uiscreen/3029468-maximumframespersecond
-- (NSInteger)maximumFramesPerSecond {
-    60
-}
-
-// MARK: - Scale
 
 - (CGFloat)scale {
     env.window().screen_scale() as CGFloat
@@ -484,6 +472,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)fixedCoordinateSpace {
     new_screen_coordinate_space(env, this)
 }
+
+// `- (NSInteger)maximumFramesPerSecond` (iOS 10.3+)
+//
+// The emulated hardware is a 60 Hz iPhone, which is what the device classes
+// this emulator models actually run at. Apps query it to pick their video
+// timing; the unimplemented selector answered 0 (via the "does not respond"
+// path), which reads as "unknown refresh rate".
+// https://developer.apple.com/documentation/uikit/uiscreen/3029468-maximumframespersecond
+- (NSInteger)maximumFramesPerSecond {
+    60
+}
+// MARK: - Scale
 
 @end
 
