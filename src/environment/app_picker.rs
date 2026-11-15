@@ -465,7 +465,7 @@ impl FpsLimit {
 }
 
 /// The choices offered by the "RAM Limiter" dropdown, in display order:
-/// `None` leaves the app's heap uncapped, otherwise the cap in MiB.
+/// `None` is "Default" (the Device model decides), otherwise the cap in MiB.
 const MEMORY_LIMIT_CHOICES: &[Option<u32>] = &[
     None,
     Some(128),
@@ -519,7 +519,8 @@ struct PickerSettings {
     /// options files. `Some(..)` is an explicit choice from the Display
     /// section, which is re-emitted on every later launch.
     fps_limit: Option<FpsLimit>,
-    /// `None` leaves the app's heap uncapped (or capped by an options file).
+    /// `None` is "Default" (the Device model decides, unless an options file
+    /// sets the cap).
     /// `Some(..)` is an explicit "RAM Limiter" choice, in MiB.
     memory_limit_mb: Option<u32>,
     cheat_engine: bool,

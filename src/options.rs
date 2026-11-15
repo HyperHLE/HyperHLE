@@ -217,8 +217,9 @@ pub struct Options {
     pub performance_overlay_corner: PerformanceOverlayCorner,
     pub fps_limit: Option<f64>,
     /// `--memory-limit=...`: cap on the emulated app's heap (its `malloc`
-    /// pool), in MiB. `None` leaves the heap uncapped, which is the default
-    /// and matches touchHLE's traditional behaviour. See
+    /// pool), in MiB. `None` is the default and means "let the Device model
+    /// decide": half of its RAM, like iOS's jetsam limit (see
+    /// `crate::environment::default_guest_heap_cap`). See
     /// `crate::mem::Mem::set_memory_limit`.
     pub memory_limit_mb: Option<u32>,
     pub force_composition: bool,
@@ -856,9 +857,9 @@ pub fn get_options_from_file<F: Read>(file: F, app_id: &str) -> Result<Option<St
 
 /// Parses the value of `--memory-limit=` into a heap cap in MiB.
 ///
-/// Accepts a positive whole number of mebibytes, or `off`/`default` to leave
-/// the heap uncapped. Zero is rejected: it would make the very first guest
-/// allocation fail, so the emulator could never start an app.
+/// Accepts a positive whole number of mebibytes, or `off`/`default` for the
+/// ceiling derived from the Device model. Zero is rejected: it would make the
+/// very first guest allocation fail, so the emulator could never start an app.
 fn parse_memory_limit_mb(value: &str) -> Result<Option<u32>, String> {
     let value = value.trim();
     if value.eq_ignore_ascii_case("off") || value.eq_ignore_ascii_case("default") {

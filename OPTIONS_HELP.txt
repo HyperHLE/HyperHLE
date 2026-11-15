@@ -362,9 +362,14 @@ Other options:
 
     --memory-limit=...
         Limit the RAM available to the emulated app's heap, in MiB ("RAM
-        Limiter" in the graphical settings screen). This is 'off' (the
-        default), to leave the heap uncapped, or a whole number of mebibytes
-        such as 128, 256, 512, 1024 or 2048.
+        Limiter" in the graphical settings screen). This is a whole number of
+        mebibytes such as 128, 256, 512, 1024 or 2048, or 'off' (the default)
+        to let the Device model decide: the heap is then capped at half of the
+        model's RAM, which is roughly where iOS would kill the app for using
+        too much. That matters because the guest has a 4 GiB address space
+        regardless of the model, so without a ceiling a runtime that keeps
+        growing its heap (Mono's Boehm GC does) can take all of it and take the
+        host device down with it.
 
         When the cap is reached, the app's allocations fail and return NULL,
         exactly like malloc() on a real device that has run out of memory
