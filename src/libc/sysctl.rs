@@ -286,6 +286,34 @@ fn sysctlbyname(
             if name_str == "sysctl.proc_native" {
                 return Some(("sysctl.proc_native", SysInfoType::Int32(1)));
             }
+            // `hw.optional.*` CPU-capability probes. Frontends (RetroArch
+            // among them) use them to pick a CPU core: it asks for NEON and
+            // falls back to plain C when the answer is not "present". The
+            // emulated CPU is an ARMv7-A with VFPv3 and NEON, and it has none
+            // of the ARMv8 crypto extensions. Answering -1 for these made the
+            // query look failed, so the app always took the slowest path.
+            if let Some(feature) = name_str.strip_prefix("hw.optional.") {
+                let supported = matches!(
+                    feature,
+                    "floatingpoint"
+                        | "vfp"
+                        | "vfpv3"
+                        | "neon"
+                        | "neon_fp16"
+                        | "neon_hpfp"
+                        | "armv7"
+                        | "thumb2"
+                );
+                // The lookup must answer with a `&'static str`, so report the
+                // generic capability name; the value is what the caller reads.
+                log_dbg!(
+                    "sysctlbyname(hw.optional.{}): {}",
+                    feature,
+                    supported as i32
+                );
+                return Some(("hw.optional", SysInfoType::Int32(supported as i32)));
+            }
+
             let Some((name_str, val)) = STRING_MAP.get_key_value(name_str) else {
                 log!(
                     "sysctlbyname(): unknown parameter {}, returning -1",

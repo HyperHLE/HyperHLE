@@ -346,6 +346,37 @@ fn strlcat(
     GenericChar::<u8>::strlcat(env, dst, src, size)
 }
 
+/// `size_t ___strlcpy_chk(char *dst, const char *src, size_t size,
+///     size_t dst_size)`
+///
+/// `_FORTIFY_SOURCE` builds call the `_chk` variants instead of the plain
+/// functions. The extra argument is the compile-time-known size of `dst`,
+/// which Apple's implementation only uses to report a buffer overflow; the
+/// copy itself is the ordinary `strlcpy`/`strlcat`. These were unimplemented
+/// stubs that returned 0 and copied nothing, so any fortified string copy in
+/// the app silently became a no-op — RetroArch's iOS build imports both.
+fn __strlcpy_chk(
+    env: &mut Environment,
+    dst: MutPtr<u8>,
+    src: ConstPtr<u8>,
+    size: GuestUSize,
+    _dst_size: GuestUSize,
+) -> GuestUSize {
+    GenericChar::<u8>::strlcpy(env, dst, src, size)
+}
+
+/// `size_t ___strlcat_chk(char *dst, const char *src, size_t size,
+///     size_t dst_size)` — see [__strlcpy_chk].
+fn __strlcat_chk(
+    env: &mut Environment,
+    dst: MutPtr<u8>,
+    src: ConstPtr<u8>,
+    size: GuestUSize,
+    _dst_size: GuestUSize,
+) -> GuestUSize {
+    GenericChar::<u8>::strlcat(env, dst, src, size)
+}
+
 fn strspn(env: &mut Environment, s: ConstPtr<u8>, accept: ConstPtr<u8>) -> GuestUSize {
     GenericChar::<u8>::strspn(env, s, accept)
 }
@@ -680,6 +711,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(strrchr(_, _)),
     export_c_func!(strlcpy(_, _, _)),
     export_c_func!(strlcat(_, _, _)),
+    export_c_func!(__strlcpy_chk(_, _, _, _)),
+    export_c_func!(__strlcat_chk(_, _, _, _)),
     export_c_func!(strspn(_, _)),
     export_c_func!(strpbrk(_, _)),
     export_c_func!(strndup(_, _)),

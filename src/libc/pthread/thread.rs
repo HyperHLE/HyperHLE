@@ -379,6 +379,19 @@ pub fn pthread_create_suspended_np(
     0
 }
 
+/// `int pthread_main_np(void)`
+///
+/// Non-zero when the calling thread is the process's main thread, zero
+/// otherwise. Newer SDKs use it to decide whether UI work may run inline
+/// instead of being queued with `performSelectorOnMainThread:`. That function
+/// was unimplemented, so the guest stayed on the generic "unimplemented
+/// function" return-0 stub and every thread looked like a worker thread;
+/// RetroArch's iOS build checks it while setting up its main-thread job queue.
+/// https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_main_np.3.html
+fn pthread_main_np(env: &mut Environment) -> i32 {
+    (env.current_thread == 0) as i32
+}
+
 fn pthread_equal(env: &mut Environment, thread1: pthread_t, thread2: pthread_t) -> i32 {
     // POSIX: pthread_equal() shall return a non-zero value if t1 and t2 are
     // equal; otherwise, zero shall be returned. On Darwin pthread_t is an
@@ -920,6 +933,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pthread_create_suspended_np(_, _, _, _)),
     export_c_func!(pthread_equal(_, _)),
     export_c_func!(pthread_self()),
+    export_c_func!(pthread_main_np()),
     export_c_func!(pthread_exit(_)),
     export_c_func!(pthread_join(_, _)),
     export_c_func!(pthread_detach(_)),

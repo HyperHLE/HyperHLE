@@ -17,12 +17,24 @@ use crate::frameworks::core_graphics::cg_geometry::CGSize;
 use crate::mem::{ConstVoidPtr, MutPtr};
 
 /// HyperHLE does not emulate an active iOS Guided Access session.
+/// `BOOL UIAccessibilityIsVoiceOverRunning(void)`
+///
+/// touchHLE does not model accessibility services, so VoiceOver is never
+/// running. Apps use this to decide whether to speak menu items (RetroArch
+/// asks for it while building its menu); the unimplemented function was a
+/// return-0 stub, which is the same answer but without the warning.
+/// https://developer.apple.com/documentation/uikit/1615157-uiaccessibilityisvoiceoverru
+fn UIAccessibilityIsVoiceOverRunning(_env: &mut Environment) -> bool {
+    false
+}
+
 fn UIAccessibilityIsGuidedAccessEnabled(_env: &mut Environment) -> bool {
     false
 }
 
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(UIAccessibilityIsGuidedAccessEnabled()),
+    export_c_func!(UIAccessibilityIsVoiceOverRunning()),
 ];
 
 pub mod ns_paragraph_style;

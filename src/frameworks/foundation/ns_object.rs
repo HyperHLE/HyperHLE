@@ -852,6 +852,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; run_loop addTimer:timer forMode:mode];
 }
 
+/// `- (void)performSelectorOnMainThread:(SEL)selector withObject:(id)arg
+///      waitUntilDone:(BOOL)wait modes:(NSArray *)modes`
+///
+/// The `modes:` variant is the one newer SDKs use (RetroArch's iOS build calls
+/// it from its `CocoaMainThreadJob` queue). touchHLE's run loop keeps a single
+/// set of sources and ignores modes — see `-[NSRunLoop addTimer:forMode:]` —
+/// so this is exactly the two-argument method with the modes list dropped.
+/// https://developer.apple.com/documentation/foundation/nsobject/1414893-performselectoronmainthread
+- (())performSelectorOnMainThread:(SEL)sel
+                       withObject:(id)arg
+                    waitUntilDone:(bool)wait
+                            modes:(id)_modes {
+    () = msg![env; this performSelectorOnMainThread:sel withObject:arg waitUntilDone:wait];
+}
+
 - (())performSelectorOnMainThread:(SEL)sel
                        withObject:(id)arg
                     waitUntilDone:(bool)wait {
