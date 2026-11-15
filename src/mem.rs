@@ -414,6 +414,34 @@ pub(crate) fn reset_out_of_memory_log_budget() {
 
 /// Allocation size at which a request is attributed to a guest call site.
 const ALLOCATION_SITE_MIN_SIZE: GuestUSize = 4096;
+/// Allocations of this size or more are also logged one by one: a heap that
+/// jumps by hundreds of megabytes comes from a handful of huge requests, and a
+/// warning per request names them directly.
+const LARGE_ALLOCATION_LOG_BYTES: u64 = 8 * 1024 * 1024;
+const LARGE_ALLOCATION_LOG_LIMIT: usize = 24;
+static LARGE_ALLOCATION_LOGS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+const LARGE_RELEASE_LOG_LIMIT: usize = 24;
+static LARGE_RELEASE_LOGS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Logs a release of at least [`LARGE_ALLOCATION_LOG_BYTES`], so the log shows
+/// whether the huge blocks behind a heap spike ever go back to the allocator.
+fn note_large_release(size: GuestUSize) {
+    if u64::from(size) < LARGE_ALLOCATION_LOG_BYTES {
+        return;
+    }
+    let logged = LARGE_RELEASE_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if logged < LARGE_RELEASE_LOG_LIMIT {
+        log!(
+            "Warning: {} MiB released; the guest heap now holds {} MiB",
+            u64::from(size) / (1024 * 1024),
+            guest_heap_bytes() / (1024 * 1024)
+        );
+    } else if logged == LARGE_RELEASE_LOG_LIMIT {
+        log!("Warning: further large-release warnings are silenced");
+    }
+}
 /// How many call sites the attribution table keeps.
 const ALLOCATION_SITE_SLOTS: usize = 8;
 /// Bytes of attributed allocations between reports; doubles each time.
@@ -441,6 +469,20 @@ static ALLOCATION_SITE_NEXT_REPORT: std::sync::atomic::AtomicU64 =
 /// 1 GiB and so on) the biggest sites are logged, so a leak shows its caller
 /// instead of just filling the heap.
 pub(crate) fn note_allocation_site(site: VAddr, size: GuestUSize) {
+    if u64::from(size) >= LARGE_ALLOCATION_LOG_BYTES {
+        let logged = LARGE_ALLOCATION_LOGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if logged < LARGE_ALLOCATION_LOG_LIMIT {
+            log!(
+                "Warning: {} MiB requested by guest code returning to {:#010x}; \
+                 the guest heap now holds {} MiB",
+                u64::from(size) / (1024 * 1024),
+                site,
+                guest_heap_bytes() / (1024 * 1024)
+            );
+        } else if logged == LARGE_ALLOCATION_LOG_LIMIT {
+            log!("Warning: further large-allocation warnings are silenced");
+        }
+    }
     if size < ALLOCATION_SITE_MIN_SIZE {
         return;
     }
@@ -660,6 +702,8 @@ impl Mem {
             ALLOCATION_SITE_FIRST_REPORT,
             std::sync::atomic::Ordering::Relaxed,
         );
+        LARGE_ALLOCATION_LOGS.store(0, std::sync::atomic::Ordering::Relaxed);
+        LARGE_RELEASE_LOGS.store(0, std::sync::atomic::Ordering::Relaxed);
         Mem {
             bytes,
             null_segment_size: 0,
@@ -1463,6 +1507,7 @@ impl Mem {
             return;
         }
         let size = self.allocator.free(addr);
+        note_large_release(size);
         if self.zero_memory_on_free {
             self.bytes_at_mut(ptr.cast(), size).fill(0);
         }
