@@ -10,7 +10,9 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::libc::mach::init::MACH_TASK_SELF;
-use crate::libc::mach::thread_info::{kern_return_t, KERN_INVALID_ARGUMENT, KERN_SUCCESS};
+use crate::libc::mach::thread_info::{
+    kern_return_t, KERN_INVALID_ARGUMENT, KERN_NO_SPACE, KERN_SUCCESS,
+};
 use crate::mem::MutPtr;
 use crate::Environment;
 
@@ -57,8 +59,8 @@ fn mach_port_allocate(
         return KERN_INVALID_ARGUMENT;
     }
     let Some(port) = env.libc_state.mach_ports.allocate() else {
-        return 3;
-    }; // KERN_NO_SPACE
+        return KERN_NO_SPACE;
+    };
     env.mem.write(name, port);
     KERN_SUCCESS
 }

@@ -708,6 +708,12 @@ impl Environment {
                 .memory_limit_mb
                 .map(|mb| mb.saturating_mul(1024 * 1024)),
         );
+        if let Some(mb) = options.memory_limit_mb {
+            log!(
+                "RAM limiter: the app's heap is capped at {} MiB; the overlay shows it as VMEM used/limit.",
+                mb
+            );
+        }
 
         let is_spore = bundle.bundle_identifier().starts_with("com.ea.spore");
         let is_critter_crunch = bundle

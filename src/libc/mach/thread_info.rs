@@ -21,6 +21,9 @@ pub type kern_return_t = i32;
 pub const KERN_SUCCESS: kern_return_t = 0;
 /// Specified address is not currently valid.
 pub const KERN_INVALID_ADDRESS: kern_return_t = 1;
+/// The requested address range is not available, e.g. because there is no
+/// backing store left for it.
+pub const KERN_NO_SPACE: kern_return_t = 3;
 pub const KERN_INVALID_ARGUMENT: kern_return_t = 4;
 pub const KERN_INVALID_TASK: kern_return_t = 5;
 

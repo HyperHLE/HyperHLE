@@ -328,6 +328,13 @@ static NULL_WRITE_PROBE_PENDING: std::sync::atomic::AtomicBool =
 static GUEST_HEAP_BYTES: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
+/// The RAM limiter's cap in bytes, or zero when the heap is uncapped. Mirrored
+/// like [`GUEST_HEAP_BYTES`] so the overlay can show `VMEM used/limit`.
+/// Zero can't be a real cap: `--memory-limit=0` is rejected and the graphical
+/// settings screen doesn't offer it.
+static GUEST_HEAP_LIMIT_BYTES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 /// Publishes the allocator's heap total to [`GUEST_HEAP_BYTES`]. Called by
 /// [`allocator::Allocator`] whenever the total changes.
 pub(super) fn publish_guest_heap_bytes(bytes: GuestUSize) {
@@ -344,6 +351,11 @@ pub(super) fn publish_guest_heap_bytes(bytes: GuestUSize) {
 /// overhead the allocator doesn't model.
 pub fn guest_heap_bytes() -> u64 {
     GUEST_HEAP_BYTES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The RAM limiter's cap in bytes, or zero when the guest heap is uncapped.
+pub fn guest_heap_limit_bytes() -> u64 {
+    GUEST_HEAP_LIMIT_BYTES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Claim the one-shot null-write probe. Returns `true` for exactly one caller
@@ -508,6 +520,7 @@ impl Mem {
 
         let allocator = allocator::Allocator::new();
         publish_guest_heap_bytes(0);
+        GUEST_HEAP_LIMIT_BYTES.store(0, std::sync::atomic::Ordering::Relaxed);
         Mem {
             bytes,
             null_segment_size: 0,
@@ -1185,6 +1198,10 @@ impl Mem {
     /// so they don't count against the cap.
     pub fn set_memory_limit(&mut self, limit: Option<GuestUSize>) {
         self.allocator.set_memory_limit(limit);
+        GUEST_HEAP_LIMIT_BYTES.store(
+            limit.unwrap_or(0) as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     /// Allocate `size` bytes.

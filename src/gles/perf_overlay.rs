@@ -605,7 +605,20 @@ fn refresh_stats(stats: &mut Stats) -> bool {
     let (buffer_bytes, image_bytes, live_allocations, peak_allocations) = guest_resource_stats();
     let buffer_memory = resource_memory_label(buffer_bytes);
     let image_memory = resource_memory_label(image_bytes);
-    let guest_memory = resource_memory_label(crate::mem::guest_heap_bytes());
+    // `VMEM` reads `used/limit` while the RAM limiter is active, so it is
+    // obvious at a glance whether the cap is set and how close the app is to
+    // it.
+    let heap_bytes = crate::mem::guest_heap_bytes();
+    let heap_limit = crate::mem::guest_heap_limit_bytes();
+    let guest_memory = if heap_limit > 0 {
+        format!(
+            "{}/{}",
+            resource_memory_label(heap_bytes),
+            resource_memory_label(heap_limit)
+        )
+    } else {
+        resource_memory_label(heap_bytes)
+    };
     let draws_per_frame = if stats.fps > 0.0 {
         stats.draws_per_second / stats.fps
     } else {
@@ -1800,7 +1813,7 @@ mod tests {
 
     #[test]
     fn text_font_covers_all_overlay_labels() {
-        let text = "FPS | PRES MS DRAWS S F Q DIRECT ALLOC MB VMEM MEM BUF IMG CPU GPU TIME GLALLOC STALL 0123456789";
+        let text = "FPS | PRES MS DRAWS S F Q DIRECT ALLOC MB VMEM MEM BUF IMG CPU GPU TIME GLALLOC STALL 0123456789 /";
         assert!(text
             .bytes()
             .all(|character| glyph_rows(character.to_ascii_uppercase())

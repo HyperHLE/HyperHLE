@@ -330,8 +330,9 @@ Other options:
         titlebar falls back to Minimal because the OS has no window title bar.
         Metrics unavailable from the host remain N/A; MEM is the emulator
         process's resident memory, VMEM is the guest's own heap (what the
-        emulated app has allocated with malloc), and BUF/IMG are the memory
-        used by GL buffers and textures. Q DIRECT and GLALLOC describe
+        emulated app has allocated with malloc; while --memory-limit= is in
+        effect it reads used/limit), and BUF/IMG are the memory used by GL
+        buffers and textures. Q DIRECT and GLALLOC describe
         HyperHLE's GLES path, not Vulkan. CPU is the process's usage of one
         core, like top's %CPU, so a value above 100% means more than one core
         is busy. Android GPU load is read from vendor kernel counters when the
@@ -366,12 +367,17 @@ Other options:
         such as 128, 256, 512, 1024 or 2048.
 
         When the cap is reached, the app's allocations fail and return NULL,
-        exactly like malloc() on a real device that has run out of memory.
-        Most apps handle that badly (they may crash or log errors), so this is
-        mainly a way to reproduce low-memory behaviour and to keep the
-        emulator inside a tight host memory budget. Mach-O segments, thread
-        stacks and other reserved memory are not part of the heap and do not
-        count against the cap.
+        exactly like malloc() on a real device that has run out of memory
+        (vm_allocate() reports KERN_NO_SPACE, mmap() reports MAP_FAILED). The
+        performance overlay shows the cap as VMEM used/limit, and the first few
+        refusals are logged. Most apps handle that badly (they may crash or log
+        errors), so this is mainly a way to reproduce low-memory behaviour and
+        to keep the emulator inside a tight host memory budget.
+
+        Mach-O segments, thread stacks and other reserved memory are not part
+        of the heap and do not count against the cap, and the cap does not
+        change how much RAM the app thinks the device has: that still comes
+        from the Device model.
 
     --force-composition
         Forces presentation of renderbuffer as if no fullscreen EAGL layer is
