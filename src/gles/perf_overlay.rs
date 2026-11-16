@@ -23,7 +23,39 @@ const LINE_HEIGHT: usize = 18;
 const HISTORY_SIZE: usize = 128;
 const PIXEL_BYTES: usize = PANEL_WIDTH * PANEL_HEIGHT * 4;
 
-static ENABLED: AtomicBool = AtomicBool::new(true);
+/// The app picker renders through the same present paths as games, but its
+/// settings are only meant to control the next game, never the picker itself.
+struct OverlayVisibility {
+    requested: AtomicBool,
+    app_picker: AtomicBool,
+}
+
+impl OverlayVisibility {
+    const fn new() -> Self {
+        Self {
+            requested: AtomicBool::new(true),
+            app_picker: AtomicBool::new(false),
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.requested.load(Ordering::Relaxed) && !self.app_picker.load(Ordering::Relaxed)
+    }
+
+    fn set_requested(&self, enabled: bool) -> bool {
+        self.requested.swap(enabled, Ordering::Relaxed)
+    }
+
+    fn set_app_picker(&self, app_picker: bool) {
+        self.app_picker.store(app_picker, Ordering::Relaxed);
+    }
+
+    fn is_app_picker(&self) -> bool {
+        self.app_picker.load(Ordering::Relaxed)
+    }
+}
+
+static VISIBILITY: OverlayVisibility = OverlayVisibility::new();
 static MODE: AtomicUsize = AtomicUsize::new(2);
 static CORNER: AtomicUsize = AtomicUsize::new(1);
 static GUEST_FLIPS: AtomicU64 = AtomicU64::new(0);
@@ -340,7 +372,10 @@ pub fn hidden_by_environment() -> bool {
         .unwrap_or(false)
 }
 
-pub fn configure_from_options(options: &Options) {
+pub fn configure_from_options(options: &Options, is_app_picker: bool) {
+    // Set the session gate before any window or splash can present a frame.
+    // Reconfiguring the picker settings cannot lift this gate.
+    VISIBILITY.set_app_picker(is_app_picker);
     let enabled = (options.performance_overlay_enabled
         || crate::env_flag_cached!("TOUCHHLE_ONSCREEN_FPS"))
         && !hidden_by_environment();
@@ -351,21 +386,26 @@ pub fn configure_from_options(options: &Options) {
     );
 }
 
-pub fn configure(enabled: bool, mode: PerformanceOverlayMode, corner: PerformanceOverlayCorner) {
-    crate::set_allocation_meter_enabled(enabled && mode == PerformanceOverlayMode::Full);
-    ENABLED.store(enabled, Ordering::Relaxed);
+pub fn configure(requested: bool, mode: PerformanceOverlayMode, corner: PerformanceOverlayCorner) {
+    VISIBILITY.set_requested(requested);
     MODE.store(mode_index(mode.for_current_platform()), Ordering::Relaxed);
     CORNER.store(corner_index(corner), Ordering::Relaxed);
+    crate::set_allocation_meter_enabled(enabled() && mode == PerformanceOverlayMode::Full);
     reset_session();
 }
 
 pub fn enabled() -> bool {
-    ENABLED.load(Ordering::Relaxed)
+    VISIBILITY.enabled()
 }
 
-pub fn set_enabled(enabled: bool) {
-    crate::set_allocation_meter_enabled(enabled && mode() == PerformanceOverlayMode::Full);
-    if ENABLED.swap(enabled, Ordering::Relaxed) != enabled && enabled {
+pub fn is_app_picker() -> bool {
+    VISIBILITY.is_app_picker()
+}
+
+pub fn set_enabled(requested: bool) {
+    let was_requested = VISIBILITY.set_requested(requested);
+    crate::set_allocation_meter_enabled(enabled() && mode() == PerformanceOverlayMode::Full);
+    if was_requested != requested && enabled() {
         reset_measurements();
     }
 }
@@ -1688,6 +1728,26 @@ fn collect_gpu_sample() -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_picker_never_shows_the_overlay_and_games_honour_the_setting() {
+        let visibility = OverlayVisibility::new();
+        assert!(visibility.enabled());
+        visibility.set_app_picker(true);
+        assert!(!visibility.enabled());
+        visibility.set_requested(false);
+        assert!(!visibility.enabled());
+        visibility.set_requested(true);
+        assert!(!visibility.enabled());
+
+        visibility.set_app_picker(false);
+        assert!(visibility.enabled());
+        visibility.set_requested(false);
+        assert!(!visibility.enabled());
+        visibility.set_app_picker(true);
+        visibility.set_app_picker(false);
+        assert!(!visibility.enabled());
+    }
 
     #[test]
     fn gpu_percent_parser_accepts_scalar_and_mtk_ged_values() {

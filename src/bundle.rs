@@ -12,7 +12,7 @@
 //! * [Bundle Resources](https://developer.apple.com/documentation/bundleresources?language=objc)
 
 use crate::fs::{BundleData, Fs, GuestPath, GuestPathBuf};
-use crate::image::Image;
+use crate::image::{Image, load_image_cached};
 use crate::window::{DeviceFamily, DeviceOrientation};
 use plist::dictionary::Dictionary;
 use plist::Value;
@@ -290,7 +290,7 @@ impl Bundle {
     /// 2. `CFBundleIconFile` (legacy single-string key, iOS 2/3/4).
     /// 3. Hard-coded defaults: `Icon.png`, `icon.png`,
     ///    `Icon@2x.png`.
-    fn icon_path_candidates(&self) -> Vec<GuestPathBuf> {
+    pub fn icon_path_candidates(&self) -> Vec<GuestPathBuf> {
         let mut candidates: Vec<String> = Vec::new();
 
         let push = |candidates: &mut Vec<String>, name: &str| {
@@ -392,16 +392,21 @@ impl Bundle {
             .unwrap_or_else(|| self.path.join("Icon.png"))
     }
 
-    /// Load icon and round off its corners (and add sheen if needed) for
-    /// display.
-    pub fn load_icon(&self, fs: &Fs) -> Result<Image, String> {
+    /// Pick the highest-resolution icon file in the bundle.
+    ///
+    /// Returns the raw (still encoded) icon bytes and whether iOS would add
+    /// the pre-iOS 7 sheen effect, so a caller that caches decoded images can
+    /// re-apply the same decoration without re-opening the bundle. See
+    /// `UIPrerenderedIcon`:
+    /// <https://developer.apple.com/library/archive/qa/qa1614/_index.html>
+    pub fn best_icon_data(&self, fs: &Fs) -> Result<(Vec<u8>, bool), String> {
         let candidates = self.icon_path_candidates();
         // Old bundles usually ship several icon files: `Icon.png` is 57×57
         // while `Icon@2x.png` is 114×114, and there may be even bigger iPad
         // variants. Picking the first file that exists (which may be the
         // small one) makes the app picker show a blurry, upscaled icon, so
         // decode every candidate and keep the highest-resolution one.
-        let mut best: Option<Image> = None;
+        let mut best: Option<Vec<u8>> = None;
         let mut best_area: u64 = 0;
         let mut found_any = false;
         let mut last_err: Option<String> = None;
@@ -414,13 +419,13 @@ impl Bundle {
                 }
             };
             found_any = true;
-            match Image::from_bytes(&bytes) {
+            match load_image_cached(&bytes) {
                 Ok(image) => {
                     let (width, height) = image.dimensions();
                     let area = u64::from(width) * u64::from(height);
                     if area > best_area {
                         best_area = area;
-                        best = Some(image);
+                        best = Some(bytes);
                     }
                 }
                 Err(e) => {
@@ -428,7 +433,7 @@ impl Bundle {
                 }
             }
         }
-        let Some(mut image) = best else {
+        let Some(bytes) = best else {
             // Mirror the historical phrasing so any tooling that scrapes
             // the warning still recognises it. If some icon files existed but
             // none could be decoded, report why instead.
@@ -440,13 +445,20 @@ impl Bundle {
         };
         // UIPrerenderedIcon is used to avoid iOS applying a sheen effect,
         // should be boolean, but some apps use a string, so we check both.
-        // See https://developer.apple.com/library/archive/qa/qa1614/_index.html
         // Default if it does not exist is NO/false.
         let add_sheen = !self
             .plist
             .get("UIPrerenderedIcon")
             .and_then(|v| v.as_boolean().or(v.as_string().map(|s| s == "YES")))
             .unwrap_or(false);
+        Ok((bytes, add_sheen))
+    }
+
+    /// Load icon and round off its corners (and add sheen if needed) for
+    /// display.
+    pub fn load_icon(&self, fs: &Fs) -> Result<Image, String> {
+        let (bytes, add_sheen) = self.best_icon_data(fs)?;
+        let mut image = load_image_cached(&bytes)?;
         // iPhone OS icons are 57px by 57px and the OS always applies a
         // rounded corner (see e.g. documentation of UIPrerenderedIcon). The
         // radius scales with the icon's resolution, so `@2x`/`@3x` icons get

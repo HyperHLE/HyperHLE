@@ -312,6 +312,16 @@ Other options:
         be no graphical output and no input. Only useful for command-line apps.
         Implies --no-error-popup.
 
+    --skip-launch-image
+        Skip decoding and showing the game's launch image (splash screen) on
+        startup. Makes game launch noticeably faster, at the cost of not
+        seeing the app's launch artwork. Decoded images are cached in the
+        touchHLE user data directory, so the first launch still pays the
+        decode cost but every later launch loads the raw pixels from disk.
+
+    --no-skip-launch-image
+        Show the launch image (the default).
+
     --args
         All arguments following this option will be passed to the app (via C's
         argc/argv) rather than processed by touchHLE. This option can't be used
@@ -320,9 +330,10 @@ Other options:
     --overlay=on|off
         Start the performance display enabled or hidden. It is enabled by
         default. The mode defaults to Title bar on desktop and Minimal on
-        mobile. F1 toggles it for the current run; F2 moves the on-screen panel
-        clockwise through the four corners. TOUCHHLE_OVERLAY=0 starts hidden,
-        but F1 can still enable it.
+        mobile. The display is never drawn in the app picker or its settings;
+        its setting applies to games. F1 toggles it for the current game; F2
+        moves the on-screen panel clockwise through the four corners.
+        TOUCHHLE_OVERLAY=0 starts hidden, but F1 can still enable it.
 
     --overlay-mode=full|minimal|titlebar
         Show all counters and the frame-time graph, only FPS/CPU/GPU/time, or
@@ -371,6 +382,15 @@ Other options:
         keeps growing its heap (Mono's Boehm GC does) can take all of it and
         take the host device down with it.
 
+        Two clamps keep that rule usable at the edges: the ceiling is never
+        less than 256 MiB, since half the RAM of the oldest profiles would
+        leave only 64-128 MiB and can be too restrictive for some apps. For
+        128 MiB models this floor is higher than the model's reported RAM. The
+        ceiling is never more than 2 GiB because the app's segments and stacks
+        share the same 4 GiB address space. A ceiling is permission, not a
+        reservation: memory-reporting APIs still report the model's RAM, and
+        an app may choose how much of the permitted heap to allocate.
+
         When the cap is reached, the app's allocations fail and return NULL,
         exactly like malloc() on a real device that has run out of memory
         (vm_allocate() reports KERN_NO_SPACE, mmap() reports MAP_FAILED). The
@@ -394,11 +414,11 @@ Other options:
     --quick-menu
         Show a pause button in the top-left corner of the screen while an app
         runs ("Quick menu" in the graphical settings screen's Emulation
-        section). It opens a menu with the settings that are worth changing
-        mid-game - the performance display, the FPS limiter, the RAM limiter
-        and Cheat Engine - and an "Exit emulator" button that returns to the
-        app picker. Tapping a row changes it in the menu, and the whole batch
-        of changes takes effect when the menu is closed with "Resume".
+        section). It opens a menu with device orientation, performance display,
+        FPS limiter, RAM limiter and Cheat Engine, plus an "Exit emulator"
+        button that returns to the app picker. Tapping a row changes it in the
+        menu; the batch takes effect on "Resume" or when the pause button is
+        tapped again. These changes apply to the current game session only.
 
     --no-quick-menu
         Hide the quick menu button (the default).

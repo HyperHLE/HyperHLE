@@ -303,36 +303,45 @@ impl DeviceFamily {
     /// model.
     pub fn physical_memory(&self) -> u64 {
         const MIB: u64 = 1024 * 1024;
+        // Grouped by the RAM Apple shipped them with, not by generation: the
+        // generations differ wildly here (the iPhone 4 has the same 512 MiB as
+        // the 4S, while the 4S's successor has twice that), and every profile
+        // that reports the wrong amount misleads the guest twice over — the
+        // memory-budgeting engines size their pools from it, and the Default
+        // heap ceiling is derived from it (see `default_guest_heap_cap`).
+        // Figures are the ones published for the hardware, e.g.
+        // <https://en.wikipedia.org/wiki/List_of_iOS_and_iPadOS_devices>.
         match self {
-            // Early devices shipped with 128 MiB of RAM.
+            // 128 MiB: the first two iPhone and iPod touch generations.
             DeviceFamily::iPhone
             | DeviceFamily::iPhone3G
             | DeviceFamily::iPodTouch
-            | DeviceFamily::iPodTouch2
-            | DeviceFamily::iPodTouch3 => 128 * MIB,
-            // iPhone 3GS / 4, iPad 1, iPod touch 4 shipped with 256 MiB.
+            | DeviceFamily::iPodTouch2 => 128 * MIB,
+            // 256 MiB: iPhone 3GS, the first iPad and the 3rd/4th iPod touch.
             DeviceFamily::iPhone3GS
-            | DeviceFamily::iPhone4
             | DeviceFamily::iPad
+            | DeviceFamily::iPodTouch3
             | DeviceFamily::iPodTouch4 => 256 * MIB,
-            // iPhone 4S / 5 / 5c, iPad 2/3/4/mini, iPod touch 5 shipped with
-            // 512 MiB.
-            DeviceFamily::iPhone4s
-            | DeviceFamily::iPhone5
-            | DeviceFamily::iPhone5c
+            // 512 MiB: iPhone 4 and 4S, iPad 2, iPad mini, iPod touch 5.
+            DeviceFamily::iPhone4
+            | DeviceFamily::iPhone4s
             | DeviceFamily::iPad2
-            | DeviceFamily::iPad3
-            | DeviceFamily::iPad4
             | DeviceFamily::iPadMini
             | DeviceFamily::iPodTouch5 => 512 * MIB,
-            // iPhone 6 and the Retina iPad minis shipped with 1 GiB. We
-            // intentionally cap this at 1 GiB even though the address space is
-            // 4 GiB, leaving headroom for the guest heap, stacks and mapped
-            // libraries.
-            DeviceFamily::iPhone6
-            | DeviceFamily::iPad5
+            // 1 GiB: iPhone 5, 5c and 6, iPad 3 and 4, Retina iPad minis.
+            // This is capped at 1 GiB even though the address space is 4 GiB,
+            // leaving headroom for the guest heap, stacks and mapped libraries.
+            DeviceFamily::iPhone5
+            | DeviceFamily::iPhone5c
+            | DeviceFamily::iPhone6
+            | DeviceFamily::iPad3
+            | DeviceFamily::iPad4
             | DeviceFamily::iPadMini2
             | DeviceFamily::iPadMini3 => 1024 * MIB,
+            // 2 GiB: the iPad 5 (iPad6,11), a 2017 iPad rather than an iPad
+            // Air. Two of the 4 GiB guest address space is still comfortable
+            // for the heap; the Default ceiling stays half of this.
+            DeviceFamily::iPad5 => 2048 * MIB,
         }
     }
 
@@ -1046,8 +1055,9 @@ impl Window {
         icon: Option<Image>,
         launch_image: Option<(Image, bool)>,
         options: &Options,
+        is_app_picker: bool,
     ) -> Result<Window, String> {
-        crate::gles::perf_overlay::configure_from_options(options);
+        crate::gles::perf_overlay::configure_from_options(options, is_app_picker);
         #[cfg(target_os = "android")]
         {
             let angle_unavailable = ANDROID_ANGLE_UNAVAILABLE.load(Ordering::Relaxed);
@@ -2028,20 +2038,19 @@ impl Window {
                         E::FingerDown { .. } => {
                             crate::quick_menu::touch_down(abs_coords, self.viewport())
                         }
-                        E::FingerUp { .. } => {
-                            crate::quick_menu::touch_up(abs_coords, self.viewport())
-                        }
+                        E::FingerUp { .. } => crate::quick_menu::touch_up(abs_coords, self.viewport()),
                         _ => crate::quick_menu::touch_motion(abs_coords, self.viewport()),
                     };
-                    let trainer_consumed = match event {
-                        E::FingerDown { .. } => {
-                            crate::trainer_ui::touch_down(abs_coords, self.viewport())
-                        }
-                        E::FingerUp { .. } => {
-                            crate::trainer_ui::touch_up(abs_coords, self.viewport())
-                        }
-                        _ => crate::trainer_ui::touch_motion(abs_coords, self.viewport()),
-                    };
+                    let trainer_consumed = !quick_menu_consumed
+                        && match event {
+                            E::FingerDown { .. } => {
+                                crate::trainer_ui::touch_down(abs_coords, self.viewport())
+                            }
+                            E::FingerUp { .. } => {
+                                crate::trainer_ui::touch_up(abs_coords, self.viewport())
+                            }
+                            _ => crate::trainer_ui::touch_motion(abs_coords, self.viewport()),
+                        };
                     let coords = transform_input_coords(self, abs_coords, false);
                     log_dbg!("Finger event x {}, y {}, coords {:?}", x, y, coords);
                     let mut map = if quick_menu_consumed || trainer_consumed {
@@ -2077,19 +2086,25 @@ impl Window {
                                 ..
                             } if timestamp == curr_timestamp && next.is_same_kind_as(&event) => {
                                 let abs_coords = finger_absolute_coords(self, (x, y));
-                                let trainer_consumed = match next {
+                                let quick_menu_consumed = match next {
                                     E::FingerDown { .. } => {
-                                        crate::trainer_ui::touch_down(abs_coords, self.viewport())
+                                        crate::quick_menu::touch_down(abs_coords, self.viewport())
                                     }
-                                    E::FingerUp { .. } => {
-                                        crate::trainer_ui::touch_up(abs_coords, self.viewport())
-                                    }
-                                    _ => {
-                                        crate::trainer_ui::touch_motion(abs_coords, self.viewport())
-                                    }
+                                    E::FingerUp { .. } => crate::quick_menu::touch_up(abs_coords, self.viewport()),
+                                    _ => crate::quick_menu::touch_motion(abs_coords, self.viewport()),
                                 };
+                                let trainer_consumed = !quick_menu_consumed
+                                    && match next {
+                                        E::FingerDown { .. } => {
+                                            crate::trainer_ui::touch_down(abs_coords, self.viewport())
+                                        }
+                                        E::FingerUp { .. } => {
+                                            crate::trainer_ui::touch_up(abs_coords, self.viewport())
+                                        }
+                                        _ => crate::trainer_ui::touch_motion(abs_coords, self.viewport()),
+                                    };
                                 let coords = transform_input_coords(self, abs_coords, false);
-                                if !trainer_consumed {
+                                if !quick_menu_consumed && !trainer_consumed {
                                     map.insert(FingerId::Touch(finger_id), coords);
                                 }
                             }
@@ -2106,6 +2121,9 @@ impl Window {
                                 break;
                             }
                         }
+                    }
+                    if map.is_empty() {
+                        continue;
                     }
                     log_dbg!("Finishing multi-touch for {:?} with {:?}", event, map);
                     match event {
@@ -2146,9 +2164,11 @@ impl Window {
                     repeat: false,
                     ..
                 } => {
-                    let enabled = !crate::gles::present::onscreen_fps_enabled();
-                    self.set_show_fps_counter(enabled);
-                    echo!("Performance display {}", if enabled { "enabled" } else { "disabled" });
+                    if !crate::gles::perf_overlay::is_app_picker() {
+                        let enabled = !crate::gles::present::onscreen_fps_enabled();
+                        self.set_show_fps_counter(enabled);
+                        echo!("Performance display {}", if enabled { "enabled" } else { "disabled" });
+                    }
                     continue;
                 }
                 E::KeyDown {
@@ -2156,8 +2176,10 @@ impl Window {
                     repeat: false,
                     ..
                 } => {
-                    let corner = crate::gles::present::cycle_onscreen_fps_corner();
-                    echo!("Performance display moved to {corner}");
+                    if !crate::gles::perf_overlay::is_app_picker() {
+                        let corner = crate::gles::present::cycle_onscreen_fps_corner();
+                        echo!("Performance display moved to {corner}");
+                    }
                     continue;
                 }
                 E::KeyDown {
@@ -2745,6 +2767,10 @@ impl Window {
     /// content appears upright. On a mobile device, this might do something
     /// else, because the user can physically rotate the screen.
     pub fn rotate_device(&mut self, new_orientation: DeviceOrientation) {
+        self.rotate_device_impl(new_orientation, /* redraw_splash: */ true);
+    }
+
+    fn rotate_device_impl(&mut self, new_orientation: DeviceOrientation, redraw_splash: bool) {
         if !self.on_main_stack {
             log!("Warning: rotate_device called off main stack, skipping");
             return;
@@ -2824,7 +2850,7 @@ impl Window {
             ),
         );
 
-        if self.splash_image.is_some() {
+        if redraw_splash && self.splash_image.is_some() {
             self.display_splash();
         }
     }
@@ -3392,6 +3418,44 @@ mod device_family_tests {
         assert!(!family.is_phone_568());
         assert!(!family.is_ipad());
         assert!(!family.is_ipod_touch());
+    }
+
+    /// The RAM the hardware actually shipped with, which both the guest's
+    /// memory-reporting APIs and the Default heap ceiling are derived from.
+    /// <https://en.wikipedia.org/wiki/List_of_iOS_and_iPadOS_devices>
+    #[test]
+    fn every_model_reports_the_ram_it_shipped_with() {
+        const MIB: u64 = 1024 * 1024;
+        for (family, mib) in [
+            (DeviceFamily::iPhone, 128),
+            (DeviceFamily::iPhone3G, 128),
+            (DeviceFamily::iPhone3GS, 256),
+            (DeviceFamily::iPhone4, 512),
+            (DeviceFamily::iPhone4s, 512),
+            (DeviceFamily::iPhone5, 1024),
+            (DeviceFamily::iPhone5c, 1024),
+            (DeviceFamily::iPhone6, 1024),
+            (DeviceFamily::iPad, 256),
+            (DeviceFamily::iPad2, 512),
+            (DeviceFamily::iPad3, 1024),
+            (DeviceFamily::iPad4, 1024),
+            (DeviceFamily::iPad5, 2048),
+            (DeviceFamily::iPadMini, 512),
+            (DeviceFamily::iPadMini2, 1024),
+            (DeviceFamily::iPadMini3, 1024),
+            (DeviceFamily::iPodTouch, 128),
+            (DeviceFamily::iPodTouch2, 128),
+            (DeviceFamily::iPodTouch3, 256),
+            (DeviceFamily::iPodTouch4, 256),
+            (DeviceFamily::iPodTouch5, 512),
+        ] {
+            assert_eq!(
+                family.physical_memory(),
+                mib * MIB,
+                "{} should report {mib} MiB",
+                family.option_name()
+            );
+        }
     }
 
     #[test]

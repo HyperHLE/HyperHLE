@@ -137,6 +137,7 @@ lazy_static = "1.4.0"
 regex = "1.10.0"
 bzip2 = "0.4"
 # Internet Archive catalog and metadata responses in the built-in IPA store.
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # Blocking HTTP client used to give NSURLConnection / NSURLSession real
 # networking (pure-Rust TLS via rustls, so no system OpenSSL dependency).

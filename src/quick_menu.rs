@@ -7,11 +7,11 @@
 //! Quick menu: the pause button in the top-left corner of the emulated screen,
 //! and the panel it opens while an app runs.
 //!
-//! It is the mid-game face of the settings screen: performance display, FPS
-//! limiter, RAM limiter and the Cheat Engine-style trainer, plus "Resume" and
-//! "Exit emulator". Edits are collected while the panel is open and handed to
-//! the emulator loop as one batch when it closes (see [`take_applied`]), so the
-//! game never sees a half-finished edit.
+//! It is the mid-game face of the settings screen: performance display,
+//! FPS limiter, RAM limiter and the Cheat Engine-style trainer, plus
+//! "Resume" and "Exit emulator". Edits are collected while the panel is open
+//! and handed to the emulator loop as one batch when it closes (see
+//! [`take_applied`]), so the game never sees a half-finished edit.
 //!
 //! Drawing and input follow `crate::trainer_ui`: the overlay is drawn
 //! host-side on top of the presented frame, and it receives raw window-space
@@ -91,7 +91,7 @@ const RAM_CHOICES: &[Option<u32>] = &[
 fn ram_label(choice: Option<u32>) -> String {
     match choice {
         None => "DEFAULT".to_string(),
-        Some(mb) if mb >= 1024 => format!("{} GB", mb / 1024),
+        Some(mb) if mb >= 1024 && mb.is_multiple_of(1024) => format!("{} GB", mb / 1024),
         Some(mb) => format!("{mb} MB"),
     }
 }
@@ -125,6 +125,8 @@ struct QuickMenuUi {
     pending: u16,
     perf_display: bool,
     fps: FpsChoice,
+    /// Preserve non-preset limits until the user actually changes this row.
+    fps_limit: Option<f64>,
     ram: Option<u32>,
     trainer: bool,
 }
@@ -137,15 +139,30 @@ impl QuickMenuUi {
             pending: W_NONE,
             perf_display: false,
             fps: FpsChoice::Default,
+            fps_limit: Some(60.0),
             ram: None,
             trainer: false,
+        }
+    }
+
+    fn begin_editing(&mut self, perf_display: bool) {
+        self.open = true;
+        // F1 or an environment override may have changed the actual display
+        // since the game started or since the panel was last opened.
+        self.perf_display = perf_display;
+    }
+
+    fn fps_label(&self) -> String {
+        match self.fps_limit {
+            Some(fps) if fps != 30.0 && fps != 60.0 => format!("{fps} FPS"),
+            _ => self.fps.label().to_string(),
         }
     }
 
     fn applied(&self) -> Applied {
         Applied {
             perf_display: self.perf_display,
-            fps_limit: self.fps.limit(),
+            fps_limit: self.fps_limit,
             memory_limit_mb: self.ram,
             trainer: self.trainer,
         }
@@ -187,8 +204,15 @@ pub fn init(
     ui.pending = W_NONE;
     ui.perf_display = perf_display;
     ui.fps = FpsChoice::from_limit(fps_limit);
+    ui.fps_limit = fps_limit;
     ui.ram = memory_limit_mb;
     ui.trainer = trainer;
+    // Static state survives game sessions; never replay an old batch or exit.
+    if let Ok(mut applied) = APPLIED.lock() {
+        *applied = None;
+    }
+    APPLIED_PENDING.store(false, Ordering::Relaxed);
+    EXIT_REQUESTED.store(false, Ordering::Relaxed);
 }
 
 /// Hides the quick menu. Used by the app picker, which is an `Environment`
@@ -199,6 +223,13 @@ pub fn disable() {
     ui.enabled = false;
     ui.open = false;
     ui.pending = W_NONE;
+}
+
+fn queue_applied(applied: Applied) {
+    if let Ok(mut slot) = APPLIED.lock() {
+        *slot = Some(applied);
+        APPLIED_PENDING.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Takes the batch of edits the user applied by closing the panel, if any.
@@ -260,7 +291,14 @@ fn compute_layout(ui: &QuickMenuUi, viewport: (u32, u32, u32, u32)) -> Layout {
         let widest = (260.0 * s).max(120.0);
         let width = (vw - 12.0 * s).clamp(120.0, widest);
         let row_height = 26.0 * s;
-        let ids = [W_PERF, W_FPS, W_RAM, W_TRAINER, W_RESUME, W_EXIT];
+        let ids = [
+            W_PERF,
+            W_FPS,
+            W_RAM,
+            W_TRAINER,
+            W_RESUME,
+            W_EXIT,
+        ];
         let x = 6.0 * s;
         let y = button.y + button.h + 6.0 * s;
         let mut rows = Vec::with_capacity(ids.len());
@@ -343,6 +381,7 @@ unsafe fn build_scene(
         COL_TEXT_DIM,
     );
 
+    let fps_label = ui.fps_label();
     for (id, row) in &panel.rows {
         let (label, value, color) = match *id {
             W_PERF => (
@@ -350,7 +389,7 @@ unsafe fn build_scene(
                 if ui.perf_display { "ON" } else { "OFF" },
                 COL_ROW,
             ),
-            W_FPS => ("FPS LIMIT", ui.fps.label(), COL_ROW),
+            W_FPS => ("FPS LIMIT", fps_label.as_str(), COL_ROW),
             W_RAM => ("RAM LIMIT", "", COL_ROW),
             W_TRAINER => (
                 "CHEAT ENGINE",
@@ -361,7 +400,7 @@ unsafe fn build_scene(
             _ => ("EXIT EMULATOR", "", COL_EXIT),
         };
         scene.rect(row.x, row.y, row.w, row.h, color);
-        scene.text(
+        let label_width = scene.text(
             gles,
             label,
             row.x + 4.0 * s,
@@ -369,22 +408,17 @@ unsafe fn build_scene(
             font,
             COL_TEXT,
         );
-        if *id == W_RAM {
-            let ram = ram_label(ui.ram);
+        let value_text = match *id {
+            W_RAM => ram_label(ui.ram).to_string(),
+            _ if !value.is_empty() => value.to_string(),
+            _ => String::new(),
+        };
+        if !value_text.is_empty() {
+            let value_x = row.x + 4.0 * s + label_width + 8.0 * s;
             scene.text(
                 gles,
-                &ram,
-                row.x + row.w * 0.55,
-                row.y + 4.0 * s,
-                font,
-                COL_TEXT,
-            );
-        } else if !value.is_empty() {
-            let value = value.to_string();
-            scene.text(
-                gles,
-                &value,
-                row.x + row.w * 0.6,
+                &value_text,
+                value_x,
                 row.y + 4.0 * s,
                 font,
                 COL_TEXT,
@@ -491,7 +525,12 @@ pub fn touch_up(abs: (f32, f32), viewport: (u32, u32, u32, u32)) -> bool {
     match pending {
         W_BUTTON => {
             if hit(W_BUTTON) {
-                ui.open = !ui.open;
+                if ui.open {
+                    ui.open = false;
+                    queue_applied(ui.applied());
+                } else {
+                    ui.begin_editing(crate::gles::perf_overlay::enabled());
+                }
             }
         }
         W_PERF => {
@@ -502,6 +541,7 @@ pub fn touch_up(abs: (f32, f32), viewport: (u32, u32, u32, u32)) -> bool {
         W_FPS => {
             if hit(W_FPS) {
                 ui.fps = ui.fps.next();
+                ui.fps_limit = ui.fps.limit();
             }
         }
         W_RAM => {
@@ -517,11 +557,7 @@ pub fn touch_up(abs: (f32, f32), viewport: (u32, u32, u32, u32)) -> bool {
         W_RESUME => {
             if hit(W_RESUME) {
                 ui.open = false;
-                let applied = ui.applied();
-                if let Ok(mut slot) = APPLIED.lock() {
-                    *slot = Some(applied);
-                    APPLIED_PENDING.store(true, Ordering::Relaxed);
-                }
+                queue_applied(ui.applied());
             }
         }
         W_EXIT => {
@@ -569,7 +605,18 @@ mod tests {
         assert_eq!(next_ram_choice(Some(1000)), Some(32));
         assert_eq!(ram_label(None), "DEFAULT");
         assert_eq!(ram_label(Some(32)), "32 MB");
+        assert_eq!(ram_label(Some(1536)), "1536 MB");
         assert_eq!(ram_label(Some(2048)), "2 GB");
+    }
+
+    #[test]
+    fn unchanged_custom_fps_limit_is_not_replaced_by_a_preset() {
+        let mut ui = QuickMenuUi::new();
+        ui.fps = FpsChoice::from_limit(Some(120.0));
+        ui.fps_limit = Some(120.0);
+        ui.begin_editing(true);
+        assert_eq!(ui.fps_label(), "120 FPS");
+        assert_eq!(ui.applied().fps_limit, Some(120.0));
     }
 
     #[test]
@@ -609,6 +656,7 @@ mod tests {
         ui.open = true;
         ui.perf_display = true;
         ui.fps = FpsChoice::Thirty;
+        ui.fps_limit = Some(30.0);
         ui.ram = Some(512);
         assert_eq!(
             ui.applied(),

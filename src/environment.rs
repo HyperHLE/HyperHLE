@@ -479,11 +479,10 @@ static ENVIRONMENT_INSTANCE_EXISTS: std::sync::atomic::AtomicBool =
 /// biggest process last).
 ///
 /// So "Default" means half of the Device model's RAM, which makes the Device
-/// choice matter for real, with two practical clamps: at least 256 MiB, because
-/// the earliest device profiles only report 128-256 MiB and games that run
-/// today already use 150-200 MiB, and at most 2 GiB, because the app's own
-/// segments, thread stacks and the null segment share the same 4 GiB address
-/// space.
+/// choice matter for real, with two practical clamps: at least 256 MiB, since
+/// half the RAM of the earliest profiles is only 64-128 MiB and can be too
+/// restrictive for some apps, and at most 2 GiB, because the app's segments,
+/// thread stacks and the null segment share the same 4 GiB address space.
 fn default_guest_heap_cap(device_family: DeviceFamily) -> GuestUSize {
     const FLOOR: u64 = 256 * 1024 * 1024;
     const CEILING: u64 = 2 * 1024 * 1024 * 1024;
@@ -689,21 +688,25 @@ impl Environment {
             // doing an exact-match check on the plist's spelling instead was
             // what made the picker log "Using launch image" for a file that
             // then silently wasn't shown.
-            let launch_image = bundle
-                .launch_image_path(&fs, device_family)
-                .and_then(|path| {
-                    let res = fs
-                        .read(path)
-                        .map_err(|_| "Could not read launch image file".to_string())
-                        .and_then(|bytes| {
-                            image::Image::from_bytes(&bytes)
-                                .map_err(|e| format!("Could not parse launch image: {e}"))
-                        });
-                    if let Err(ref e) = res {
-                        log!("Warning: {}", e);
-                    };
-                    res.ok()
-                });
+            let launch_image = if options.skip_launch_image {
+                None
+            } else {
+                bundle
+                    .launch_image_path(&fs, device_family)
+                    .and_then(|path| {
+                        let res = fs
+                            .read(path)
+                            .map_err(|_| "Could not read launch image file".to_string())
+                            .and_then(|bytes| {
+                                crate::image::load_image_cached(&bytes)
+                                    .map_err(|e| format!("Could not parse launch image: {e}"))
+                            });
+                        if let Err(ref e) = res {
+                            log!("Warning: {}", e);
+                        };
+                        res.ok()
+                    })
+            };
             Some(Box::new(window::Window::new(
                 &format!(
                     "{} ({} {}{}{})",
@@ -720,6 +723,7 @@ impl Environment {
                 icon.ok(),
                 launch_image.map(|image| (image, false)),
                 &options,
+                /* is_app_picker: */ false,
             )?))
         };
 
@@ -1245,6 +1249,7 @@ impl Environment {
             window_icon,
             launch_image,
             &options,
+            /* is_app_picker: */ true,
         )?));
 
         let mut mem = mem::Mem::new();
@@ -1983,13 +1988,13 @@ impl Environment {
     /// Applies the batch of changes the quick menu collected while its panel
     /// was open.
     ///
-    /// Everything lands here at once, on purpose: the FPS limiter, the RAM
-    /// limiter, the performance display and the trainer are read all over the
-    /// emulator, so changing them one by one while the panel is still being
-    /// edited would make the game react to a half-finished edit.
+    /// Everything lands here at once, on purpose: FPS and RAM limits,
+    /// performance display and trainer should not change while the panel is
+    /// still being edited.
     fn apply_quick_menu(&mut self, applied: &crate::quick_menu::Applied) {
         self.options.performance_overlay_enabled = applied.perf_display;
         self.options.fps_limit = applied.fps_limit;
+        self.options.memory_limit_mb = applied.memory_limit_mb;
         if let Some(window) = self.window.as_mut() {
             window.set_show_fps_counter(applied.perf_display);
         }
@@ -4697,6 +4702,36 @@ mod guest_cpu_error_tests {
         assert!(!Environment::is_recoverable_guest_cpu_error(
             &cpu::CpuError::MemoryError
         ));
+    }
+}
+
+#[cfg(test)]
+mod heap_cap_tests {
+    use super::*;
+
+    /// The Default ceiling is derived from the RAM the Device model reports, so
+    /// two models that shipped with the same RAM must get the same ceiling.
+    /// The iPhone 5 and the iPhone 6 both have 1 GiB, and the iPhone 5 used to
+    /// report 512 MiB, which halved its ceiling alone.
+    #[test]
+    fn models_with_the_same_ram_get_the_same_default_ceiling() {
+        const MIB: GuestUSize = 1024 * 1024;
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone5), 512 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone6), 512 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone5c), 512 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone4), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone4s), 256 * MIB);
+        // Tiny models hit the floor rather than being asked to run in 64 MiB.
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone3GS), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPad3), 512 * MIB);
+        // The iPad 5 is an iPad6,11, not an iPad Air: 2 GiB of RAM.
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPad5), 1024 * MIB);
+        // The iPods are all below 1 GiB, so the floor, not half their RAM,
+        // decides their ceiling; none of them ends up with an unusable heap.
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch3), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch4), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch5), 256 * MIB);
     }
 }
 

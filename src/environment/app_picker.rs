@@ -20,9 +20,7 @@ use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_run_loop::run_run_loop_single_iteration;
 use crate::frameworks::foundation::ns_string;
 use crate::frameworks::foundation::NSInteger;
-use crate::frameworks::uikit::ui_font::{
-    UITextAlignmentCenter, UITextAlignmentLeft, UITextAlignmentRight,
-};
+use crate::frameworks::uikit::ui_font::{UITextAlignmentCenter, UITextAlignmentLeft};
 use crate::frameworks::uikit::ui_gesture_recognizer::{
     UISwipeGestureRecognizerDirectionLeft, UISwipeGestureRecognizerDirectionRight,
 };
@@ -34,19 +32,77 @@ use crate::frameworks::uikit::ui_view::ui_control::{
     UIControlEventTouchUpOutside, UIControlEventValueChanged, UIControlStateNormal,
 };
 use crate::fs::BundleData;
-use crate::image::Image;
+use crate::image::{Image, load_image_cached};
 use crate::mem::Ptr;
 use crate::objc::{id, msg, msg_class, nil, objc_classes, release, ClassExports, HostObject};
 use crate::options::{Options, PerformanceOverlayCorner, PerformanceOverlayMode};
 use crate::paths;
 use crate::window::DeviceOrientation;
 use crate::Environment;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, AtomicI8, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Cached information about a scanned app, stored on disk so the app picker
+/// doesn't have to open and parse every `.ipa`/`.app` bundle on every launch.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct CachedApp {
+    path: String,
+    /// File modification time in nanoseconds since the Unix epoch.
+    mtime_ns: u64,
+    /// File size in bytes.
+    size: u64,
+    /// Raw PNG bytes of the app's icon, so it can be re-decoded from the
+    /// image cache without re-opening the bundle.
+    icon_bytes: Vec<u8>,
+    /// Whether iOS would apply the pre-iOS 7 sheen effect to this icon
+    /// (`UIPrerenderedIcon` is absent or NO). Needed because the picked icon
+    /// bytes are cached before the corners are rounded.
+    icon_adds_sheen: bool,
+    display_name: String,
+    bundle_id: String,
+}
+
+/// Path of the app scan cache file, inside the user data directory.
+fn app_scan_cache_path() -> PathBuf {
+    paths::user_data_base_path().join("app_scan_cache.json")
+}
+
+/// Reads the app scan cache from disk. Returns an empty map on any error.
+fn read_app_scan_cache() -> HashMap<String, CachedApp> {
+    let Ok(text) = std::fs::read_to_string(&app_scan_cache_path()) else {
+        return HashMap::new();
+    };
+    let Ok(list) = serde_json::from_str::<Vec<CachedApp>>(&text) else {
+        return HashMap::new();
+    };
+    list.into_iter().map(|app| (app.path.clone(), app)).collect()
+}
+
+/// Writes the app scan cache to disk. Errors are ignored: a failed write just
+/// means re-scanning next time.
+fn write_app_scan_cache(apps: &[CachedApp]) {
+    let Ok(json) = serde_json::to_string(apps) else { return };
+    if let Err(error) = std::fs::write(&app_scan_cache_path(), json) {
+        log!("Warning: couldn't write app scan cache: {error}");
+    }
+}
+
+/// File metadata used to decide whether a cached app entry is still valid.
+fn file_signature(path: &Path) -> Option<(u64, u64)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let mtime = metadata
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_nanos() as u64;
+    Some((mtime, metadata.len()))
+}
 
 /// Pending left (-1) or right (+1) arrow key press, 0 if none. Written by the
 /// window event handler and consumed by the picker loop.
@@ -109,54 +165,142 @@ pub fn app_picker(options: Options, show_lock_screen: bool) -> Result<(PathBuf, 
     show_app_picker_gui(options, apps, show_lock_screen)
 }
 
+/// Result of scanning one app bundle: metadata plus the icon's raw bytes
+/// (so the icon can be re-decoded from cache without re-opening the bundle).
+struct ScanResult {
+    path: PathBuf,
+    display_name: String,
+    bundle_id: String,
+    icon_bytes: Option<Vec<u8>>,
+    /// See `CachedApp::icon_adds_sheen`.
+    icon_adds_sheen: bool,
+}
+
+/// Scan a single `.app`/`.ipa` bundle, returning its metadata and icon bytes.
+fn scan_one_app(app_path: &Path) -> Option<ScanResult> {
+    let (bundle, fs) = BundleData::open_any(app_path)
+        .and_then(|bundle_data| {
+            Bundle::new_bundle_and_fs_from_host_path(
+                bundle_data,
+                /* read_only_mode: */ true,
+            )
+        })
+        .ok()?;
+
+    let display_name = bundle.display_name().to_owned();
+    let bundle_id = bundle.bundle_identifier().to_owned();
+
+    // Pick the icon exactly like `Bundle::load_icon` does (highest decoded
+    // resolution, UIPrerenderedIcon for the sheen), but keep the raw bytes so
+    // the scan cache can store them.
+    let (icon_bytes, icon_adds_sheen) = match bundle.best_icon_data(&fs) {
+        Ok((bytes, add_sheen)) => (Some(bytes), add_sheen),
+        Err(e) => {
+            log!(
+                "Warning: couldn't load icon for app bundle {}: {} (displaying placeholder instead)",
+                app_path.display(),
+                e
+            );
+            (None, true)
+        }
+    };
+
+    Some(ScanResult {
+        path: app_path.to_path_buf(),
+        display_name,
+        bundle_id,
+        icon_bytes,
+        icon_adds_sheen,
+    })
+}
+
 fn enumerate_apps(apps_dir: &Path) -> Result<Vec<AppInfo>, std::io::Error> {
+    let cache = read_app_scan_cache();
     let mut apps = Vec::new();
+    let mut refreshed_cache = Vec::new();
     let mut directories = vec![apps_dir.to_path_buf()];
+
     while let Some(directory) = directories.pop() {
         for entry in std::fs::read_dir(directory)? {
             let app_path = entry?.path();
             let extension = app_path.extension();
             if extension == Some(OsStr::new("app")) || extension == Some(OsStr::new("ipa")) {
-                let (bundle, fs) = match BundleData::open_any(&app_path).and_then(|bundle_data| {
-                    Bundle::new_bundle_and_fs_from_host_path(
-                        bundle_data,
-                        /* read_only_mode: */ true,
-                    )
-                }) {
-                    Ok(ok) => ok,
-                    Err(e) => {
-                        log!(
-                            "Warning: couldn't open app bundle {}: {} (skipping)",
-                            app_path.display(),
-                            e
-                        );
-                        continue;
-                    }
+                let signature = file_signature(&app_path);
+                let cached = signature.and_then(|(mtime, size)| {
+                    cache.get(app_path.to_str()?).filter(|c| c.mtime_ns == mtime && c.size == size)
+                });
+
+                if let Some(cached_app) = cached {
+                    // Cache hit: reuse display_name and bundle_id, re-decode the
+                    // icon from the image cache (raw RGBA, no PNG decode).
+                    let icon = if cached_app.icon_bytes.is_empty() {
+                        None
+                    } else {
+                        load_image_cached(&cached_app.icon_bytes)
+                            .ok()
+                            .map(|mut image| {
+                                image.round_icon_corners(cached_app.icon_adds_sheen);
+                                image
+                            })
+                    };
+                    apps.push(AppInfo {
+                        path: app_path,
+                        display_name: cached_app.display_name.clone(),
+                        bundle_id: cached_app.bundle_id.clone(),
+                        icon,
+                        display_name_ns_string: None,
+                        icon_ui_image: None,
+                    });
+                    refreshed_cache.push(cached_app.clone());
+                    continue;
+                }
+
+                // Cache miss (or first run): scan the bundle fully.
+                let Some(scan) = scan_one_app(&app_path) else {
+                    log!(
+                        "Warning: couldn't open app bundle {} (skipping)",
+                        app_path.display()
+                    );
+                    continue;
                 };
 
-                let display_name = bundle.display_name().to_owned();
-                let bundle_id = bundle.bundle_identifier().to_owned();
-                let icon = match bundle.load_icon(&fs) {
-                    Ok(icon) => Some(icon),
-                    Err(e) => {
-                        log!("Warning: couldn't load icon for app bundle {}: {} (displaying placeholder instead)", app_path.display(), e);
-                        None
-                    }
-                };
+                let icon = scan
+                    .icon_bytes
+                    .as_ref()
+                    .and_then(|bytes| load_image_cached(bytes).ok())
+                    .map(|mut image| {
+                        image.round_icon_corners(scan.icon_adds_sheen);
+                        image
+                    });
 
                 apps.push(AppInfo {
-                    path: app_path,
-                    display_name,
-                    bundle_id,
+                    path: scan.path.clone(),
+                    display_name: scan.display_name.clone(),
+                    bundle_id: scan.bundle_id.clone(),
                     icon,
                     display_name_ns_string: None,
                     icon_ui_image: None,
                 });
+
+                if let Some((mtime, size)) = signature {
+                    refreshed_cache.push(CachedApp {
+                        path: scan.path.to_string_lossy().to_string(),
+                        mtime_ns: mtime,
+                        size,
+                        icon_bytes: scan.icon_bytes.clone().unwrap_or_default(),
+                        icon_adds_sheen: scan.icon_adds_sheen,
+                        display_name: scan.display_name.clone(),
+                        bundle_id: scan.bundle_id.clone(),
+                    });
+                }
             } else if app_path.is_dir() {
                 directories.push(app_path);
             }
         }
     }
+
+    // Persist the updated cache so the next launch can skip re-scanning.
+    write_app_scan_cache(&refreshed_cache);
 
     apps.sort_by_key(|app| app.display_name.to_uppercase());
     Ok(apps)
@@ -1317,44 +1461,6 @@ fn app_picker_inner(
         app_frame.size,
         recent_app.as_ref().map(|(_, name, image)| (name.as_str(), *image)),
     );
-    // Build stamp on the page-dot row, right-aligned like the one in the
-    // reference home screen. It is added after the dock so nothing covers it.
-    let version_label = {
-        let label_frame = CGRect {
-            origin: CGPoint {
-                x: 0.0,
-                y: app_picker_dots_top(app_frame.size.height) - 2.0,
-            },
-            size: CGSize {
-                width: app_frame.size.width - 8.0,
-                height: 12.0,
-            },
-        };
-        let label: id = msg_class![env; UILabel alloc];
-        let label: id = msg![env; label initWithFrame:label_frame];
-        let text = ns_string::from_rust_string(
-            env,
-            format!("{} ({})", crate::DISPLAY_NAME, crate::COMMIT_HASH),
-        );
-        () = msg![env; label setText:text];
-        () = msg![env; label setTextAlignment:UITextAlignmentRight];
-        let font_size: CGFloat = 10.0;
-        let font: id = msg_class![env; UIFont systemFontOfSize:font_size];
-        () = msg![env; label setFont:font];
-        let text_color: id = msg_class![env; UIColor lightGrayColor];
-        () = msg![env; label setTextColor:text_color];
-        let bg_color: id = msg_class![env; UIColor clearColor];
-        () = msg![env; label setBackgroundColor:bg_color];
-        let shadow = ui_color(env, 0.0, 0.0, 0.0, 0.7);
-        () = msg![env; label setShadowColor:shadow];
-        () = msg![env; label setShadowOffset:(CGSize {
-            width: 0.0,
-            height: 1.0,
-        })];
-        () = msg![env; main_view addSubview:label];
-        label
-    };
-
     let angle_backend_available = crate::window::angle_backend_available();
     let mut picker_settings = PickerSettings::load(&env.options, angle_backend_available);
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1467,12 +1573,11 @@ fn app_picker_inner(
     let mut status_time_updated_at = Instant::now();
     let mut status_battery_updated_at = Instant::now();
 
-    let mut chrome_views: Vec<id> = Vec::with_capacity(3 + page_dots.len());
+    let mut chrome_views: Vec<id> = Vec::with_capacity(2 + page_dots.len());
     if let Some(bar) = status_bar {
         chrome_views.push(bar);
     }
     chrome_views.push(dock);
-    chrome_views.push(version_label);
     chrome_views.extend(page_dots.iter().copied());
 
     let main_run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
@@ -1487,7 +1592,6 @@ fn app_picker_inner(
             status_bar,
             status_time_label,
             dock,
-            version_label,
             &page_dots,
         );
         if let Some(ref grid) = icon_grid_stuff {
@@ -2310,7 +2414,7 @@ fn app_picker_dots_top(app_height: CGFloat) -> CGFloat {
     app_picker_grid_bottom(app_height) + (APP_PICKER_DOTS_ROW_HEIGHT - PAGE_DOT_SIZE) / 2.0
 }
 
-/// The bottom edge of the icon grid: the page-dot/version row sits below it.
+/// The bottom edge of the icon grid: the page-dot row sits below it.
 fn app_picker_grid_bottom(app_height: CGFloat) -> CGFloat {
     app_height - APP_PICKER_DOCK_HEIGHT - APP_PICKER_DOTS_ROW_HEIGHT
 }
@@ -2716,7 +2820,6 @@ fn run_lock_screen(
     status_bar: Option<id>,
     status_time_label: Option<id>,
     dock: id,
-    version_label: id,
     page_dots: &[id],
 ) {
     if let Some(grid) = grid {
@@ -2726,7 +2829,6 @@ fn run_lock_screen(
         }
     }
     () = msg![env; dock setHidden:true];
-    () = msg![env; version_label setHidden:true];
     for &dot in page_dots {
         () = msg![env; dot setHidden:true];
     }
@@ -2967,7 +3069,6 @@ fn run_lock_screen(
         () = msg![env; active_container setHidden:false];
     }
     () = msg![env; dock setHidden:false];
-    () = msg![env; version_label setHidden:false];
     for &dot in page_dots {
         () = msg![env; dot setHidden:false];
     }

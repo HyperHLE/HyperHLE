@@ -9,7 +9,7 @@
 //! likely to use UIKit in very simple and limited ways, so this implementation
 //! will probably take a lot of shortcuts.
 
-use crate::{msg, Environment};
+use crate::{msg, msg_class, Environment};
 use std::time::Instant;
 
 use crate::dyld::{export_c_func, FunctionExports, HostConstant};
