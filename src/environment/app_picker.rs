@@ -73,7 +73,7 @@ fn read_app_scan_cache() -> HashMap<String, CachedApp> {
     let Ok(text) = std::fs::read_to_string(&app_scan_cache_path()) else {
         return HashMap::new();
     };
-    let Ok(list): Vec<CachedApp> = serde_json::from_str(&text) else {
+    let Ok(list) = serde_json::from_str::<Vec<CachedApp>>(&text) else {
         return HashMap::new();
     };
     list.into_iter().map(|app| (app.path.clone(), app)).collect()
@@ -93,6 +93,7 @@ fn file_signature(path: &Path) -> Option<(u64, u64)> {
     let metadata = std::fs::metadata(path).ok()?;
     let mtime = metadata
         .modified()
+        .ok()?
         .duration_since(UNIX_EPOCH)
         .ok()?
         .as_nanos() as u64;
@@ -226,10 +227,11 @@ fn enumerate_apps(apps_dir: &Path) -> Result<Vec<AppInfo>, std::io::Error> {
                 if let Some(cached_app) = cached {
                     // Cache hit: reuse display_name and bundle_id, re-decode the
                     // icon from the image cache (raw RGBA, no PNG decode).
-                    let icon = cached_app
-                        .icon_bytes
-                        .as_ref()
-                        .and_then(|bytes| load_image_cached(bytes).ok());
+                    let icon = if cached_app.icon_bytes.is_empty() {
+                        None
+                    } else {
+                        load_image_cached(&cached_app.icon_bytes).ok()
+                    };
                     apps.push(AppInfo {
                         path: app_path,
                         display_name: cached_app.display_name.clone(),
@@ -270,6 +272,7 @@ fn enumerate_apps(apps_dir: &Path) -> Result<Vec<AppInfo>, std::io::Error> {
                         path: scan.path.to_string_lossy().to_string(),
                         mtime_ns: mtime,
                         size,
+                        icon_bytes: scan.icon_bytes.clone().unwrap_or_default(),
                         display_name: scan.display_name.clone(),
                         bundle_id: scan.bundle_id.clone(),
                     });
