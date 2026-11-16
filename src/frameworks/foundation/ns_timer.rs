@@ -40,22 +40,6 @@ pub struct NSTimerHostObject {
 }
 impl HostObject for NSTimerHostObject {}
 
-impl NSTimerHostObject {
-    fn reschedule_after_callback(
-        &mut self,
-        original_due_by: Instant,
-        rescheduled_due_by: Option<Instant>,
-        now: Instant,
-    ) {
-        // A slow callback can span several firing times too. Skip those
-        // intervals instead of immediately invoking the same callback again.
-        // Preserve explicit fire-date changes and invalidation by the guest.
-        if self.due_by == rescheduled_due_by && self.due_by.is_some_and(|due| due <= now) {
-            self.due_by = next_timer_deadline(original_due_by, now, self.rust_interval);
-        }
-    }
-}
-
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -405,6 +389,7 @@ pub(super) fn set_run_loop(env: &mut Environment, timer: id, run_loop: id) {
 /// Returns the next firing time in guest-clock coordinates, if any.
 pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> {
     let &NSTimerHostObject {
+        ns_interval,
         rust_interval,
         target,
         selector,
@@ -426,15 +411,35 @@ pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> 
         return Some(due_by);
     }
 
+    let overdue_by = now.duration_since(due_by);
     retain(env, timer);
 
-    let rescheduled_due_by = if repeats {
-        let next_time = next_timer_deadline(due_by, now, rust_interval);
-        env.objc.borrow_mut::<NSTimerHostObject>(timer).due_by = next_time;
-        next_time
-    } else {
-        None
-    };
+    if repeats {
+        // Guard every step of the rescheduling math against junk floats. A
+        // pathological ns_interval (e.g. NaN — see HyperHLE log #4) used
+        // to propagate through `.ceil() as u32` (yielding 0 for NaN) and
+        // then through `checked_mul`/`checked_add` until something
+        // eventually unwrapped to a panic. Here we keep the computation
+        // strictly bounded and fall back to the next interval if any step
+        // overflows.
+        let ratio = if ns_interval.is_finite() && ns_interval > 0.0 {
+            (overdue_by.as_secs_f64() / ns_interval).max(1.0).ceil()
+        } else {
+            1.0
+        };
+        let advance_by: u32 = if ratio.is_finite() && (1.0..=(u32::MAX as f64)).contains(&ratio) {
+            ratio as u32
+        } else {
+            1
+        };
+        let advance_by_dur = rust_interval
+            .checked_mul(advance_by)
+            .unwrap_or(rust_interval);
+        let next_time = due_by
+            .checked_add(advance_by_dur)
+            .unwrap_or_else(|| env.guest_clock.now() + rust_interval);
+        env.objc.borrow_mut::<NSTimerHostObject>(timer).due_by = Some(next_time);
+    }
 
     env.objc
         .borrow_mut::<NSTimerHostObject>(timer)
@@ -463,120 +468,10 @@ pub(super) fn handle_timer(env: &mut Environment, timer: id) -> Option<Instant> 
 
     if !repeats {
         let _: () = msg![env; timer invalidate];
-    } else {
-        let now = env.guest_clock.now();
-        env.objc
-            .borrow_mut::<NSTimerHostObject>(timer)
-            .reschedule_after_callback(due_by, rescheduled_due_by, now);
     }
 
     let final_due_by = env.objc.borrow::<NSTimerHostObject>(timer).due_by;
     release(env, timer);
 
     final_due_by
-}
-
-/// Keep a repeating timer on its original schedule, skipping missed fires.
-/// Apple's Timer Programming Topics specifies one firing for missed intervals
-/// and rescheduling to the next scheduled time in the future:
-/// <https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Timers/Articles/timerConcepts.html>
-fn next_timer_deadline(due_by: Instant, now: Instant, interval: Duration) -> Option<Instant> {
-    if due_by > now {
-        return Some(due_by);
-    }
-    // Invalid intervals may have been reduced to zero by the constructor's
-    // duration conversion. Keep them from creating a tight callback loop.
-    let interval = if interval.is_zero() {
-        Duration::from_micros(100)
-    } else {
-        interval
-    };
-    let remaining_ns =
-        interval.as_nanos() - now.duration_since(due_by).as_nanos() % interval.as_nanos();
-    let remaining = Duration::new(
-        (remaining_ns / 1_000_000_000) as u64,
-        (remaining_ns % 1_000_000_000) as u32,
-    );
-    now.checked_add(remaining)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{next_timer_deadline, NSTimerHostObject};
-    use std::time::{Duration, Instant};
-
-    #[test]
-    fn repeating_timer_skips_exact_missed_intervals() {
-        let due = Instant::now();
-        let interval = Duration::from_millis(10);
-        for missed in [0, 1, 2, 1000] {
-            let now = due + interval * missed;
-            assert_eq!(
-                next_timer_deadline(due, now, interval),
-                Some(now + interval)
-            );
-        }
-    }
-
-    #[test]
-    fn repeating_timer_keeps_phase_after_a_slow_callback() {
-        let due = Instant::now();
-        let interval = Duration::from_millis(10);
-        let callback_finished = due + Duration::from_millis(35);
-        assert_eq!(
-            next_timer_deadline(due, callback_finished, interval),
-            Some(due + Duration::from_millis(40)),
-        );
-    }
-
-    #[test]
-    fn repeating_timer_handles_long_delays_without_a_catch_up_loop() {
-        let due = Instant::now();
-        let interval = Duration::from_nanos(1);
-        let now = due + Duration::from_secs(10);
-        assert_eq!(
-            next_timer_deadline(due, now, interval),
-            Some(now + interval)
-        );
-    }
-
-    #[test]
-    fn slow_callback_reschedules_to_a_future_time() {
-        let due = Instant::now();
-        let interval = Duration::from_millis(10);
-        let next_due = due + interval;
-        let mut host = NSTimerHostObject {
-            due_by: Some(next_due),
-            rust_interval: interval,
-            ..Default::default()
-        };
-        host.reschedule_after_callback(due, Some(next_due), due + Duration::from_millis(35));
-        assert_eq!(host.due_by, Some(due + Duration::from_millis(40)));
-    }
-
-    #[test]
-    fn callback_invalidation_and_fire_date_changes_are_preserved() {
-        let due = Instant::now();
-        let interval = Duration::from_millis(10);
-        let next_due = due + interval;
-        let now = due + Duration::from_millis(35);
-        for new_due in [None, Some(due), Some(now + interval)] {
-            let mut host = NSTimerHostObject {
-                due_by: new_due,
-                rust_interval: interval,
-                ..Default::default()
-            };
-            host.reschedule_after_callback(due, Some(next_due), now);
-            assert_eq!(host.due_by, new_due);
-        }
-    }
-
-    #[test]
-    fn zero_interval_has_a_future_deadline() {
-        let due = Instant::now();
-        assert_eq!(
-            next_timer_deadline(due, due, Duration::ZERO),
-            Some(due + Duration::from_micros(100)),
-        );
-    }
 }

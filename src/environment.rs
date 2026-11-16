@@ -341,24 +341,6 @@ pub enum ThreadBlock {
     KeymgrLock(i32),
 }
 
-impl ThreadBlock {
-    /// The scheduler's host deadline for a timed wait. Read wall time lazily:
-    /// most scheduling passes have no timed condition-variable waiters.
-    fn host_wakeup_deadline(
-        &self,
-        clock: &crate::guest_clock::GuestClock,
-        host_now: Instant,
-        wall_now: impl FnOnce() -> Duration,
-    ) -> Option<Instant> {
-        match *self {
-            Self::Sleeping(due) => Some(due),
-            Self::GuestSleeping(due) => Some(clock.host_deadline_at(due, host_now)),
-            Self::Condition(_, Some(due)) => Some(host_now + due.saturating_sub(wall_now())),
-            _ => None,
-        }
-    }
-}
-
 struct BinaryDependencyNode {
     name: String,
     dependencies: Vec<String>,
@@ -2084,28 +2066,19 @@ impl Environment {
                 // timers, audio callbacks) precise while retaining the
                 // overhead win in long busy stretches, fall back to the
                 // smaller batch whenever any thread has an imminent wake-up.
-                let host_now = Instant::now();
-                let cutoff = host_now + Duration::from_millis(10);
-                let mut wall_now = None;
-                let imminent_wakeup =
-                    self.threads
-                        .iter()
-                        .filter(|thread| thread.active)
-                        .any(|thread| {
-                            let deadline = thread.blocked_by.host_wakeup_deadline(
-                                &self.guest_clock,
-                                host_now,
-                                || {
-                                    *wall_now.get_or_insert_with(|| {
-                                        SystemTime::now()
-                                            .duration_since(SystemTime::UNIX_EPOCH)
-                                            .unwrap()
-                                    })
-                                },
-                            );
-                            deadline.is_some_and(|due| due < cutoff)
-                        });
-                self.remaining_ticks = Some(if imminent_wakeup { 100_000 } else { 1_000_000 });
+                let imminent_wakeup = self.threads.iter().any(|thread| {
+                    let deadline = match thread.blocked_by {
+                        ThreadBlock::Sleeping(due) => Some(due),
+                        ThreadBlock::GuestSleeping(due) => Some(self.guest_clock.host_deadline(due)),
+                        _ => None,
+                    };
+                    deadline.is_some_and(|due| due < Instant::now() + Duration::from_millis(10))
+                });
+                self.remaining_ticks = Some(if imminent_wakeup {
+                    100_000
+                } else {
+                    1_000_000
+                });
             }
             // Game trainer (Cheat Engine-style memory search/patch + on-screen
             // UI). Disabled by default; skip it unless `--trainer` is enabled.
@@ -4146,8 +4119,6 @@ impl Environment {
             // Try to find a new thread to execute, starting with the thread
             // following the one currently executing.
             let mut next_awakening: Option<Instant> = None;
-            let host_now = Instant::now();
-            let mut wall_now = None;
             for i in 0..self.threads.len() {
                 let thread_id = (self.current_thread + 1 + i) % self.threads.len();
                 let candidate = &mut self.threads[thread_id];
@@ -4157,7 +4128,7 @@ impl Environment {
                 }
                 match candidate.blocked_by {
                     ThreadBlock::Sleeping(sleeping_until) => {
-                        if sleeping_until <= host_now {
+                        if sleeping_until <= Instant::now() {
                             log_dbg!("Thread {} finished sleeping.", thread_id);
                             candidate.blocked_by = ThreadBlock::NotBlocked;
                             return thread_id;
@@ -4169,11 +4140,11 @@ impl Environment {
                         }
                     }
                     ThreadBlock::GuestSleeping(due) => {
-                        let host_due = self.guest_clock.host_deadline_at(due, host_now);
-                        if host_due <= host_now {
+                        if due <= self.guest_clock.now() {
                             candidate.blocked_by = ThreadBlock::NotBlocked;
                             return thread_id;
                         }
+                        let host_due = self.guest_clock.host_deadline(due);
                         next_awakening = Some(next_awakening.map_or(host_due, |d| d.min(host_due)));
                     }
                     ThreadBlock::Mutex(mutex_id) => {
@@ -4239,11 +4210,9 @@ impl Environment {
                             self.relock_unblocked_mutex_for_thread(thread_id, mutex);
                             return thread_id;
                         } else if let Some(deadline) = deadline {
-                            let time = *wall_now.get_or_insert_with(|| {
-                                SystemTime::now()
-                                    .duration_since(SystemTime::UNIX_EPOCH)
-                                    .unwrap()
-                            });
+                            let time = SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap();
                             if deadline <= time {
                                 log_dbg!(
                                     "Thread {} is timed out on cond var {:?}.",
@@ -4288,7 +4257,7 @@ impl Environment {
                                 // Теперь эмулятор не упадет, а честно уснет до
                                 // этого момента.
                                 let remaining = deadline - time;
-                                let awakening = host_now + remaining;
+                                let awakening = Instant::now() + remaining;
                                 next_awakening = match next_awakening {
                                     None => Some(awakening),
                                     Some(other) => Some(other.min(awakening)),
@@ -4594,59 +4563,6 @@ fn direct_call_is_consistent_with_fault(call_site: u32, target: u32, fault_pc: u
         return false;
     }
     true
-}
-
-#[cfg(test)]
-mod scheduler_wakeup_tests {
-    use super::ThreadBlock;
-    use crate::guest_clock::{GuestClock, Speed};
-    use crate::mem::Ptr;
-    use std::time::{Duration, Instant};
-
-    #[test]
-    fn timed_condition_waits_have_monotonic_scheduler_deadlines() {
-        let host_now = Instant::now();
-        let clock = GuestClock::new();
-        let wall_now = Duration::from_secs(1_000);
-        let wait = ThreadBlock::Condition(Ptr::null(), Some(wall_now + Duration::from_millis(2)));
-        assert_eq!(
-            wait.host_wakeup_deadline(&clock, host_now, || wall_now),
-            Some(host_now + Duration::from_millis(2))
-        );
-        let expired = ThreadBlock::Condition(Ptr::null(), Some(wall_now - Duration::from_secs(1)));
-        assert_eq!(
-            expired.host_wakeup_deadline(&clock, host_now, || wall_now),
-            Some(host_now)
-        );
-        let untimed = ThreadBlock::Condition(Ptr::null(), None);
-        assert_eq!(
-            untimed.host_wakeup_deadline(&clock, host_now, || panic!("untimed wait")),
-            None
-        );
-    }
-
-    #[test]
-    fn sleep_deadlines_do_not_read_wall_time_and_follow_guest_speed() {
-        let mut clock = GuestClock::new();
-        clock.set_speed(Speed::Double);
-        let host_now = Instant::now();
-        let sleeping = ThreadBlock::Sleeping(host_now + Duration::from_millis(4));
-        assert_eq!(
-            sleeping.host_wakeup_deadline(&clock, host_now, || panic!("host sleep")),
-            Some(host_now + Duration::from_millis(4))
-        );
-        let due = clock.now_at(host_now) + Duration::from_millis(4);
-        let guest_sleeping = ThreadBlock::GuestSleeping(due);
-        assert_eq!(
-            guest_sleeping.host_wakeup_deadline(&clock, host_now, || panic!("guest sleep")),
-            Some(host_now + Duration::from_millis(2))
-        );
-        let suspended = ThreadBlock::Suspended(1, Box::new(sleeping));
-        assert_eq!(
-            suspended.host_wakeup_deadline(&clock, host_now, || panic!("suspended")),
-            None
-        );
-    }
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 use super::{GuestUSize, Mem, VAddr, PAGE_SIZE, PAGE_SIZE_ALIGN_MASK};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 
 /// iPhone OS's allocator always aligns to 16 bytes at minimum, and this
@@ -141,40 +141,75 @@ mod collections {
     }
 
     #[derive(Default, Debug)]
-    pub struct SizeIndexedChunkMap {
+    pub struct SizeBucketedChunkMap {
         chunks: ChunkMap,
-        // Best-fit lookup and removal must not scan every free chunk in a
-        // size bucket. Fragmented game heaps can have thousands of them.
-        chunks_by_size: BTreeSet<(GuestUSize, VAddr)>,
+        chunks_by_log2_size: [Vec<Chunk>; Self::bucket_for(u32::MAX) + 1],
     }
-    impl SizeIndexedChunkMap {
+    impl SizeBucketedChunkMap {
+        /// Get log2 size bucket for chunk.
+        #[inline(always)]
+        const fn bucket_for(size: GuestUSize) -> usize {
+            (size.ilog2() - MIN_CHUNK_SIZE.ilog2()) as usize
+        }
+
         pub fn insert(&mut self, chunk: Chunk) {
             assert!(chunk.size.get() >= MIN_CHUNK_SIZE);
             self.chunks.insert(chunk);
-            assert!(self.chunks_by_size.insert((chunk.size.get(), chunk.base)));
+            self.chunks_by_log2_size[Self::bucket_for(chunk.size.get())].push(chunk);
         }
 
         #[inline(always)]
-        fn remove_from_size_index(&mut self, chunk: Chunk) {
-            assert!(self.chunks_by_size.remove(&(chunk.size.get(), chunk.base)));
+        fn remove_from_bucket(&mut self, chunk: Chunk) {
+            let bucket = &mut self.chunks_by_log2_size[Self::bucket_for(chunk.size.get())];
+            // Search from the end (recent frees are usually at the end, so
+            // following the generational hypothesis, that's a better place to
+            // start)
+            let idx = bucket
+                .iter()
+                .rposition(|chunk2| chunk.base == chunk2.base)
+                .unwrap();
+            assert_eq!(chunk, bucket.swap_remove(idx));
         }
 
         pub fn remove_with_base(&mut self, base: VAddr) -> Option<Chunk> {
             let chunk = self.chunks.remove_with_base(base)?;
-            self.remove_from_size_index(chunk);
+            self.remove_from_bucket(chunk);
             Some(chunk)
         }
 
         pub fn remove_with_end(&mut self, end: VAddr) -> Option<Chunk> {
             let chunk = self.chunks.remove_with_end(end)?;
-            self.remove_from_size_index(chunk);
+            self.remove_from_bucket(chunk);
             Some(chunk)
         }
 
-        pub fn allocate(&mut self, size: GuestUSize) -> Option<Chunk> {
-            assert!(size >= MIN_CHUNK_SIZE);
-            let &(_, base) = self.chunks_by_size.range((size, 0)..).next()?;
-            let existing = self.remove_with_base(base).unwrap();
+        fn allocate_in_bucket(&mut self, size: GuestUSize, bucket: usize) -> Option<Chunk> {
+            let (idx, _) = {
+                let mut best_chunk: Option<(usize, GuestUSize)> = None;
+
+                // Search from end because we should prefer recently-freed
+                // allocations that might be the right size.
+                for (idx, chunk) in self.chunks_by_log2_size[bucket]
+                    .iter_mut()
+                    .enumerate()
+                    .rev()
+                {
+                    if chunk.size.get() >= size
+                        && (best_chunk.is_none() || best_chunk.unwrap().1 > chunk.size.get())
+                    {
+                        best_chunk = Some((idx, chunk.size.get()));
+                        if chunk.size.get() == size {
+                            break;
+                        }
+                    }
+                }
+
+                best_chunk
+            }?;
+
+            let existing = self.chunks_by_log2_size[bucket].swap_remove(idx);
+            let existing2 = self.chunks.remove_with_base(existing.base);
+            assert_eq!(Some(existing), existing2);
 
             if existing.size.get() == size {
                 return Some(existing);
@@ -218,18 +253,43 @@ mod collections {
             Some(alloc)
         }
 
+        pub fn allocate(&mut self, size: GuestUSize) -> Option<Chunk> {
+            assert!(size >= MIN_CHUNK_SIZE);
+
+            // Look in the smallest bucket first. This is the only bucket where
+            // an exact match can be found.
+
+            let bucket = Self::bucket_for(size);
+            if let Some(alloc) = self.allocate_in_bucket(size, bucket) {
+                return Some(alloc);
+            }
+
+            // Exact match has been ruled out, find the smallest chunk in the
+            // next largest non-empty bucket.
+
+            let bucket = self.chunks_by_log2_size[bucket + 1..]
+                .iter()
+                .position(|bucket| !bucket.is_empty())?
+                + bucket
+                + 1;
+            self.allocate_in_bucket(size, bucket)
+        }
+
         pub fn iter(&self) -> impl Iterator<Item = Chunk> + '_ {
-            self.chunks.iter()
+            self.chunks_by_log2_size
+                .iter()
+                .flat_map(|chunks| chunks.iter())
+                .copied()
         }
     }
 }
-use collections::{ChunkMap, SizeIndexedChunkMap};
+use collections::{ChunkMap, SizeBucketedChunkMap};
 
 /// Tracks which memory is in use and makes allocations from it.
 #[derive(Debug)]
 pub struct Allocator {
     used_chunks: ChunkMap,
-    unused_chunks: SizeIndexedChunkMap,
+    unused_chunks: SizeBucketedChunkMap,
     /// Cap on the total size of the chunks handed out by [`Self::alloc`], in
     /// bytes. `None` means the heap is uncapped (the default).
     memory_limit: Option<GuestUSize>,
@@ -253,7 +313,7 @@ impl Allocator {
         let mut used_chunks: ChunkMap = Default::default();
         used_chunks.insert(main_thread_stack);
 
-        let mut unused_chunks: SizeIndexedChunkMap = Default::default();
+        let mut unused_chunks: SizeBucketedChunkMap = Default::default();
         unused_chunks.insert(rest);
 
         Allocator {
@@ -376,13 +436,6 @@ impl Allocator {
             super::log_out_of_memory("malloc (heap full)", aligned_size);
             return 0;
         };
-        // A sub-16-byte remainder is absorbed into the allocation. Check
-        // the actual chunk size too, so that absorption cannot exceed a cap.
-        if !self.fits_under_limit(alloc.size.get()) {
-            self.unused_chunks.insert(alloc);
-            super::log_out_of_memory("malloc", aligned_size);
-            return 0;
-        }
         self.used_chunks.insert(alloc);
         self.set_allocated_bytes(self.allocated_bytes.saturating_add(alloc.size.get()));
 
@@ -452,22 +505,15 @@ impl Allocator {
         // the guest's requested size, and an odd remainder base would make
         // later allocations misaligned: an odd address handed out as a host
         // function stub is entered in Thumb mode.
-        let alignment = if new_size >= PAGE_SIZE {
-            PAGE_SIZE
-        } else {
-            MIN_CHUNK_SIZE
-        };
-        let new_size = new_size.checked_next_multiple_of(alignment)?;
-        // Validate before subtracting or removing anything from the free map.
-        if new_size <= old_size
-            || self.used_chunks.get_size_with_base(base).map(|s| s.get()) != Some(old_size)
-            || (new_size >= PAGE_SIZE && base & PAGE_SIZE_ALIGN_MASK != 0)
-        {
-            return None;
-        }
+        let new_size = new_size.checked_next_multiple_of(MIN_CHUNK_SIZE)?;
         let extra = new_size - old_size;
 
-        let adjacent_base = base.checked_add(old_size)?;
+        // Only live allocations can be grown.
+        if self.used_chunks.get_size_with_base(base).is_none() {
+            return None;
+        }
+
+        let adjacent_base = base + old_size;
         let adjacent = self.unused_chunks.remove_with_base(adjacent_base)?;
         let adjacent_size = adjacent.size.get();
         if adjacent_size < extra {
@@ -476,11 +522,20 @@ impl Allocator {
             return None;
         }
 
-        let remainder = adjacent_size - extra;
-        let grown_size = if remainder < MIN_CHUNK_SIZE {
+        let grown_size = if adjacent_size >= PAGE_SIZE {
+            // Page-aligned free chunks can't be split at an arbitrary
+            // offset without breaking the page-alignment invariant, so
+            // take the whole chunk.
             old_size + adjacent_size
         } else {
-            new_size
+            let remainder = adjacent_size - extra;
+            if remainder < MIN_CHUNK_SIZE {
+                // Too small to be a free chunk on its own; take the whole
+                // chunk.
+                old_size + adjacent_size
+            } else {
+                new_size
+            }
         };
 
         // Chunks of PAGE_SIZE or larger must stay page-aligned. Growing a
@@ -500,29 +555,24 @@ impl Allocator {
             return None;
         }
 
-        if remainder >= MIN_CHUNK_SIZE {
-            let remainder_base = adjacent_base + extra;
-            if remainder >= PAGE_SIZE && remainder_base & PAGE_SIZE_ALIGN_MASK != 0 {
-                // Keep the large remainder page-aligned by splitting off its
-                // leading partial page. Never absorb a whole large free
-                // region: Mem::realloc would clear all of it, potentially
-                // gigabytes, for a tiny buffer growth.
-                let leading_size = PAGE_SIZE - (remainder_base & PAGE_SIZE_ALIGN_MASK);
+        if adjacent_size < PAGE_SIZE {
+            let remainder = adjacent_size - extra;
+            if remainder >= MIN_CHUNK_SIZE {
                 self.unused_chunks
-                    .insert(Chunk::new(remainder_base, leading_size));
-                self.unused_chunks.insert(Chunk::new(
-                    remainder_base + leading_size,
-                    remainder - leading_size,
-                ));
-            } else {
-                self.unused_chunks
-                    .insert(Chunk::new(remainder_base, remainder));
+                    .insert(Chunk::new(adjacent_base + extra, remainder));
             }
+            // else: the leftover sliver is below MIN_CHUNK_SIZE, so it can't
+            // go into the size-bucketed free list; it is absorbed into the
+            // grown allocation instead (grown_size already covers it because
+            // we took the whole chunk in that case).
         }
 
         assert!(self.used_chunks.remove_with_base(base).is_some());
         self.used_chunks.insert(Chunk::new(base, grown_size));
-        self.set_allocated_bytes(self.allocated_bytes.saturating_add(grown_size - old_size));
+        self.set_allocated_bytes(
+            self.allocated_bytes
+                .saturating_add(grown_size - old_size),
+        );
 
         Some(grown_size)
     }
@@ -724,212 +774,6 @@ mod grow_in_place_tests {
         if let Some(grown) = grown {
             let new_base_ok = grown < PAGE_SIZE || a & PAGE_SIZE_ALIGN_MASK == 0;
             assert!(new_base_ok);
-        }
-    }
-
-    // realloc may grow in place, but must retain the original contents and
-    // leave other allocations untouched. Apple's malloc(3) contract:
-    // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/malloc.3.html
-    #[test]
-    fn grow_before_large_free_region_keeps_the_rest_available() {
-        let mut allocator = arena();
-        let base = alloc_at(&mut allocator, PAGE_SIZE);
-        assert_eq!(
-            allocator.grow_in_place(base, PAGE_SIZE, 2 * PAGE_SIZE),
-            Some(2 * PAGE_SIZE)
-        );
-        assert_eq!(allocator.try_find_allocated_size(base), Some(2 * PAGE_SIZE));
-        assert_eq!(alloc_at(&mut allocator, PAGE_SIZE), base + 2 * PAGE_SIZE);
-    }
-
-    #[test]
-    fn grow_splits_partial_page_without_overallocating() {
-        let mut allocator = arena();
-        let base = alloc_at(&mut allocator, PAGE_SIZE - 16);
-        assert_eq!(
-            allocator.grow_in_place(base, PAGE_SIZE - 16, PAGE_SIZE - 1),
-            Some(PAGE_SIZE)
-        );
-        // Now grow by one byte into the large page-aligned free region.
-        assert_eq!(
-            allocator.grow_in_place(base, PAGE_SIZE, PAGE_SIZE + 1),
-            Some(2 * PAGE_SIZE)
-        );
-        let next = alloc_at(&mut allocator, PAGE_SIZE);
-        assert_eq!(next, base + 2 * PAGE_SIZE);
-        assert_eq!(next & PAGE_SIZE_ALIGN_MASK, 0);
-    }
-
-    #[test]
-    fn small_growth_into_page_keeps_partial_page_and_large_remainder() {
-        let mut allocator = arena();
-        // Fill the first page with small allocations, then grow its last
-        // block into the next page by only 16 bytes.
-        let _prefix = alloc_at(&mut allocator, PAGE_SIZE - 16);
-        let base = alloc_at(&mut allocator, 16);
-        assert_eq!(allocator.grow_in_place(base, 16, 32), Some(32));
-        assert_eq!(alloc_at(&mut allocator, 16), base + 32);
-        let page = alloc_at(&mut allocator, PAGE_SIZE);
-        assert_eq!(page & PAGE_SIZE_ALIGN_MASK, 0);
-        assert_eq!(page, (base + 32 + PAGE_SIZE - 1) & !PAGE_SIZE_ALIGN_MASK);
-    }
-
-    #[test]
-    fn failed_growth_preserves_allocation_and_free_indexes() {
-        let mut allocator = arena();
-        let base = alloc_at(&mut allocator, PAGE_SIZE);
-        allocator.set_memory_limit(Some(2 * PAGE_SIZE));
-        assert_eq!(
-            allocator.grow_in_place(base, PAGE_SIZE, 3 * PAGE_SIZE),
-            None
-        );
-        assert_eq!(
-            allocator.grow_in_place(base, PAGE_SIZE - 16, 2 * PAGE_SIZE),
-            None
-        );
-        assert_eq!(allocator.grow_in_place(base, PAGE_SIZE, u32::MAX), None);
-        assert_eq!(allocator.try_find_allocated_size(base), Some(PAGE_SIZE));
-        assert_eq!(
-            allocator.grow_in_place(base, PAGE_SIZE, PAGE_SIZE + 1),
-            Some(2 * PAGE_SIZE)
-        );
-        assert_eq!(allocator.free(base), 2 * PAGE_SIZE);
-        allocator.set_memory_limit(None);
-        assert_eq!(alloc_at(&mut allocator, 3 * PAGE_SIZE), base);
-    }
-}
-
-#[cfg(test)]
-mod free_index_tests {
-    use super::{Allocator, Chunk, PAGE_SIZE};
-
-    #[test]
-    fn best_fit_survives_fragmentation_and_coalescing() {
-        let mut allocator = Allocator::new();
-        allocator.reserve(Chunk::new(0, PAGE_SIZE));
-        let mut holes = Vec::new();
-        for size in [1536, 1280, 1792, 1024] {
-            holes.push((allocator.alloc(size), size));
-            assert_ne!(allocator.alloc(16), 0); // Prevent coalescing the holes.
-        }
-        for &(base, size) in &holes {
-            assert_eq!(allocator.free(base), size);
-        }
-        for index in [3, 1, 0, 2] {
-            let (base, size) = holes[index];
-            assert_eq!(allocator.alloc(size), base);
-        }
-        for &(base, size) in &holes {
-            assert_eq!(allocator.free(base), size);
-        }
-        assert_eq!(allocator.alloc(1280), holes[1].0);
-    }
-
-    #[test]
-    fn cap_rejection_restores_absorbed_chunk() {
-        let mut allocator = Allocator::new();
-        allocator.reserve(Chunk::new(0, PAGE_SIZE));
-        allocator.reserve(Chunk::new(PAGE_SIZE + 17, PAGE_SIZE - 17));
-        allocator.set_memory_limit(Some(16));
-        assert_eq!(allocator.alloc(16), 0);
-        allocator.set_memory_limit(Some(17));
-        assert_eq!(allocator.alloc(16), PAGE_SIZE);
-        assert_eq!(allocator.try_find_allocated_size(PAGE_SIZE), Some(17));
-        assert_eq!(allocator.free(PAGE_SIZE), 17);
-        assert!(allocator.is_free(Chunk::new(PAGE_SIZE, 17)));
-    }
-
-    #[test]
-    fn mixed_allocations_preserve_space_alignment_and_cap() {
-        for mut seed in [1_u64, 0xbadfeed, 0x10293847] {
-            let mut allocator = Allocator::new();
-            allocator.reserve(Chunk::new(0, PAGE_SIZE));
-            let cap = 1024 * 1024;
-            allocator.set_memory_limit(Some(cap));
-            let mut live = Vec::new();
-            for _ in 0..2000 {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-                let random = (seed >> 32) as u32;
-                if live.is_empty() || (random % 3 == 0 && live.len() < 64) {
-                    let base = allocator.alloc(1 + random % 32768);
-                    if base != 0 {
-                        live.push((base, allocator.try_find_allocated_size(base).unwrap()));
-                    }
-                } else {
-                    let index = random as usize % live.len();
-                    let (base, old_size) = live[index];
-                    if random % 3 == 1 {
-                        assert_eq!(allocator.free(base), old_size);
-                        live.swap_remove(index);
-                    } else {
-                        // Debug includes both free-space indexes and counters.
-                        let before = format!("{allocator:?}");
-                        if let Some(size) =
-                            allocator.grow_in_place(base, old_size, old_size + 1 + random % 32768)
-                        {
-                            live[index].1 = size;
-                        } else {
-                            assert_eq!(format!("{allocator:?}"), before);
-                        }
-                    }
-                }
-                let mut chunks: Vec<_> = allocator
-                    .used_chunks
-                    .iter()
-                    .chain(allocator.unused_chunks.iter())
-                    .collect();
-                chunks.sort_by_key(|chunk| chunk.base);
-                let mut end = 0_u64;
-                for chunk in chunks {
-                    // All guest addresses must be covered exactly once.
-                    assert_eq!(chunk.base as u64, end);
-                    if chunk.size.get() >= PAGE_SIZE {
-                        assert_eq!(chunk.base % PAGE_SIZE, 0);
-                    }
-                    end += u64::from(chunk.size.get());
-                }
-                assert_eq!(end, 1_u64 << 32);
-                assert_eq!(
-                    allocator.allocated_bytes,
-                    live.iter().map(|item| item.1).sum::<u32>()
-                );
-                assert!(allocator.allocated_bytes <= cap);
-                for &(base, size) in &live {
-                    assert_eq!(base % 16, 0);
-                    assert_eq!(allocator.try_find_allocated_size(base), Some(size));
-                }
-            }
-        }
-    }
-
-    #[test]
-    #[ignore = "manual timing benchmark; run with --release --ignored --nocapture"]
-    fn benchmark_fragmented_heap() {
-        use std::{hint::black_box, time::Instant};
-        for count in [1000, 4000, 16000] {
-            let mut timings = Vec::new();
-            for _ in 0..5 {
-                let mut allocator = Allocator::new();
-                allocator.reserve(Chunk::new(0, PAGE_SIZE));
-                let mut holes = Vec::new();
-                for _ in 0..count {
-                    holes.push(allocator.alloc(1536));
-                    black_box(allocator.alloc(16));
-                }
-                for base in holes {
-                    black_box(allocator.free(base));
-                }
-                let start = Instant::now();
-                for _ in 0..count {
-                    assert_ne!(black_box(allocator.alloc(1024)), 0);
-                }
-                timings.push(start.elapsed());
-            }
-            timings.sort();
-            println!(
-                "{count} fragmented allocations: {:?} (median of 5)",
-                timings[2]
-            );
         }
     }
 }

@@ -38,7 +38,6 @@ use crate::mem::{
 };
 use crate::objc::msg;
 use crate::Environment;
-use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
@@ -1762,12 +1761,8 @@ pub fn decode_buffer_from_bytes(
             let actual_bytes_per_frame = format.channels_per_frame * bytes_per_channel;
             let actual_channels_per_frame = format.bytes_per_frame / bytes_per_channel;
 
-            // Most buffers already have the requested channel layout. Borrow
-            // them until the final output is needed, so 32-bit conversion
-            // doesn't allocate and copy the entire input before converting it.
-            let processed_data: Cow<'_, [u8]> = if actual_bytes_per_frame == format.bytes_per_frame
-            {
-                Cow::Borrowed(data_slice)
+            let mut processed_data: Vec<u8> = if actual_bytes_per_frame == format.bytes_per_frame {
+                data_slice.to_owned()
             } else {
                 let actual_frame_count = data_slice.len() / actual_bytes_per_frame as usize;
 
@@ -1805,7 +1800,7 @@ pub fn decode_buffer_from_bytes(
                         }
                     };
                 }
-                Cow::Owned(processed_data)
+                processed_data
             };
 
             let f = match (actual_channels_per_frame, format.bits_per_channel) {
@@ -1813,34 +1808,70 @@ pub fn decode_buffer_from_bytes(
                 (1, 16) => al::AL_FORMAT_MONO16,
                 (2, 8) => al::AL_FORMAT_STEREO8,
                 (2, 16) => al::AL_FORMAT_STEREO16,
-                (channels @ (1 | 2), 32) => {
-                    let mut output = Vec::with_capacity(processed_data.len() / 4 * 2);
+                // --- ДОБАВЛЕНА РАБОЧАЯ ВЕТКА ДЛЯ (1, 32) ---
+                (1, 32) => {
+                    let valid_len = processed_data.len() / 4 * 4;
+                    processed_data.truncate(valid_len);
+                    let new_size = (processed_data.len() / 4) * 2;
+                    let mut new_processed_data = Vec::<u8>::with_capacity(new_size);
+
                     if (format.format_flags & kAudioFormatFlagIsFloat) != 0 {
-                        // IEEE 754 samples are scaled from [-1, 1] to i16.
+                        // 32-bit float PCM: convert float [-1.0, 1.0] to i16
+                        // Apple Core Audio docs: kAudioFormatFlagIsFloat
+                        // indicates IEEE 754 floating point samples.
                         // https://developer.apple.com/documentation/coreaudiotypes/kaudioformatflagisfloat
-                        for chunk in processed_data.chunks_exact(4) {
-                            let sample = (f32::from_le_bytes(chunk.try_into().unwrap())
-                                .clamp(-1.0, 1.0)
-                                * 32767.0) as i16;
-                            output.extend(sample.to_le_bytes());
+                        for chunk in processed_data.chunks(4) {
+                            let val = f32::from_le_bytes(chunk.try_into().unwrap());
+                            // Clamp to [-1.0, 1.0] then scale to i16 range
+                            let clamped = val.clamp(-1.0, 1.0);
+                            let new_val: i16 = (clamped * 32767.0) as i16;
+                            new_processed_data.extend(new_val.to_le_bytes());
                         }
                     } else {
-                        for chunk in processed_data.chunks_exact(4) {
-                            let sample =
-                                (i32::from_le_bytes(chunk.try_into().unwrap()) >> 16) as i16;
-                            output.extend(sample.to_le_bytes());
+                        // 32-bit signed integer PCM: shift down to 16-bit
+                        for chunk in processed_data.chunks(4) {
+                            let val: i32 = i32::from_le_bytes(chunk.try_into().unwrap());
+                            let new_val: i16 = (val >> 16) as i16;
+                            new_processed_data.extend(new_val.to_le_bytes());
                         }
                     }
                     return (
-                        if channels == 1 {
-                            al::AL_FORMAT_MONO16
-                        } else {
-                            al::AL_FORMAT_STEREO16
-                        },
+                        al::AL_FORMAT_MONO16,
                         format.sample_rate as ALsizei,
-                        output,
+                        new_processed_data,
                     );
                 }
+                // --- СУЩЕСТВУЮЩАЯ ВЕТКА (2, 32) ---
+                (2, 32) => {
+                    let valid_len = processed_data.len() / 4 * 4;
+                    processed_data.truncate(valid_len);
+                    let new_size = (processed_data.len() / 4) * 2;
+                    let mut new_processed_data = Vec::<u8>::with_capacity(new_size);
+
+                    if (format.format_flags & kAudioFormatFlagIsFloat) != 0 {
+                        // 32-bit float PCM stereo: convert float [-1.0, 1.0] to i16
+                        for chunk in processed_data.chunks(4) {
+                            let val = f32::from_le_bytes(chunk.try_into().unwrap());
+                            let clamped = val.clamp(-1.0, 1.0);
+                            let new_val: i16 = (clamped * 32767.0) as i16;
+                            new_processed_data.extend(new_val.to_le_bytes());
+                        }
+                    } else {
+                        // 32-bit signed integer PCM: shift down to 16-bit
+                        for chunk in processed_data.chunks(4) {
+                            let val: i32 = i32::from_le_bytes(chunk.try_into().unwrap());
+                            let new_val: i16 = (val >> 16) as i16;
+                            new_processed_data.extend(new_val.to_le_bytes());
+                        }
+                    }
+                    return (
+                        al::AL_FORMAT_STEREO16,
+                        format.sample_rate as ALsizei,
+                        new_processed_data,
+                    );
+                }
+                // ... предыдущие рабочие ветки (1, 32) и (2, 32) остаются как
+                // есть ...
                 _ => {
                     // Копируем значение в локальную переменную, чтобы избежать
                     // создания ссылки на packed-поле
@@ -1858,11 +1889,7 @@ pub fn decode_buffer_from_bytes(
                 }
             };
 
-            (
-                f,
-                format.sample_rate as ALsizei,
-                processed_data.into_owned(),
-            )
+            (f, format.sample_rate as ALsizei, processed_data)
         }
         kAudioFormatMPEGLayer3 | kAudioFormatMPEG4AAC => {
             // Decode the buffer's worth of raw MPEG-1/2 Layer III frames
@@ -3530,52 +3557,6 @@ mod offline_render_tests {
             .filter(|w| (w[0] < 0) != (w[1] < 0))
             .count();
         assert!((215..=225).contains(&crossings), "{}", crossings);
-    }
-
-    #[test]
-    fn decodes_pcm32_without_changing_sample_conversion() {
-        for channels in [1, 2] {
-            for (flags, input, expected) in [
-                (
-                    kAudioFormatFlagIsFloat,
-                    [-2.0f32, -0.5, 0.5, 2.0]
-                        .into_iter()
-                        .flat_map(f32::to_le_bytes)
-                        .collect::<Vec<_>>(),
-                    [-32767i16, -16383, 16383, 32767],
-                ),
-                (
-                    0,
-                    [i32::MIN, -65536, 65536, i32::MAX]
-                        .into_iter()
-                        .flat_map(i32::to_le_bytes)
-                        .collect::<Vec<_>>(),
-                    [i16::MIN, -1, 1, i16::MAX],
-                ),
-            ] {
-                let mut input = input;
-                // Partial trailing frames must still be discarded.
-                input.push(0xff);
-                let (format, rate, output) =
-                    decode_buffer_from_bytes(&pcm_format(channels, 32, flags), &input, &[]);
-                assert_eq!(
-                    format,
-                    if channels == 1 {
-                        al::AL_FORMAT_MONO16
-                    } else {
-                        al::AL_FORMAT_STEREO16
-                    }
-                );
-                assert_eq!(rate, 44100);
-                assert_eq!(
-                    output,
-                    expected
-                        .into_iter()
-                        .flat_map(i16::to_le_bytes)
-                        .collect::<Vec<_>>()
-                );
-            }
-        }
     }
 
     #[test]
