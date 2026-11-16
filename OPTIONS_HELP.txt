@@ -320,9 +320,10 @@ Other options:
     --overlay=on|off
         Start the performance display enabled or hidden. It is enabled by
         default. The mode defaults to Title bar on desktop and Minimal on
-        mobile. F1 toggles it for the current run; F2 moves the on-screen panel
-        clockwise through the four corners. TOUCHHLE_OVERLAY=0 starts hidden,
-        but F1 can still enable it.
+        mobile. The display is never drawn in the app picker or its settings;
+        its setting applies to games. F1 toggles it for the current game; F2
+        moves the on-screen panel clockwise through the four corners.
+        TOUCHHLE_OVERLAY=0 starts hidden, but F1 can still enable it.
 
     --overlay-mode=full|minimal|titlebar
         Show all counters and the frame-time graph, only FPS/CPU/GPU/time, or
@@ -372,13 +373,13 @@ Other options:
         take the host device down with it.
 
         Two clamps keep that rule usable at the edges: the ceiling is never
-        less than 256 MiB (the iPod touch/early iPhone profiles and the 256 MiB
-        ones would otherwise be left with 64-128 MiB, which is below what apps
-        that run here already use — real jetsam on those devices was closer to
-        40 MiB, and no game would load) and never more than 2 GiB (the app's
-        segments and stacks share the same 4 GiB address space). The ceiling is
-        permission, not a reservation: a game that budgets by
-        `NSProcessInfo.physicalMemory` still sees the model's real RAM.
+        less than 256 MiB, since half the RAM of the oldest profiles would
+        leave only 64-128 MiB and can be too restrictive for some apps. For
+        128 MiB models this floor is higher than the model's reported RAM. The
+        ceiling is never more than 2 GiB because the app's segments and stacks
+        share the same 4 GiB address space. A ceiling is permission, not a
+        reservation: memory-reporting APIs still report the model's RAM, and
+        an app may choose how much of the permitted heap to allocate.
 
         When the cap is reached, the app's allocations fail and return NULL,
         exactly like malloc() on a real device that has run out of memory
@@ -403,11 +404,17 @@ Other options:
     --quick-menu
         Show a pause button in the top-left corner of the screen while an app
         runs ("Quick menu" in the graphical settings screen's Emulation
-        section). It opens a menu with the settings that are worth changing
-        mid-game - the performance display, the FPS limiter, the RAM limiter
-        and Cheat Engine - and an "Exit emulator" button that returns to the
-        app picker. Tapping a row changes it in the menu, and the whole batch
-        of changes takes effect when the menu is closed with "Resume".
+        section). It opens a menu with device orientation, performance display,
+        FPS limiter, RAM limiter and Cheat Engine, plus an "Exit emulator"
+        button that returns to the app picker. Tapping a row changes it in the
+        menu; the batch takes effect on "Resume" or when the pause button is
+        tapped again. These changes apply to the current game session only.
+
+        Orientation cycles through portrait, landscape left, landscape right
+        and upside-down portrait. It rotates the simulated device and window,
+        adjusts touch coordinates and notifies apps that requested orientation
+        notifications. This does not force an app locked to one orientation to
+        relayout: dynamic UIKit autorotation is not fully implemented.
 
     --no-quick-menu
         Hide the quick menu button (the default).

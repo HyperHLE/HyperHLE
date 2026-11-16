@@ -687,6 +687,8 @@ pub enum Event {
     /// OS has informed touchHLE it will soon terminate.
     /// (iOS `applicationWillTerminate:`, Android `onDestroy()`)
     AppWillTerminate,
+    /// The user rotated the simulated device; notify the guest on its UI loop.
+    DeviceOrientationChanged,
     TouchesDown(HashMap<FingerId, Coords>),
     TouchesMove(HashMap<FingerId, Coords>),
     TouchesUp(HashMap<FingerId, Coords>),
@@ -1055,8 +1057,9 @@ impl Window {
         icon: Option<Image>,
         launch_image: Option<(Image, bool)>,
         options: &Options,
+        is_app_picker: bool,
     ) -> Result<Window, String> {
-        crate::gles::perf_overlay::configure_from_options(options);
+        crate::gles::perf_overlay::configure_from_options(options, is_app_picker);
         #[cfg(target_os = "android")]
         {
             let angle_unavailable = ANDROID_ANGLE_UNAVAILABLE.load(Ordering::Relaxed);
@@ -1800,7 +1803,11 @@ impl Window {
                     ..
                 } => {
                     let abs_coords = self.mouse_drawable_coords((x, y));
-                    if crate::quick_menu::touch_up(abs_coords, self.viewport()) {
+                    if crate::quick_menu::touch_up(
+                        abs_coords,
+                        self.viewport(),
+                        self.device_orientation,
+                    ) {
                         continue;
                     }
                     if crate::trainer_ui::touch_up(abs_coords, self.viewport()) {
@@ -2037,20 +2044,23 @@ impl Window {
                         E::FingerDown { .. } => {
                             crate::quick_menu::touch_down(abs_coords, self.viewport())
                         }
-                        E::FingerUp { .. } => {
-                            crate::quick_menu::touch_up(abs_coords, self.viewport())
-                        }
+                        E::FingerUp { .. } => crate::quick_menu::touch_up(
+                            abs_coords,
+                            self.viewport(),
+                            self.device_orientation,
+                        ),
                         _ => crate::quick_menu::touch_motion(abs_coords, self.viewport()),
                     };
-                    let trainer_consumed = match event {
-                        E::FingerDown { .. } => {
-                            crate::trainer_ui::touch_down(abs_coords, self.viewport())
-                        }
-                        E::FingerUp { .. } => {
-                            crate::trainer_ui::touch_up(abs_coords, self.viewport())
-                        }
-                        _ => crate::trainer_ui::touch_motion(abs_coords, self.viewport()),
-                    };
+                    let trainer_consumed = !quick_menu_consumed
+                        && match event {
+                            E::FingerDown { .. } => {
+                                crate::trainer_ui::touch_down(abs_coords, self.viewport())
+                            }
+                            E::FingerUp { .. } => {
+                                crate::trainer_ui::touch_up(abs_coords, self.viewport())
+                            }
+                            _ => crate::trainer_ui::touch_motion(abs_coords, self.viewport()),
+                        };
                     let coords = transform_input_coords(self, abs_coords, false);
                     log_dbg!("Finger event x {}, y {}, coords {:?}", x, y, coords);
                     let mut map = if quick_menu_consumed || trainer_consumed {
@@ -2086,19 +2096,29 @@ impl Window {
                                 ..
                             } if timestamp == curr_timestamp && next.is_same_kind_as(&event) => {
                                 let abs_coords = finger_absolute_coords(self, (x, y));
-                                let trainer_consumed = match next {
+                                let quick_menu_consumed = match next {
                                     E::FingerDown { .. } => {
-                                        crate::trainer_ui::touch_down(abs_coords, self.viewport())
+                                        crate::quick_menu::touch_down(abs_coords, self.viewport())
                                     }
-                                    E::FingerUp { .. } => {
-                                        crate::trainer_ui::touch_up(abs_coords, self.viewport())
-                                    }
-                                    _ => {
-                                        crate::trainer_ui::touch_motion(abs_coords, self.viewport())
-                                    }
+                                    E::FingerUp { .. } => crate::quick_menu::touch_up(
+                                        abs_coords,
+                                        self.viewport(),
+                                        self.device_orientation,
+                                    ),
+                                    _ => crate::quick_menu::touch_motion(abs_coords, self.viewport()),
                                 };
+                                let trainer_consumed = !quick_menu_consumed
+                                    && match next {
+                                        E::FingerDown { .. } => {
+                                            crate::trainer_ui::touch_down(abs_coords, self.viewport())
+                                        }
+                                        E::FingerUp { .. } => {
+                                            crate::trainer_ui::touch_up(abs_coords, self.viewport())
+                                        }
+                                        _ => crate::trainer_ui::touch_motion(abs_coords, self.viewport()),
+                                    };
                                 let coords = transform_input_coords(self, abs_coords, false);
-                                if !trainer_consumed {
+                                if !quick_menu_consumed && !trainer_consumed {
                                     map.insert(FingerId::Touch(finger_id), coords);
                                 }
                             }
@@ -2115,6 +2135,9 @@ impl Window {
                                 break;
                             }
                         }
+                    }
+                    if map.is_empty() {
+                        continue;
                     }
                     log_dbg!("Finishing multi-touch for {:?} with {:?}", event, map);
                     match event {
@@ -2155,9 +2178,11 @@ impl Window {
                     repeat: false,
                     ..
                 } => {
-                    let enabled = !crate::gles::present::onscreen_fps_enabled();
-                    self.set_show_fps_counter(enabled);
-                    echo!("Performance display {}", if enabled { "enabled" } else { "disabled" });
+                    if !crate::gles::perf_overlay::is_app_picker() {
+                        let enabled = !crate::gles::present::onscreen_fps_enabled();
+                        self.set_show_fps_counter(enabled);
+                        echo!("Performance display {}", if enabled { "enabled" } else { "disabled" });
+                    }
                     continue;
                 }
                 E::KeyDown {
@@ -2165,8 +2190,10 @@ impl Window {
                     repeat: false,
                     ..
                 } => {
-                    let corner = crate::gles::present::cycle_onscreen_fps_corner();
-                    echo!("Performance display moved to {corner}");
+                    if !crate::gles::perf_overlay::is_app_picker() {
+                        let corner = crate::gles::present::cycle_onscreen_fps_corner();
+                        echo!("Performance display moved to {corner}");
+                    }
                     continue;
                 }
                 E::KeyDown {
@@ -2754,6 +2781,10 @@ impl Window {
     /// content appears upright. On a mobile device, this might do something
     /// else, because the user can physically rotate the screen.
     pub fn rotate_device(&mut self, new_orientation: DeviceOrientation) {
+        self.rotate_device_impl(new_orientation, /* redraw_splash: */ true);
+    }
+
+    fn rotate_device_impl(&mut self, new_orientation: DeviceOrientation, redraw_splash: bool) {
         if !self.on_main_stack {
             log!("Warning: rotate_device called off main stack, skipping");
             return;
@@ -2833,8 +2864,20 @@ impl Window {
             ),
         );
 
-        if self.splash_image.is_some() {
+        if redraw_splash && self.splash_image.is_some() {
             self.display_splash();
+        }
+    }
+
+    /// Rotate at the user's request and notify the guest on its main run loop.
+    /// App-requested status-bar rotations do not generate this notification.
+    pub fn rotate_device_from_user(&mut self, new_orientation: DeviceOrientation) {
+        let old_orientation = self.device_orientation;
+        // The app is already running: redrawing its launch image here would
+        // replace the game frame and switch to the internal GL context.
+        self.rotate_device_impl(new_orientation, /* redraw_splash: */ false);
+        if self.device_orientation != old_orientation {
+            self.event_queue.push_back(Event::DeviceOrientationChanged);
         }
     }
 

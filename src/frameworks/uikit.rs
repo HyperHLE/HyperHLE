@@ -9,7 +9,7 @@
 //! likely to use UIKit in very simple and limited ways, so this implementation
 //! will probably take a lot of shortcuts.
 
-use crate::{msg, Environment};
+use crate::{msg, msg_class, Environment};
 use std::time::Instant;
 
 use crate::dyld::{export_c_func, FunctionExports, HostConstant};
@@ -1072,6 +1072,17 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             }
             Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) => {
                 ui_touch::handle_event(env, event)
+            }
+            Event::DeviceOrientationChanged => {
+                // Dispatch from the main run loop, not the host scheduler: an
+                // observer can call back into guest code. Like UIDevice, only
+                // generate notifications while the app has requested them.
+                // https://developer.apple.com/documentation/uikit/uidevice/begingeneratingdeviceorientationnotifications()
+                let device: crate::objc::id = msg_class![env; UIDevice currentDevice];
+                let generating: bool = msg![env; device isGeneratingDeviceOrientationNotifications];
+                if generating {
+                    let _: () = msg![env; device _postOrientationChangeNotification];
+                }
             }
             Event::AppWillResignActive => {
                 // touchHLE has become inactive (e.g. the user is switching

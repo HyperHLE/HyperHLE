@@ -479,11 +479,10 @@ static ENVIRONMENT_INSTANCE_EXISTS: std::sync::atomic::AtomicBool =
 /// biggest process last).
 ///
 /// So "Default" means half of the Device model's RAM, which makes the Device
-/// choice matter for real, with two practical clamps: at least 256 MiB, because
-/// the earliest device profiles only report 128-256 MiB and games that run
-/// today already use 150-200 MiB, and at most 2 GiB, because the app's own
-/// segments, thread stacks and the null segment share the same 4 GiB address
-/// space.
+/// choice matter for real, with two practical clamps: at least 256 MiB, since
+/// half the RAM of the earliest profiles is only 64-128 MiB and can be too
+/// restrictive for some apps, and at most 2 GiB, because the app's segments,
+/// thread stacks and the null segment share the same 4 GiB address space.
 fn default_guest_heap_cap(device_family: DeviceFamily) -> GuestUSize {
     const FLOOR: u64 = 256 * 1024 * 1024;
     const CEILING: u64 = 2 * 1024 * 1024 * 1024;
@@ -720,6 +719,7 @@ impl Environment {
                 icon.ok(),
                 launch_image.map(|image| (image, false)),
                 &options,
+                /* is_app_picker: */ false,
             )?))
         };
 
@@ -1245,6 +1245,7 @@ impl Environment {
             window_icon,
             launch_image,
             &options,
+            /* is_app_picker: */ true,
         )?));
 
         let mut mem = mem::Mem::new();
@@ -1983,15 +1984,20 @@ impl Environment {
     /// Applies the batch of changes the quick menu collected while its panel
     /// was open.
     ///
-    /// Everything lands here at once, on purpose: the FPS limiter, the RAM
-    /// limiter, the performance display and the trainer are read all over the
-    /// emulator, so changing them one by one while the panel is still being
-    /// edited would make the game react to a half-finished edit.
+    /// Everything lands here at once, on purpose: the orientation, FPS and RAM
+    /// limits, performance display and trainer should not change while the
+    /// panel is still being edited.
     fn apply_quick_menu(&mut self, applied: &crate::quick_menu::Applied) {
         self.options.performance_overlay_enabled = applied.perf_display;
         self.options.fps_limit = applied.fps_limit;
+        self.options.memory_limit_mb = applied.memory_limit_mb;
         if let Some(window) = self.window.as_mut() {
             window.set_show_fps_counter(applied.perf_display);
+            if let Some(orientation) = applied.orientation {
+                // The emulator loop is on the SDL/main stack here. Guest
+                // notifications are queued for UIKit's main run loop.
+                window.rotate_device_from_user(orientation);
+            }
         }
         let cap = match applied.memory_limit_mb {
             Some(mb) => mb.saturating_mul(1024 * 1024),
@@ -2004,7 +2010,8 @@ impl Environment {
         self.mem.set_memory_limit(Some(cap));
         self.trainer.set_enabled(applied.trainer);
         log!(
-            "Quick menu applied: performance display {}, FPS limit {}, RAM limit {} MiB, trainer {}.",
+            "Quick menu applied: orientation {:?}, performance display {}, FPS limit {}, RAM limit {} MiB, trainer {}.",
+            applied.orientation,
             if applied.perf_display { "on" } else { "off" },
             applied
                 .fps_limit
