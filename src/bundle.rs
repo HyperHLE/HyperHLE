@@ -290,7 +290,7 @@ impl Bundle {
     /// 2. `CFBundleIconFile` (legacy single-string key, iOS 2/3/4).
     /// 3. Hard-coded defaults: `Icon.png`, `icon.png`,
     ///    `Icon@2x.png`.
-    fn icon_path_candidates(&self) -> Vec<GuestPathBuf> {
+    pub fn icon_path_candidates(&self) -> Vec<GuestPathBuf> {
         let mut candidates: Vec<String> = Vec::new();
 
         let push = |candidates: &mut Vec<String>, name: &str| {
