@@ -4701,6 +4701,28 @@ mod guest_cpu_error_tests {
 }
 
 #[cfg(test)]
+mod heap_cap_tests {
+    use super::*;
+
+    /// The Default ceiling is derived from the RAM the Device model reports, so
+    /// two models that shipped with the same RAM must get the same ceiling.
+    /// The iPhone 5 and the iPhone 6 both have 1 GiB, and the iPhone 5 used to
+    /// report 512 MiB, which halved its ceiling alone.
+    #[test]
+    fn models_with_the_same_ram_get_the_same_default_ceiling() {
+        const MIB: GuestUSize = 1024 * 1024;
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone5), 512 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone6), 512 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone5c), 512 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone4), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone4s), 256 * MIB);
+        // Tiny models hit the floor rather than being asked to run in 64 MiB.
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone3GS), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPad3), 512 * MIB);
+    }
+}
+
+#[cfg(test)]
 mod dylib_sorting_tests {
     use std::collections::HashSet;
 

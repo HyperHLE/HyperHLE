@@ -303,33 +303,39 @@ impl DeviceFamily {
     /// model.
     pub fn physical_memory(&self) -> u64 {
         const MIB: u64 = 1024 * 1024;
+        // Grouped by the RAM Apple shipped them with, not by generation: the
+        // generations differ wildly here (the iPhone 4 has the same 512 MiB as
+        // the 4S, while the 4S's successor has twice that), and every profile
+        // that reports the wrong amount misleads the guest twice over — the
+        // memory-budgeting engines size their pools from it, and the Default
+        // heap ceiling is derived from it (see `default_guest_heap_cap`).
+        // Figures are the ones published for the hardware, e.g.
+        // <https://en.wikipedia.org/wiki/List_of_iOS_and_iPadOS_devices>.
         match self {
-            // Early devices shipped with 128 MiB of RAM.
+            // 128 MiB: the first two iPhone and iPod touch generations.
             DeviceFamily::iPhone
             | DeviceFamily::iPhone3G
             | DeviceFamily::iPodTouch
-            | DeviceFamily::iPodTouch2
-            | DeviceFamily::iPodTouch3 => 128 * MIB,
-            // iPhone 3GS / 4, iPad 1, iPod touch 4 shipped with 256 MiB.
+            | DeviceFamily::iPodTouch2 => 128 * MIB,
+            // 256 MiB: iPhone 3GS, the first iPad and the 3rd/4th iPod touch.
             DeviceFamily::iPhone3GS
-            | DeviceFamily::iPhone4
             | DeviceFamily::iPad
+            | DeviceFamily::iPodTouch3
             | DeviceFamily::iPodTouch4 => 256 * MIB,
-            // iPhone 4S / 5 / 5c, iPad 2/3/4/mini, iPod touch 5 shipped with
-            // 512 MiB.
-            DeviceFamily::iPhone4s
-            | DeviceFamily::iPhone5
-            | DeviceFamily::iPhone5c
+            // 512 MiB: iPhone 4 and 4S, iPad 2, iPad mini, iPod touch 5.
+            DeviceFamily::iPhone4
+            | DeviceFamily::iPhone4s
             | DeviceFamily::iPad2
-            | DeviceFamily::iPad3
-            | DeviceFamily::iPad4
             | DeviceFamily::iPadMini
             | DeviceFamily::iPodTouch5 => 512 * MIB,
-            // iPhone 6 and the Retina iPad minis shipped with 1 GiB. We
-            // intentionally cap this at 1 GiB even though the address space is
-            // 4 GiB, leaving headroom for the guest heap, stacks and mapped
-            // libraries.
-            DeviceFamily::iPhone6
+            // 1 GiB: iPhone 5, 5c and 6, iPad 3, 4 and 5, Retina iPad minis.
+            // This is capped at 1 GiB even though the address space is 4 GiB,
+            // leaving headroom for the guest heap, stacks and mapped libraries.
+            DeviceFamily::iPhone5
+            | DeviceFamily::iPhone5c
+            | DeviceFamily::iPhone6
+            | DeviceFamily::iPad3
+            | DeviceFamily::iPad4
             | DeviceFamily::iPad5
             | DeviceFamily::iPadMini2
             | DeviceFamily::iPadMini3 => 1024 * MIB,
@@ -3392,6 +3398,44 @@ mod device_family_tests {
         assert!(!family.is_phone_568());
         assert!(!family.is_ipad());
         assert!(!family.is_ipod_touch());
+    }
+
+    /// The RAM the hardware actually shipped with, which both the guest's
+    /// memory-reporting APIs and the Default heap ceiling are derived from.
+    /// <https://en.wikipedia.org/wiki/List_of_iOS_and_iPadOS_devices>
+    #[test]
+    fn every_model_reports_the_ram_it_shipped_with() {
+        const MIB: u64 = 1024 * 1024;
+        for (family, mib) in [
+            (DeviceFamily::iPhone, 128),
+            (DeviceFamily::iPhone3G, 128),
+            (DeviceFamily::iPhone3GS, 256),
+            (DeviceFamily::iPhone4, 512),
+            (DeviceFamily::iPhone4s, 512),
+            (DeviceFamily::iPhone5, 1024),
+            (DeviceFamily::iPhone5c, 1024),
+            (DeviceFamily::iPhone6, 1024),
+            (DeviceFamily::iPad, 256),
+            (DeviceFamily::iPad2, 512),
+            (DeviceFamily::iPad3, 1024),
+            (DeviceFamily::iPad4, 1024),
+            (DeviceFamily::iPad5, 1024),
+            (DeviceFamily::iPadMini, 512),
+            (DeviceFamily::iPadMini2, 1024),
+            (DeviceFamily::iPadMini3, 1024),
+            (DeviceFamily::iPodTouch, 128),
+            (DeviceFamily::iPodTouch2, 128),
+            (DeviceFamily::iPodTouch3, 256),
+            (DeviceFamily::iPodTouch4, 256),
+            (DeviceFamily::iPodTouch5, 512),
+        ] {
+            assert_eq!(
+                family.physical_memory(),
+                mib * MIB,
+                "{} should report {mib} MiB",
+                family.option_name()
+            );
+        }
     }
 
     #[test]
