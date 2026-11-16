@@ -59,6 +59,10 @@ struct CachedApp {
     /// Raw PNG bytes of the app's icon, so it can be re-decoded from the
     /// image cache without re-opening the bundle.
     icon_bytes: Vec<u8>,
+    /// Whether iOS would apply the pre-iOS 7 sheen effect to this icon
+    /// (`UIPrerenderedIcon` is absent or NO). Needed because the picked icon
+    /// bytes are cached before the corners are rounded.
+    icon_adds_sheen: bool,
     display_name: String,
     bundle_id: String,
 }
@@ -168,6 +172,8 @@ struct ScanResult {
     display_name: String,
     bundle_id: String,
     icon_bytes: Option<Vec<u8>>,
+    /// See `CachedApp::icon_adds_sheen`.
+    icon_adds_sheen: bool,
 }
 
 /// Scan a single `.app`/`.ipa` bundle, returning its metadata and icon bytes.
@@ -184,27 +190,27 @@ fn scan_one_app(app_path: &Path) -> Option<ScanResult> {
     let display_name = bundle.display_name().to_owned();
     let bundle_id = bundle.bundle_identifier().to_owned();
 
-    // Read every icon candidate and keep the largest one (best resolution),
-    // matching what `Bundle::load_icon` does when picking the biggest icon.
-    let mut icon_bytes: Option<Vec<u8>> = None;
-    let mut icon_area: u64 = 0;
-    for path in bundle.icon_path_candidates() {
-        let Ok(bytes) = fs.read(&path) else { continue };
-        if bytes.is_empty() {
-            continue;
+    // Pick the icon exactly like `Bundle::load_icon` does (highest decoded
+    // resolution, UIPrerenderedIcon for the sheen), but keep the raw bytes so
+    // the scan cache can store them.
+    let (icon_bytes, icon_adds_sheen) = match bundle.best_icon_data(&fs) {
+        Ok((bytes, add_sheen)) => (Some(bytes), add_sheen),
+        Err(e) => {
+            log!(
+                "Warning: couldn't load icon for app bundle {}: {} (displaying placeholder instead)",
+                app_path.display(),
+                e
+            );
+            (None, true)
         }
-        // Rough proxy for resolution: larger PNG file usually means larger icon.
-        if bytes.len() as u64 > icon_area {
-            icon_area = bytes.len() as u64;
-            icon_bytes = Some(bytes);
-        }
-    }
+    };
 
     Some(ScanResult {
         path: app_path.to_path_buf(),
         display_name,
         bundle_id,
         icon_bytes,
+        icon_adds_sheen,
     })
 }
 
@@ -230,7 +236,12 @@ fn enumerate_apps(apps_dir: &Path) -> Result<Vec<AppInfo>, std::io::Error> {
                     let icon = if cached_app.icon_bytes.is_empty() {
                         None
                     } else {
-                        load_image_cached(&cached_app.icon_bytes).ok()
+                        load_image_cached(&cached_app.icon_bytes)
+                            .ok()
+                            .map(|mut image| {
+                                image.round_icon_corners(cached_app.icon_adds_sheen);
+                                image
+                            })
                     };
                     apps.push(AppInfo {
                         path: app_path,
@@ -256,7 +267,11 @@ fn enumerate_apps(apps_dir: &Path) -> Result<Vec<AppInfo>, std::io::Error> {
                 let icon = scan
                     .icon_bytes
                     .as_ref()
-                    .and_then(|bytes| load_image_cached(bytes).ok());
+                    .and_then(|bytes| load_image_cached(bytes).ok())
+                    .map(|mut image| {
+                        image.round_icon_corners(scan.icon_adds_sheen);
+                        image
+                    });
 
                 apps.push(AppInfo {
                     path: scan.path.clone(),
@@ -273,6 +288,7 @@ fn enumerate_apps(apps_dir: &Path) -> Result<Vec<AppInfo>, std::io::Error> {
                         mtime_ns: mtime,
                         size,
                         icon_bytes: scan.icon_bytes.clone().unwrap_or_default(),
+                        icon_adds_sheen: scan.icon_adds_sheen,
                         display_name: scan.display_name.clone(),
                         bundle_id: scan.bundle_id.clone(),
                     });
