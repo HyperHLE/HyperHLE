@@ -169,8 +169,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     let text_length: NSUInteger = if new_text != nil { msg![env; new_text length] } else { 0 };
     let hostobj = env.objc.borrow_mut::<UITextViewHostObject>(this);
     let old_text = std::mem::replace(&mut hostobj.text, new_text);
-    hostobj.selected_range.location = hostobj.selected_range.location.min(text_length);
-    hostobj.selected_range.length = hostobj.selected_range.length.min(text_length - hostobj.selected_range.location);
+    // Assigning text places the insertion point at the end of the new text,
+    // like UIKit. Clamping the old location instead left the caret where it
+    // was (usually 0), so an app that seeds a field and then reads what the
+    // user typed on top of it got its first character inserted at the *front*
+    // (e.g. "aSteve" instead of "Stevea"). Minecraft PE 0.16.2 seeds the
+    // player name this way and then reads the text view back.
+    hostobj.selected_range.location = text_length;
+    hostobj.selected_range.length = 0;
     release(env, old_text);
     update_scroll(env, this);
     () = msg![env; this setNeedsDisplay];
@@ -181,10 +187,44 @@ pub const CLASSES: ClassExports = objc_classes! {
     let text: id = msg![env; this text];
     let length: NSUInteger = if text == nil { 0 } else { msg![env; text length] };
     let location = range.location.min(length);
-    env.objc.borrow_mut::<UITextViewHostObject>(this).selected_range = NSRange {
+    let new_range = NSRange {
         location,
         length: range.length.min(length - location),
     };
+    let changed = {
+        let mut hostobj = env.objc.borrow_mut::<UITextViewHostObject>(this);
+        let changed = hostobj.selected_range.location != new_range.location
+            || hostobj.selected_range.length != new_range.length;
+        hostobj.selected_range = new_range;
+        changed
+    };
+    if changed {
+        // As on iOS, moving the selection tells the app about it: post
+        // `UITextViewTextDidChangeSelectionNotification` and send
+        // `-textViewDidChangeSelection:` to the delegate. Apps that keep their
+        // own copy of the text or draw their own caret listen for this and
+        // never see the selection move otherwise.
+        // https://developer.apple.com/documentation/uikit/uitextviewdelegate/textviewdidchangeselection(_:)
+        let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+        let name = get_static_str(env, "UITextViewTextDidChangeSelectionNotification");
+        let _: () = msg![env; center postNotificationName:name object:this userInfo:nil];
+
+        let delegate: id = msg![env; this delegate];
+        let alive = if delegate != nil {
+            let isa: u32 = env.mem.read(delegate.cast());
+            isa != 0
+        } else {
+            false
+        };
+        if alive {
+            let sel = env.objc
+                .register_host_selector("textViewDidChangeSelection:".to_string(), &mut env.mem);
+            let responds: bool = msg![env; delegate respondsToSelector:sel];
+            if responds {
+                let _: () = msg![env; delegate textViewDidChangeSelection:this];
+            }
+        }
+    }
 }
 
 - (id)textColor { env.objc.borrow::<UITextViewHostObject>(this).text_color }
@@ -521,7 +561,12 @@ fn replace_text_view_range(
     let _: () = msg![env; text_view setSelectedRange:new_range];
     let _: () = msg![env; text_view scrollRangeToVisible:new_range];
     post_text_view_text_did_change(env, text_view);
-    release(env, new_text);
+    // `new_text` came from `-stringByReplacingCharactersInRange:withString:`,
+    // which returns an autoreleased string: setText: retained its own
+    // reference, and the autorelease pool owns the +1 from creation. Releasing
+    // it here dropped it to zero when the pool drained, leaving the text view
+    // holding a dangling string (MCPE then read uninitialised memory as the
+    // player name).
 }
 
 pub fn handle_text(env: &mut Environment, text_view: id, text: String) {
