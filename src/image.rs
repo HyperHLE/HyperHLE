@@ -18,7 +18,10 @@
 //! References:
 //! - "Supported Image Formats" in [Loading Images](https://developer.apple.com/library/archive/documentation/2DDrawing/Conceptual/DrawingPrintingiOS/LoadingImages/LoadingImages.html)
 
+use std::collections::hash_map::DefaultHasher;
 use std::ffi::{c_int, c_uchar, CStr};
+use std::hash::{Hash, Hasher};
+use std::io::{Read, Write};
 
 use touchHLE_pvrt_decompress_wrapper::*;
 use touchHLE_stb_image_wrapper::*;
@@ -496,9 +499,7 @@ fn write_cached_image(key: u64, image: &Image) {
     let (width, height) = image.dimensions();
     let _ = file.write_all(&width.to_le_bytes());
     let _ = file.write_all(&height.to_le_bytes());
-    if let Some(pixels) = image.pixels() {
-        let _ = file.write_all(pixels);
-    }
+    let _ = file.write_all(image.pixels());
 }
 
 /// Decode an image, using the disk cache when possible.
@@ -509,7 +510,7 @@ pub fn load_image_cached(bytes: &[u8]) -> Result<Image, String> {
     if let Some(cached) = read_cached_image(key) {
         return Ok(cached);
     }
-    let image = from_bytes(bytes)?;
+    let image = Image::from_bytes(bytes)?;
     write_cached_image(key, &image);
     Ok(image)
 }
