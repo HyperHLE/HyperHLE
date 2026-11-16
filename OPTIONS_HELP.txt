@@ -371,6 +371,15 @@ Other options:
         keeps growing its heap (Mono's Boehm GC does) can take all of it and
         take the host device down with it.
 
+        Two clamps keep that rule usable at the edges: the ceiling is never
+        less than 256 MiB (the iPod touch/early iPhone profiles and the 256 MiB
+        ones would otherwise be left with 64-128 MiB, which is below what apps
+        that run here already use — real jetsam on those devices was closer to
+        40 MiB, and no game would load) and never more than 2 GiB (the app's
+        segments and stacks share the same 4 GiB address space). The ceiling is
+        permission, not a reservation: a game that budgets by
+        `NSProcessInfo.physicalMemory` still sees the model's real RAM.
+
         When the cap is reached, the app's allocations fail and return NULL,
         exactly like malloc() on a real device that has run out of memory
         (vm_allocate() reports KERN_NO_SPACE, mmap() reports MAP_FAILED). The
