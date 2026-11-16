@@ -312,6 +312,16 @@ Other options:
         be no graphical output and no input. Only useful for command-line apps.
         Implies --no-error-popup.
 
+    --skip-launch-image
+        Skip decoding and showing the game's launch image (splash screen) on
+        startup. Makes game launch noticeably faster, at the cost of not
+        seeing the app's launch artwork. Decoded images are cached in the
+        touchHLE user data directory, so the first launch still pays the
+        decode cost but every later launch loads the raw pixels from disk.
+
+    --no-skip-launch-image
+        Show the launch image (the default).
+
     --args
         All arguments following this option will be passed to the app (via C's
         argc/argv) rather than processed by touchHLE. This option can't be used

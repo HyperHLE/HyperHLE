@@ -12,7 +12,7 @@
 //! * [Bundle Resources](https://developer.apple.com/documentation/bundleresources?language=objc)
 
 use crate::fs::{BundleData, Fs, GuestPath, GuestPathBuf};
-use crate::image::Image;
+use crate::image::{Image, load_image_cached};
 use crate::window::{DeviceFamily, DeviceOrientation};
 use plist::dictionary::Dictionary;
 use plist::Value;
@@ -414,7 +414,7 @@ impl Bundle {
                 }
             };
             found_any = true;
-            match Image::from_bytes(&bytes) {
+            match load_image_cached(&bytes) {
                 Ok(image) => {
                     let (width, height) = image.dimensions();
                     let area = u64::from(width) * u64::from(height);

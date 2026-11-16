@@ -688,21 +688,25 @@ impl Environment {
             // doing an exact-match check on the plist's spelling instead was
             // what made the picker log "Using launch image" for a file that
             // then silently wasn't shown.
-            let launch_image = bundle
-                .launch_image_path(&fs, device_family)
-                .and_then(|path| {
-                    let res = fs
-                        .read(path)
-                        .map_err(|_| "Could not read launch image file".to_string())
-                        .and_then(|bytes| {
-                            image::Image::from_bytes(&bytes)
-                                .map_err(|e| format!("Could not parse launch image: {e}"))
-                        });
-                    if let Err(ref e) = res {
-                        log!("Warning: {}", e);
-                    };
-                    res.ok()
-                });
+            let launch_image = if options.skip_launch_image {
+                None
+            } else {
+                bundle
+                    .launch_image_path(&fs, device_family)
+                    .and_then(|path| {
+                        let res = fs
+                            .read(path)
+                            .map_err(|_| "Could not read launch image file".to_string())
+                            .and_then(|bytes| {
+                                crate::image::load_image_cached(&bytes)
+                                    .map_err(|e| format!("Could not parse launch image: {e}"))
+                            });
+                        if let Err(ref e) = res {
+                            log!("Warning: {}", e);
+                        };
+                        res.ok()
+                    })
+            };
             Some(Box::new(window::Window::new(
                 &format!(
                     "{} ({} {}{}{})",

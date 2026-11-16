@@ -454,3 +454,62 @@ mod tests {
         assert_eq!(decode_checksum(1024, 512, true), 0x99ac_697d_389a_6a2a);
     }
 }
+
+/// Directory for cached decoded images, inside the user data directory.
+/// Avoids re-decoding PNGs and re-running the premultiply pass on every
+/// launch: once an image has been decoded, its raw RGBA is stored here and
+/// loaded directly next time.
+fn image_cache_dir() -> std::path::PathBuf {
+    crate::paths::user_data_base_path().join("image_cache")
+}
+
+/// Hash image bytes into a cache-file name. Different images get different
+/// files; the same image always maps to the same file (within one Rust
+/// toolchain release — a hash change just means a cache miss, not an error).
+fn image_cache_key(bytes: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Try to load a decoded image from the disk cache. Returns `None` when the
+/// cache file is missing, truncated, or unreadable.
+fn read_cached_image(key: u64) -> Option<Image> {
+    let path = image_cache_dir().join(format!("{key}.rgba"));
+    let mut file = std::fs::File::open(&path).ok()?;
+    let mut header = [0u8; 8];
+    file.read_exact(&mut header).ok()?;
+    let width = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
+    let height = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    let expected_len = width.checked_mul(height)? as usize * 4;
+    let mut pixels = vec![0u8; expected_len];
+    file.read_exact(&mut pixels).ok()?;
+    Some(Image::from_pixels(width, height, pixels))
+}
+
+/// Write a decoded image to the disk cache. Errors are ignored: the cache is
+/// purely an optimization, and a failed write just means decoding next time.
+fn write_cached_image(key: u64, image: &Image) {
+    let _ = std::fs::create_dir_all(&image_cache_dir());
+    let path = image_cache_dir().join(format!("{key}.rgba"));
+    let Ok(mut file) = std::fs::File::create(&path) else { return };
+    let (width, height) = image.dimensions();
+    let _ = file.write_all(&width.to_le_bytes());
+    let _ = file.write_all(&height.to_le_bytes());
+    if let Some(pixels) = image.pixels() {
+        let _ = file.write_all(pixels);
+    }
+}
+
+/// Decode an image, using the disk cache when possible.
+/// The first launch pays the full PNG decode + premultiply cost; every later
+/// launch loads the raw RGBA from disk instead.
+pub fn load_image_cached(bytes: &[u8]) -> Result<Image, String> {
+    let key = image_cache_key(bytes);
+    if let Some(cached) = read_cached_image(key) {
+        return Ok(cached);
+    }
+    let image = from_bytes(bytes)?;
+    write_cached_image(key, &image);
+    Ok(image)
+}
