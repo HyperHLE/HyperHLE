@@ -431,7 +431,7 @@ unsafe fn build_scene(
             _ => ("EXIT EMULATOR", "", COL_EXIT),
         };
         scene.rect(row.x, row.y, row.w, row.h, color);
-        scene.text(
+        let label_width = scene.text(
             gles,
             label,
             row.x + 4.0 * s,
@@ -439,22 +439,17 @@ unsafe fn build_scene(
             font,
             COL_TEXT,
         );
-        if *id == W_RAM {
-            let ram = ram_label(ui.ram);
+        let value_text = match *id {
+            W_RAM => ram_label(ui.ram).to_string(),
+            _ if !value.is_empty() => value.to_string(),
+            _ => String::new(),
+        };
+        if !value_text.is_empty() {
+            let value_x = row.x + 4.0 * s + label_width + 8.0 * s;
             scene.text(
                 gles,
-                &ram,
-                row.x + row.w * 0.55,
-                row.y + 4.0 * s,
-                font,
-                COL_TEXT,
-            );
-        } else if !value.is_empty() {
-            let value = value.to_string();
-            scene.text(
-                gles,
-                &value,
-                row.x + row.w * 0.6,
+                &value_text,
+                value_x,
                 row.y + 4.0 * s,
                 font,
                 COL_TEXT,
