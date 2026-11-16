@@ -328,7 +328,7 @@ impl DeviceFamily {
             | DeviceFamily::iPad2
             | DeviceFamily::iPadMini
             | DeviceFamily::iPodTouch5 => 512 * MIB,
-            // 1 GiB: iPhone 5, 5c and 6, iPad 3, 4 and 5, Retina iPad minis.
+            // 1 GiB: iPhone 5, 5c and 6, iPad 3 and 4, Retina iPad minis.
             // This is capped at 1 GiB even though the address space is 4 GiB,
             // leaving headroom for the guest heap, stacks and mapped libraries.
             DeviceFamily::iPhone5
@@ -336,9 +336,12 @@ impl DeviceFamily {
             | DeviceFamily::iPhone6
             | DeviceFamily::iPad3
             | DeviceFamily::iPad4
-            | DeviceFamily::iPad5
             | DeviceFamily::iPadMini2
             | DeviceFamily::iPadMini3 => 1024 * MIB,
+            // 2 GiB: the iPad 5 (iPad6,11), a 2017 iPad rather than an iPad
+            // Air. Two of the 4 GiB guest address space is still comfortable
+            // for the heap; the Default ceiling stays half of this.
+            DeviceFamily::iPad5 => 2048 * MIB,
         }
     }
 
@@ -3419,7 +3422,7 @@ mod device_family_tests {
             (DeviceFamily::iPad2, 512),
             (DeviceFamily::iPad3, 1024),
             (DeviceFamily::iPad4, 1024),
-            (DeviceFamily::iPad5, 1024),
+            (DeviceFamily::iPad5, 2048),
             (DeviceFamily::iPadMini, 512),
             (DeviceFamily::iPadMini2, 1024),
             (DeviceFamily::iPadMini3, 1024),

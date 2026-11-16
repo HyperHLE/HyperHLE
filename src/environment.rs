@@ -4719,6 +4719,8 @@ mod heap_cap_tests {
         // Tiny models hit the floor rather than being asked to run in 64 MiB.
         assert_eq!(default_guest_heap_cap(DeviceFamily::iPhone3GS), 256 * MIB);
         assert_eq!(default_guest_heap_cap(DeviceFamily::iPad3), 512 * MIB);
+        // The iPad 5 is an iPad6,11, not an iPad Air: 2 GiB of RAM.
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPad5), 1024 * MIB);
     }
 }
 
