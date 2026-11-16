@@ -4721,6 +4721,12 @@ mod heap_cap_tests {
         assert_eq!(default_guest_heap_cap(DeviceFamily::iPad3), 512 * MIB);
         // The iPad 5 is an iPad6,11, not an iPad Air: 2 GiB of RAM.
         assert_eq!(default_guest_heap_cap(DeviceFamily::iPad5), 1024 * MIB);
+        // The iPods are all below 1 GiB, so the floor, not half their RAM,
+        // decides their ceiling; none of them ends up with an unusable heap.
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch3), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch4), 256 * MIB);
+        assert_eq!(default_guest_heap_cap(DeviceFamily::iPodTouch5), 256 * MIB);
     }
 }
 
