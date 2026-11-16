@@ -687,8 +687,6 @@ pub enum Event {
     /// OS has informed touchHLE it will soon terminate.
     /// (iOS `applicationWillTerminate:`, Android `onDestroy()`)
     AppWillTerminate,
-    /// The user rotated the simulated device; notify the guest on its UI loop.
-    DeviceOrientationChanged,
     TouchesDown(HashMap<FingerId, Coords>),
     TouchesMove(HashMap<FingerId, Coords>),
     TouchesUp(HashMap<FingerId, Coords>),
@@ -1803,11 +1801,7 @@ impl Window {
                     ..
                 } => {
                     let abs_coords = self.mouse_drawable_coords((x, y));
-                    if crate::quick_menu::touch_up(
-                        abs_coords,
-                        self.viewport(),
-                        self.device_orientation,
-                    ) {
+                    if crate::quick_menu::touch_up(abs_coords, self.viewport()) {
                         continue;
                     }
                     if crate::trainer_ui::touch_up(abs_coords, self.viewport()) {
@@ -2044,11 +2038,7 @@ impl Window {
                         E::FingerDown { .. } => {
                             crate::quick_menu::touch_down(abs_coords, self.viewport())
                         }
-                        E::FingerUp { .. } => crate::quick_menu::touch_up(
-                            abs_coords,
-                            self.viewport(),
-                            self.device_orientation,
-                        ),
+                        E::FingerUp { .. } => crate::quick_menu::touch_up(abs_coords, self.viewport()),
                         _ => crate::quick_menu::touch_motion(abs_coords, self.viewport()),
                     };
                     let trainer_consumed = !quick_menu_consumed
@@ -2100,11 +2090,7 @@ impl Window {
                                     E::FingerDown { .. } => {
                                         crate::quick_menu::touch_down(abs_coords, self.viewport())
                                     }
-                                    E::FingerUp { .. } => crate::quick_menu::touch_up(
-                                        abs_coords,
-                                        self.viewport(),
-                                        self.device_orientation,
-                                    ),
+                                    E::FingerUp { .. } => crate::quick_menu::touch_up(abs_coords, self.viewport()),
                                     _ => crate::quick_menu::touch_motion(abs_coords, self.viewport()),
                                 };
                                 let trainer_consumed = !quick_menu_consumed
@@ -2866,18 +2852,6 @@ impl Window {
 
         if redraw_splash && self.splash_image.is_some() {
             self.display_splash();
-        }
-    }
-
-    /// Rotate at the user's request and notify the guest on its main run loop.
-    /// App-requested status-bar rotations do not generate this notification.
-    pub fn rotate_device_from_user(&mut self, new_orientation: DeviceOrientation) {
-        let old_orientation = self.device_orientation;
-        // The app is already running: redrawing its launch image here would
-        // replace the game frame and switch to the internal GL context.
-        self.rotate_device_impl(new_orientation, /* redraw_splash: */ false);
-        if self.device_orientation != old_orientation {
-            self.event_queue.push_back(Event::DeviceOrientationChanged);
         }
     }
 

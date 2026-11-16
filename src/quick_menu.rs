@@ -7,18 +7,17 @@
 //! Quick menu: the pause button in the top-left corner of the emulated screen,
 //! and the panel it opens while an app runs.
 //!
-//! It is the mid-game face of the settings screen: device orientation,
-//! performance display, FPS limiter, RAM limiter and the Cheat Engine-style
-//! trainer, plus "Resume" and "Exit emulator". Edits are collected while the
-//! panel is open and handed to the emulator loop as one batch when it closes
-//! (see [`take_applied`]), so the game never sees a half-finished edit.
+//! It is the mid-game face of the settings screen: performance display,
+//! FPS limiter, RAM limiter and the Cheat Engine-style trainer, plus
+//! "Resume" and "Exit emulator". Edits are collected while the panel is open
+//! and handed to the emulator loop as one batch when it closes (see
+//! [`take_applied`]), so the game never sees a half-finished edit.
 //!
 //! Drawing and input follow `crate::trainer_ui`: the overlay is drawn
 //! host-side on top of the presented frame, and it receives raw window-space
 //! touch coordinates from `crate::window` before they reach the guest.
 
 use crate::gles::GLES;
-use crate::window::DeviceOrientation;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
@@ -105,24 +104,6 @@ fn next_ram_choice(choice: Option<u32>) -> Option<u32> {
     RAM_CHOICES[(index + 1) % RAM_CHOICES.len()]
 }
 
-fn orientation_label(orientation: DeviceOrientation) -> &'static str {
-    match orientation {
-        DeviceOrientation::Portrait => "PORTRAIT",
-        DeviceOrientation::LandscapeLeft => "LANDSCAPE L",
-        DeviceOrientation::LandscapeRight => "LANDSCAPE R",
-        DeviceOrientation::PortraitUpsideDown => "UPSIDE DOWN",
-    }
-}
-
-fn next_orientation(orientation: DeviceOrientation) -> DeviceOrientation {
-    match orientation {
-        DeviceOrientation::Portrait => DeviceOrientation::LandscapeLeft,
-        DeviceOrientation::LandscapeLeft => DeviceOrientation::LandscapeRight,
-        DeviceOrientation::LandscapeRight => DeviceOrientation::PortraitUpsideDown,
-        DeviceOrientation::PortraitUpsideDown => DeviceOrientation::Portrait,
-    }
-}
-
 // Widget ids. Everything the panel draws is also a touch target, and the ids
 // travel through `QuickMenuUi::pending` between the down and the up.
 const W_NONE: u16 = 0;
@@ -136,15 +117,12 @@ const W_RAM: u16 = 12;
 const W_TRAINER: u16 = 13;
 const W_RESUME: u16 = 14;
 const W_EXIT: u16 = 15;
-const W_ORIENTATION: u16 = 16;
 
 struct QuickMenuUi {
     enabled: bool,
     open: bool,
     /// The widget the current gesture started on, if it started on us.
     pending: u16,
-    orientation: DeviceOrientation,
-    orientation_at_open: DeviceOrientation,
     perf_display: bool,
     fps: FpsChoice,
     /// Preserve non-preset limits until the user actually changes this row.
@@ -159,8 +137,6 @@ impl QuickMenuUi {
             enabled: false,
             open: false,
             pending: W_NONE,
-            orientation: DeviceOrientation::Portrait,
-            orientation_at_open: DeviceOrientation::Portrait,
             perf_display: false,
             fps: FpsChoice::Default,
             fps_limit: Some(60.0),
@@ -169,10 +145,8 @@ impl QuickMenuUi {
         }
     }
 
-    fn begin_editing(&mut self, orientation: DeviceOrientation, perf_display: bool) {
+    fn begin_editing(&mut self, perf_display: bool) {
         self.open = true;
-        self.orientation = orientation;
-        self.orientation_at_open = orientation;
         // F1 or an environment override may have changed the actual display
         // since the game started or since the panel was last opened.
         self.perf_display = perf_display;
@@ -187,7 +161,6 @@ impl QuickMenuUi {
 
     fn applied(&self) -> Applied {
         Applied {
-            orientation: (self.orientation != self.orientation_at_open).then_some(self.orientation),
             perf_display: self.perf_display,
             fps_limit: self.fps_limit,
             memory_limit_mb: self.ram,
@@ -202,8 +175,6 @@ static UI: Mutex<QuickMenuUi> = Mutex::new(QuickMenuUi::new());
 /// closes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Applied {
-    /// `None` leaves the current device orientation alone.
-    pub orientation: Option<DeviceOrientation>,
     pub perf_display: bool,
     pub fps_limit: Option<f64>,
     pub memory_limit_mb: Option<u32>,
@@ -321,7 +292,6 @@ fn compute_layout(ui: &QuickMenuUi, viewport: (u32, u32, u32, u32)) -> Layout {
         let width = (vw - 12.0 * s).clamp(120.0, widest);
         let row_height = 26.0 * s;
         let ids = [
-            W_ORIENTATION,
             W_PERF,
             W_FPS,
             W_RAM,
@@ -414,7 +384,6 @@ unsafe fn build_scene(
     let fps_label = ui.fps_label();
     for (id, row) in &panel.rows {
         let (label, value, color) = match *id {
-            W_ORIENTATION => ("ORIENTATION", orientation_label(ui.orientation), COL_ROW),
             W_PERF => (
                 "PERF DISPLAY",
                 if ui.perf_display { "ON" } else { "OFF" },
@@ -521,13 +490,8 @@ pub fn touch_motion(_abs: (f32, f32), _viewport: (u32, u32, u32, u32)) -> bool {
     UI.lock().map(|ui| ui.enabled && ui.pending != W_NONE).unwrap_or(false)
 }
 
-/// Finishes the gesture: taps act, releases elsewhere do nothing. The current
-/// rotation is sampled when opening, since games may rotate after launch.
-pub fn touch_up(
-    abs: (f32, f32),
-    viewport: (u32, u32, u32, u32),
-    orientation: DeviceOrientation,
-) -> bool {
+/// Finishes the gesture: taps act, releases elsewhere do nothing.
+pub fn touch_up(abs: (f32, f32), viewport: (u32, u32, u32, u32)) -> bool {
     let Ok(mut ui) = UI.lock() else { return false };
     if !ui.enabled {
         return false;
@@ -565,13 +529,8 @@ pub fn touch_up(
                     ui.open = false;
                     queue_applied(ui.applied());
                 } else {
-                    ui.begin_editing(orientation, crate::gles::perf_overlay::enabled());
+                    ui.begin_editing(crate::gles::perf_overlay::enabled());
                 }
-            }
-        }
-        W_ORIENTATION => {
-            if hit(W_ORIENTATION) {
-                ui.orientation = next_orientation(ui.orientation);
             }
         }
         W_PERF => {
@@ -651,38 +610,11 @@ mod tests {
     }
 
     #[test]
-    fn orientation_choices_cycle_and_start_from_the_current_rotation() {
-        use DeviceOrientation::*;
-        assert_eq!(next_orientation(Portrait), LandscapeLeft);
-        assert_eq!(next_orientation(LandscapeLeft), LandscapeRight);
-        assert_eq!(next_orientation(LandscapeRight), PortraitUpsideDown);
-        assert_eq!(next_orientation(PortraitUpsideDown), Portrait);
-        assert_eq!(orientation_label(LandscapeRight), "LANDSCAPE R");
-
-        let mut ui = QuickMenuUi::new();
-        ui.begin_editing(LandscapeRight, true);
-        assert_eq!(ui.orientation, LandscapeRight);
-        assert_eq!(ui.applied().orientation, None);
-        ui.orientation = next_orientation(ui.orientation);
-        assert_eq!(ui.applied().orientation, Some(PortraitUpsideDown));
-        for _ in 0..3 {
-            ui.orientation = next_orientation(ui.orientation);
-        }
-        assert_eq!(ui.applied().orientation, None);
-
-        // Reopening after the app rotates always uses the actual new state.
-        ui.begin_editing(Portrait, false);
-        assert_eq!(ui.orientation, Portrait);
-        assert!(!ui.perf_display);
-        assert_eq!(ui.applied().orientation, None);
-    }
-
-    #[test]
     fn unchanged_custom_fps_limit_is_not_replaced_by_a_preset() {
         let mut ui = QuickMenuUi::new();
         ui.fps = FpsChoice::from_limit(Some(120.0));
         ui.fps_limit = Some(120.0);
-        ui.begin_editing(DeviceOrientation::Portrait, true);
+        ui.begin_editing(true);
         assert_eq!(ui.fps_label(), "120 FPS");
         assert_eq!(ui.applied().fps_limit, Some(120.0));
     }
@@ -729,71 +661,11 @@ mod tests {
         assert_eq!(
             ui.applied(),
             Applied {
-                orientation: None,
                 perf_display: true,
                 fps_limit: Some(30.0),
                 memory_limit_mb: Some(512),
                 trainer: false,
             }
         );
-    }
-
-    #[test]
-    fn orientation_taps_are_batched_until_resume_or_the_pause_button() {
-        use DeviceOrientation::*;
-        let viewport = (10, 20, 480, 320);
-        init(true, true, Some(120.0), Some(1536), false);
-
-        let center = |rect: Rect| {
-            (
-                viewport.0 as f32 + rect.x + rect.w / 2.0,
-                viewport.1 as f32 + rect.y + rect.h / 2.0,
-            )
-        };
-        let button = center(compute_layout(&UI.lock().unwrap(), viewport).button);
-        assert!(touch_down(button, viewport));
-        assert!(touch_up(button, viewport, LandscapeRight));
-        {
-            let ui = UI.lock().unwrap();
-            assert!(ui.open);
-            assert_eq!(ui.orientation, LandscapeRight);
-        }
-        let row = |id| {
-            let ui = UI.lock().unwrap();
-            let layout = compute_layout(&ui, viewport);
-            let panel = layout.panel.unwrap();
-            center(
-                panel
-                    .rows
-                    .iter()
-                    .find(|(row_id, _)| *row_id == id)
-                    .unwrap()
-                    .1,
-            )
-        };
-        let orientation_row = row(W_ORIENTATION);
-        assert!(touch_down(orientation_row, viewport));
-        assert!(touch_up(orientation_row, viewport, LandscapeRight));
-        assert_eq!(take_applied(), None);
-
-        let resume = row(W_RESUME);
-        assert!(touch_down(resume, viewport));
-        assert!(touch_up(resume, viewport, LandscapeRight));
-        let applied = take_applied().expect("Resume publishes the batch");
-        assert_eq!(applied.orientation, Some(PortraitUpsideDown));
-        assert_eq!(applied.fps_limit, Some(120.0));
-        assert_eq!(applied.memory_limit_mb, Some(1536));
-        assert_eq!(applied.perf_display, crate::gles::perf_overlay::enabled());
-        assert_eq!(take_applied(), None);
-
-        // If the game rotated on its own, reopening must not restore the old
-        // selection. The floating button can close/apply the panel as well.
-        assert!(touch_down(button, viewport));
-        assert!(touch_up(button, viewport, Portrait));
-        assert_eq!(UI.lock().unwrap().orientation, Portrait);
-        assert!(touch_down(button, viewport));
-        assert!(touch_up(button, viewport, Portrait));
-        assert_eq!(take_applied().unwrap().orientation, None);
-        disable();
     }
 }

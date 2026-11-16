@@ -410,12 +410,6 @@ Other options:
         menu; the batch takes effect on "Resume" or when the pause button is
         tapped again. These changes apply to the current game session only.
 
-        Orientation cycles through portrait, landscape left, landscape right
-        and upside-down portrait. It rotates the simulated device and window,
-        adjusts touch coordinates and notifies apps that requested orientation
-        notifications. This does not force an app locked to one orientation to
-        relayout: dynamic UIKit autorotation is not fully implemented.
-
     --no-quick-menu
         Hide the quick menu button (the default).
 

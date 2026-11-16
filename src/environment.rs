@@ -1984,20 +1984,15 @@ impl Environment {
     /// Applies the batch of changes the quick menu collected while its panel
     /// was open.
     ///
-    /// Everything lands here at once, on purpose: the orientation, FPS and RAM
-    /// limits, performance display and trainer should not change while the
-    /// panel is still being edited.
+    /// Everything lands here at once, on purpose: FPS and RAM limits,
+    /// performance display and trainer should not change while the panel is
+    /// still being edited.
     fn apply_quick_menu(&mut self, applied: &crate::quick_menu::Applied) {
         self.options.performance_overlay_enabled = applied.perf_display;
         self.options.fps_limit = applied.fps_limit;
         self.options.memory_limit_mb = applied.memory_limit_mb;
         if let Some(window) = self.window.as_mut() {
             window.set_show_fps_counter(applied.perf_display);
-            if let Some(orientation) = applied.orientation {
-                // The emulator loop is on the SDL/main stack here. Guest
-                // notifications are queued for UIKit's main run loop.
-                window.rotate_device_from_user(orientation);
-            }
         }
         let cap = match applied.memory_limit_mb {
             Some(mb) => mb.saturating_mul(1024 * 1024),
@@ -2010,8 +2005,7 @@ impl Environment {
         self.mem.set_memory_limit(Some(cap));
         self.trainer.set_enabled(applied.trainer);
         log!(
-            "Quick menu applied: orientation {:?}, performance display {}, FPS limit {}, RAM limit {} MiB, trainer {}.",
-            applied.orientation,
+            "Quick menu applied: performance display {}, FPS limit {}, RAM limit {} MiB, trainer {}.",
             if applied.perf_display { "on" } else { "off" },
             applied
                 .fps_limit

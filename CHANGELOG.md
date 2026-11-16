@@ -261,7 +261,7 @@ Usability:
 
 - The performance display is now hidden throughout the app picker, including the lock screen and settings, regardless of the saved setting or hotkeys. Its saved setting still controls games. The build identifier was removed from the picker's home screen; it remains at the bottom of Settings.
 
-- The in-game Quick menu now cycles the simulated device orientation through portrait, landscape left/right and upside-down. Changes are applied on Resume or by tapping the pause button again, and subscribed apps receive an orientation-change notification. Apps that lock their layout may not rotate; dynamic UIKit autorotation is not fully implemented. Reopening the menu reads the current orientation, and untouched custom FPS limits are preserved.
+- The in-game Quick menu now applies FPS limiter, RAM limiter, performance display and Cheat Engine changes on Resume or by tapping the pause button again. Untouched custom FPS limits are preserved.
 
 - The performance overlay's CPU counter is now a percentage of one core, like `top`'s %CPU, instead of being divided by the number of logical processors. On an 8-core phone a saturated core used to read as 13% — as if the emulator were idle while it was pegging a core — and now reads as 100%; a value above 100% means more than one core is busy.
 

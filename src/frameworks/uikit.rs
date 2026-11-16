@@ -1073,17 +1073,6 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) => {
                 ui_touch::handle_event(env, event)
             }
-            Event::DeviceOrientationChanged => {
-                // Dispatch from the main run loop, not the host scheduler: an
-                // observer can call back into guest code. Like UIDevice, only
-                // generate notifications while the app has requested them.
-                // https://developer.apple.com/documentation/uikit/uidevice/begingeneratingdeviceorientationnotifications()
-                let device: crate::objc::id = msg_class![env; UIDevice currentDevice];
-                let generating: bool = msg![env; device isGeneratingDeviceOrientationNotifications];
-                if generating {
-                    let _: () = msg![env; device _postOrientationChangeNotification];
-                }
-            }
             Event::AppWillResignActive => {
                 // touchHLE has become inactive (e.g. the user is switching
                 // apps, a system dialog took focus, the screen is turning
