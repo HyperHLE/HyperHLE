@@ -70,11 +70,20 @@ impl GuestClock {
     }
 
     fn elapsed_at(&self, host: Instant) -> Duration {
-        host.saturating_duration_since(self.host_anchor).mul_f64(self.speed.multiplier())
+        let elapsed = host.saturating_duration_since(self.host_anchor);
+        if self.speed == Speed::Normal {
+            elapsed
+        } else {
+            elapsed.mul_f64(self.speed.multiplier())
+        }
     }
 
     pub fn now(&self) -> Instant {
-        self.guest_anchor + self.elapsed_at(Instant::now())
+        self.now_at(Instant::now())
+    }
+
+    pub(crate) fn now_at(&self, host: Instant) -> Instant {
+        self.guest_anchor + self.elapsed_at(host)
     }
 
     pub fn system_time(&self) -> SystemTime {
@@ -103,9 +112,13 @@ impl GuestClock {
         self.host_deadline_at(guest, Instant::now())
     }
 
-    fn host_deadline_at(&self, guest: Instant, host: Instant) -> Instant {
-        let remaining = guest.saturating_duration_since(self.guest_anchor + self.elapsed_at(host));
-        host + remaining.div_f64(self.speed.multiplier())
+    pub(crate) fn host_deadline_at(&self, guest: Instant, host: Instant) -> Instant {
+        let remaining = guest.saturating_duration_since(self.now_at(host));
+        host + if self.speed == Speed::Normal {
+            remaining
+        } else {
+            remaining.div_f64(self.speed.multiplier())
+        }
     }
 }
 
@@ -156,5 +169,30 @@ mod tests {
         assert_eq!(Speed::Normal.step(false), Speed::Half);
         assert_eq!(Speed::Normal.step(true), Speed::Double);
         assert_eq!(GuestClock::new().speed(), Speed::Normal);
+    }
+
+    #[test]
+    fn normal_speed_preserves_nanoseconds_after_speed_changes() {
+        let start = Instant::now();
+        let mut clock = GuestClock::at(start, SystemTime::UNIX_EPOCH);
+        clock.set_speed_at(Speed::Double, start);
+        clock.set_speed_at(Speed::Normal, start + Duration::from_secs(1));
+        let host = start + Duration::from_secs(1) + Duration::from_nanos(17);
+        let guest = start + Duration::from_secs(2) + Duration::from_nanos(17);
+        assert_eq!(clock.now_at(host), guest);
+        assert_eq!(
+            clock.host_deadline_at(guest + Duration::from_nanos(23), host),
+            host + Duration::from_nanos(23)
+        );
+        assert_eq!(
+            clock.host_deadline_at(guest - Duration::from_nanos(1), host),
+            host
+        );
+        // A floating-point round trip at 1x loses nanoseconds at this scale.
+        let elapsed = Duration::from_secs(100_000_000) + Duration::from_nanos(17);
+        assert_eq!(
+            clock.elapsed_at(start + Duration::from_secs(1) + elapsed),
+            elapsed
+        );
     }
 }

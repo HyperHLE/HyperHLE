@@ -6,6 +6,8 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+mod source_patch;
+
 fn rerun_if_changed(path: &Path) {
     println!("cargo:rerun-if-changed={}", path.to_str().unwrap());
 }
@@ -36,6 +38,7 @@ fn main() {
     for path in [
         "externals/oaknut/include/oaknut/code_block.hpp",
         "src/dynarmic/backend/arm64/a32_address_space.cpp",
+        "src/dynarmic/backend/arm64/emit_arm64_a32.cpp",
         "src/dynarmic/backend/arm64/address_space.cpp",
         "src/dynarmic/backend/block_range_information.cpp",
         "src/dynarmic/backend/block_range_information.h",
@@ -44,7 +47,20 @@ fn main() {
         rerun_if_changed(&dynarmic_dir.join(path));
     }
 
-    let mut build = cmake::Config::new(&dynarmic_dir);
+    rerun_if_changed(&package_root.join("source_patch.rs"));
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").expect("CARGO_CFG_TARGET_ARCH was not set");
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR was not set"));
+    let build_source = if arch == "aarch64" {
+        source_patch::prepare(&dynarmic_dir, &out_dir.join("dynarmic-source"))
+            .expect("Could not prepare Dynarmic's memory-abort emitter fix")
+    } else {
+        dynarmic_dir.clone()
+    };
+    let mut build = cmake::Config::new(&build_source);
+    if build_source != dynarmic_dir {
+        // Keep the original-source CMake cache separate from this source copy.
+        build.out_dir(out_dir.join("dynarmic-patched"));
+    }
     let cmake_profile = build.get_profile().to_owned();
     build.define("DYNARMIC_FRONTENDS", "A32"); // We don't need 64-bit
     build.define("DYNARMIC_WARNINGS_AS_ERRORS", "OFF");
@@ -138,7 +154,6 @@ fn main() {
             .join(build_type_windows(&os, &cmake_profile)),
     );
     link_lib("mcl");
-    let arch = env::var("CARGO_CFG_TARGET_ARCH").expect("CARGO_CFG_TARGET_ARCH was not set");
     if arch.eq_ignore_ascii_case("x86_64") {
         link_search(
             &dynarmic_out

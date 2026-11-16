@@ -109,6 +109,166 @@ impl Default for LightState {
     }
 }
 
+/// Uniform locations belong to the linked program and stay fixed until a
+/// relink (the translator never relinks its private program).
+/// https://registry.khronos.org/OpenGL-Refpages/es2.0/xhtml/glGetUniformLocation.xml
+struct TranslatorProgram {
+    name: GLuint,
+    uniforms: UniformLocations,
+}
+
+struct UniformLocations {
+    mvp: GLint,
+    modelview: GLint,
+    projection: GLint,
+    color: GLint,
+    lighting_enabled: GLint,
+    light_enabled: GLint,
+    light_ambient: GLint,
+    light_diffuse: GLint,
+    light_specular: GLint,
+    light_position: GLint,
+    light_spot_direction: GLint,
+    light_spot_cutoff: GLint,
+    light_spot_exponent: GLint,
+    light_constant_attenuation: GLint,
+    light_linear_attenuation: GLint,
+    light_quadratic_attenuation: GLint,
+    color_material_enabled: GLint,
+    normalize_enabled: GLint,
+    material_ambient: GLint,
+    material_diffuse: GLint,
+    material_specular: GLint,
+    material_emission: GLint,
+    light_model_local_viewer: GLint,
+    light_model_two_side: GLint,
+    material_shininess: GLint,
+    model_ambient: GLint,
+    clip_planes: GLint,
+    clip_enabled: GLint,
+    point_distance_attenuation: GLint,
+    point_fade_threshold: GLint,
+    alpha_test_enabled: GLint,
+    alpha_func: GLint,
+    alpha_ref: GLint,
+    fog_enabled: GLint,
+    fog_color: GLint,
+    fog_density: GLint,
+    fog_start: GLint,
+    fog_end: GLint,
+    fog_mode: GLint,
+    point_size: GLint,
+    point_size_array_enabled: GLint,
+    matrix_palette_enabled: GLint,
+    logic_op_enabled: GLint,
+    logic_op: GLint,
+    alpha_scale: [GLint; MAX_TEXTURE_UNITS],
+    combine_alpha: [GLint; MAX_TEXTURE_UNITS],
+    combine_rgb: [GLint; MAX_TEXTURE_UNITS],
+    env_color: [GLint; MAX_TEXTURE_UNITS],
+    operand_alpha: [GLint; MAX_TEXTURE_UNITS],
+    operand_rgb: [GLint; MAX_TEXTURE_UNITS],
+    rgb_scale: [GLint; MAX_TEXTURE_UNITS],
+    src_alpha: [GLint; MAX_TEXTURE_UNITS],
+    src_rgb: [GLint; MAX_TEXTURE_UNITS],
+    tex: [GLint; MAX_TEXTURE_UNITS],
+    tex_enabled: [GLint; MAX_TEXTURE_UNITS],
+    tex_mode: [GLint; MAX_TEXTURE_UNITS],
+    texture_matrix: [GLint; MAX_TEXTURE_UNITS],
+    palette_matrices: [GLint; MAX_PALETTE_MATRICES],
+}
+
+impl UniformLocations {
+    fn load_with(mut lookup: impl FnMut(&CStr) -> GLint) -> Self {
+        Self {
+            mvp: lookup(c"u_mvp"),
+            modelview: lookup(c"u_modelview"),
+            projection: lookup(c"u_projection"),
+            color: lookup(c"u_color"),
+            lighting_enabled: lookup(c"u_lighting_enabled"),
+            light_enabled: lookup(c"u_light_enabled"),
+            light_ambient: lookup(c"u_light_ambient"),
+            light_diffuse: lookup(c"u_light_diffuse"),
+            light_specular: lookup(c"u_light_specular"),
+            light_position: lookup(c"u_light_position"),
+            light_spot_direction: lookup(c"u_light_spot_direction"),
+            light_spot_cutoff: lookup(c"u_light_spot_cutoff"),
+            light_spot_exponent: lookup(c"u_light_spot_exponent"),
+            light_constant_attenuation: lookup(c"u_light_constant_attenuation"),
+            light_linear_attenuation: lookup(c"u_light_linear_attenuation"),
+            light_quadratic_attenuation: lookup(c"u_light_quadratic_attenuation"),
+            color_material_enabled: lookup(c"u_color_material_enabled"),
+            normalize_enabled: lookup(c"u_normalize_enabled"),
+            material_ambient: lookup(c"u_material_ambient"),
+            material_diffuse: lookup(c"u_material_diffuse"),
+            material_specular: lookup(c"u_material_specular"),
+            material_emission: lookup(c"u_material_emission"),
+            light_model_local_viewer: lookup(c"u_light_model_local_viewer"),
+            light_model_two_side: lookup(c"u_light_model_two_side"),
+            material_shininess: lookup(c"u_material_shininess"),
+            model_ambient: lookup(c"u_model_ambient"),
+            clip_planes: lookup(c"u_clip_planes"),
+            clip_enabled: lookup(c"u_clip_enabled"),
+            point_distance_attenuation: lookup(c"u_point_distance_attenuation"),
+            point_fade_threshold: lookup(c"u_point_fade_threshold"),
+            alpha_test_enabled: lookup(c"u_alpha_test_enabled"),
+            alpha_func: lookup(c"u_alpha_func"),
+            alpha_ref: lookup(c"u_alpha_ref"),
+            fog_enabled: lookup(c"u_fog_enabled"),
+            fog_color: lookup(c"u_fog_color"),
+            fog_density: lookup(c"u_fog_density"),
+            fog_start: lookup(c"u_fog_start"),
+            fog_end: lookup(c"u_fog_end"),
+            fog_mode: lookup(c"u_fog_mode"),
+            point_size: lookup(c"u_point_size"),
+            point_size_array_enabled: lookup(c"u_point_size_array_enabled"),
+            matrix_palette_enabled: lookup(c"u_matrix_palette_enabled"),
+            logic_op_enabled: lookup(c"u_logic_op_enabled"),
+            logic_op: lookup(c"u_logic_op"),
+            alpha_scale: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_alpha_scale{unit}")).unwrap())
+            }),
+            combine_alpha: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_combine_alpha{unit}")).unwrap())
+            }),
+            combine_rgb: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_combine_rgb{unit}")).unwrap())
+            }),
+            env_color: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_env_color{unit}")).unwrap())
+            }),
+            operand_alpha: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_operand_alpha{unit}")).unwrap())
+            }),
+            operand_rgb: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_operand_rgb{unit}")).unwrap())
+            }),
+            rgb_scale: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_rgb_scale{unit}")).unwrap())
+            }),
+            src_alpha: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_src_alpha{unit}")).unwrap())
+            }),
+            src_rgb: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_src_rgb{unit}")).unwrap())
+            }),
+            tex: std::array::from_fn(|unit| lookup(&CString::new(format!("u_tex{unit}")).unwrap())),
+            tex_enabled: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_tex_enabled{unit}")).unwrap())
+            }),
+            tex_mode: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_tex_mode{unit}")).unwrap())
+            }),
+            texture_matrix: std::array::from_fn(|unit| {
+                lookup(&CString::new(format!("u_texture_matrix{unit}")).unwrap())
+            }),
+            palette_matrices: std::array::from_fn(|index| {
+                lookup(&CString::new(format!("u_palette_matrices[{index}]")).unwrap())
+            }),
+        }
+    }
+}
+
 struct TranslatorState {
     modelview: MatrixState,
     projection: MatrixState,
@@ -178,7 +338,7 @@ struct TranslatorState {
     point_fade_threshold: GLfloat,
     texture_crop_rect: [GLint; 4],
     viewport: [GLint; 4],
-    program: Option<GLuint>,
+    program: Option<TranslatorProgram>,
     program_creation_failed: bool,
     logic_op_enabled: bool,
     logic_op: GLenum,
@@ -273,6 +433,18 @@ impl TranslatorState {
             es1::MATRIX_PALETTE_OES => &mut self.palette_matrices[self.current_palette_matrix],
             _ => &mut self.modelview,
         }
+    }
+
+    fn needs_indexed_vertex_range(&self) -> bool {
+        self.arrays
+            .iter()
+            .chain(self.texcoord_arrays.iter())
+            .chain([
+                &self.palette_index_array,
+                &self.palette_weight_array,
+                &self.point_size_array,
+            ])
+            .any(|array| array.enabled && (array.buffer_binding == 0 || array.type_ == gl::FIXED))
     }
 
     fn mvp(&self) -> [GLfloat; 16] {
@@ -2404,16 +2576,10 @@ impl GLES for GLES1OnGLES2<'_> {
         width: GLfloat,
         height: GLfloat,
     ) {
-        let program = match self.state.program {
-            Some(program) => program,
-            None => {
-                let Ok(program) = create_program(self.state.gles3) else {
-                    return;
-                };
-                self.state.program = Some(program);
-                program
-            }
+        let Some(program) = self.ensure_program() else {
+            return;
         };
+        let uniforms = &self.state.program.as_ref().unwrap().uniforms;
         let crop = self.state.texture_crop_rect;
         let viewport = self.state.viewport;
         if width <= 0.0 || height <= 0.0 || viewport[2] <= 0 || viewport[3] <= 0 {
@@ -2436,31 +2602,11 @@ impl GLES for GLES1OnGLES2<'_> {
         let v1 = (crop[1] + crop[3]) as GLfloat / tex_h;
         let texcoords = [u0, v1, u1, v1, u0, v0, u1, v0];
         gl::UseProgram(program);
-        gl::UniformMatrix4fv(
-            gl::GetUniformLocation(program, b"u_mvp\0".as_ptr() as *const _),
-            1,
-            gl::FALSE,
-            MATRIX_IDENTITY.as_ptr(),
-        );
-        gl::Uniform4f(
-            gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _),
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_tex_enabled0\0".as_ptr() as *const _),
-            1,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_tex_mode0\0".as_ptr() as *const _),
-            1,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_tex0\0".as_ptr() as *const _),
-            0,
-        );
+        gl::UniformMatrix4fv(uniforms.mvp, 1, gl::FALSE, MATRIX_IDENTITY.as_ptr());
+        gl::Uniform4f(uniforms.color, 1.0, 1.0, 1.0, 1.0);
+        gl::Uniform1i(uniforms.tex_enabled[0], 1);
+        gl::Uniform1i(uniforms.tex_mode[0], 1);
+        gl::Uniform1i(uniforms.tex[0], 0);
         gl::DisableVertexAttribArray(ATTR_COLOR);
         gl::VertexAttrib4f(ATTR_COLOR, 1.0, 1.0, 1.0, 1.0);
         gl::DisableVertexAttribArray(ATTR_NORMAL);
@@ -3261,354 +3407,7 @@ impl GLES for GLES1OnGLES2<'_> {
             Some(program) => program,
             None => return,
         };
-        gl::UseProgram(program);
-        let mvp = unsafe { self.state.mvp() };
-        let mvp_loc = gl::GetUniformLocation(program, b"u_mvp\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(mvp_loc, 1, gl::FALSE, mvp.as_ptr());
-        let modelview_loc = gl::GetUniformLocation(program, b"u_modelview\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(
-            modelview_loc,
-            1,
-            gl::FALSE,
-            self.state.modelview.current.as_ptr(),
-        );
-        let projection_loc =
-            gl::GetUniformLocation(program, b"u_projection\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(
-            projection_loc,
-            1,
-            gl::FALSE,
-            self.state.projection.current.as_ptr(),
-        );
-        let texture_matrix_loc =
-            gl::GetUniformLocation(program, b"u_texture_matrix0\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(
-            texture_matrix_loc,
-            1,
-            gl::FALSE,
-            self.state.texture[0].current.as_ptr(),
-        );
-        for unit in 1..MAX_TEXTURE_UNITS {
-            let name = format!("u_texture_matrix{}\0", unit);
-            gl::UniformMatrix4fv(
-                gl::GetUniformLocation(program, name.as_ptr() as *const _),
-                1,
-                gl::FALSE,
-                self.state.texture[unit].current.as_ptr(),
-            );
-        }
-        let color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
-        let color_uniform = if self.state.arrays[1].enabled {
-            [1.0; 4]
-        } else {
-            self.state.color
-        };
-        gl::Uniform4fv(color_loc, 1, color_uniform.as_ptr());
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_lighting_enabled\0".as_ptr() as *const _),
-            self.state.lighting_enabled as GLint,
-        );
-        let mut light_enabled = [0; 8];
-        let mut light_ambient = [[0.0; 4]; 8];
-        let mut light_diffuse = [[0.0; 4]; 8];
-        let mut light_specular = [[0.0; 4]; 8];
-        let mut light_position = [[0.0; 4]; 8];
-        let mut light_spot_direction = [[0.0; 3]; 8];
-        let mut light_spot_cutoff = [0.0; 8];
-        let mut light_spot_exponent = [0.0; 8];
-        let mut light_constant_attenuation = [0.0; 8];
-        let mut light_linear_attenuation = [0.0; 8];
-        let mut light_quadratic_attenuation = [0.0; 8];
-        for index in 0..8 {
-            let light = self.state.lights[index];
-            light_enabled[index] = self.state.light_enabled[index] as GLint;
-            light_ambient[index] = light.ambient;
-            light_diffuse[index] = light.diffuse;
-            light_specular[index] = light.specular;
-            light_position[index] = light.position;
-            light_spot_direction[index] = light.spot_direction;
-            light_spot_cutoff[index] = light.spot_cutoff;
-            light_spot_exponent[index] = light.spot_exponent;
-            light_constant_attenuation[index] = light.constant_attenuation;
-            light_linear_attenuation[index] = light.linear_attenuation;
-            light_quadratic_attenuation[index] = light.quadratic_attenuation;
-        }
-        gl::Uniform1iv(
-            gl::GetUniformLocation(program, b"u_light_enabled\0".as_ptr() as *const _),
-            8,
-            light_enabled.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_ambient\0".as_ptr() as *const _),
-            8,
-            light_ambient.as_ptr().cast(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_diffuse\0".as_ptr() as *const _),
-            8,
-            light_diffuse.as_ptr().cast(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_specular\0".as_ptr() as *const _),
-            8,
-            light_specular.as_ptr().cast(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_position\0".as_ptr() as *const _),
-            8,
-            light_position.as_ptr().cast(),
-        );
-        gl::Uniform3fv(
-            gl::GetUniformLocation(program, b"u_light_spot_direction\0".as_ptr() as *const _),
-            8,
-            light_spot_direction.as_ptr().cast(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(program, b"u_light_spot_cutoff\0".as_ptr() as *const _),
-            8,
-            light_spot_cutoff.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(program, b"u_light_spot_exponent\0".as_ptr() as *const _),
-            8,
-            light_spot_exponent.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_constant_attenuation\0".as_ptr() as *const _,
-            ),
-            8,
-            light_constant_attenuation.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_linear_attenuation\0".as_ptr() as *const _,
-            ),
-            8,
-            light_linear_attenuation.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_quadratic_attenuation\0".as_ptr() as *const _,
-            ),
-            8,
-            light_quadratic_attenuation.as_ptr(),
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_color_material_enabled\0".as_ptr() as *const _),
-            self.state.color_material_enabled as GLint,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_normalize_enabled\0".as_ptr() as *const _),
-            self.state.normalize_enabled as GLint,
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_ambient\0".as_ptr() as *const _),
-            1,
-            self.state.material_ambient.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_diffuse\0".as_ptr() as *const _),
-            1,
-            self.state.material_diffuse.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_specular\0".as_ptr() as *const _),
-            1,
-            self.state.material_specular.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_emission\0".as_ptr() as *const _),
-            1,
-            self.state.material_emission.as_ptr(),
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_model_local_viewer\0".as_ptr() as *const _,
-            ),
-            self.state.light_model_local_viewer as GLint,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_light_model_two_side\0".as_ptr() as *const _),
-            self.state.light_model_two_side as GLint,
-        );
-        gl::Uniform1f(
-            gl::GetUniformLocation(program, b"u_material_shininess\0".as_ptr() as *const _),
-            self.state.material_shininess,
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_model_ambient\0".as_ptr() as *const _),
-            1,
-            self.state.model_ambient.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_clip_planes\0".as_ptr() as *const _),
-            6,
-            self.state.clip_planes.as_ptr().cast(),
-        );
-        gl::Uniform1iv(
-            gl::GetUniformLocation(program, b"u_clip_enabled\0".as_ptr() as *const _),
-            6,
-            self.state.clip_plane_enabled.as_ptr().cast(),
-        );
-        gl::Uniform3fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_point_distance_attenuation\0".as_ptr() as *const _,
-            ),
-            1,
-            self.state.point_distance_attenuation.as_ptr(),
-        );
-        gl::Uniform1f(
-            gl::GetUniformLocation(program, b"u_point_fade_threshold\0".as_ptr() as *const _),
-            self.state.point_fade_threshold,
-        );
-        let alpha_test_loc =
-            gl::GetUniformLocation(program, b"u_alpha_test_enabled\0".as_ptr() as *const _);
-        gl::Uniform1i(
-            alpha_test_loc,
-            if self.state.alpha_test_enabled { 1 } else { 0 },
-        );
-        let alpha_func_loc =
-            gl::GetUniformLocation(program, b"u_alpha_func\0".as_ptr() as *const _);
-        gl::Uniform1i(alpha_func_loc, self.state.alpha_func as GLint);
-        let alpha_ref_loc = gl::GetUniformLocation(program, b"u_alpha_ref\0".as_ptr() as *const _);
-        gl::Uniform1f(alpha_ref_loc, self.state.alpha_ref);
-        let fog_enabled_loc =
-            gl::GetUniformLocation(program, b"u_fog_enabled\0".as_ptr() as *const _);
-        gl::Uniform1i(fog_enabled_loc, if self.state.fog_enabled { 1 } else { 0 });
-        let fog_color_loc = gl::GetUniformLocation(program, b"u_fog_color\0".as_ptr() as *const _);
-        gl::Uniform4fv(fog_color_loc, 1, self.state.fog_color.as_ptr());
-        let fog_density_loc =
-            gl::GetUniformLocation(program, b"u_fog_density\0".as_ptr() as *const _);
-        gl::Uniform1f(fog_density_loc, self.state.fog_density);
-        let fog_start_loc = gl::GetUniformLocation(program, b"u_fog_start\0".as_ptr() as *const _);
-        gl::Uniform1f(fog_start_loc, self.state.fog_start);
-        let fog_end_loc = gl::GetUniformLocation(program, b"u_fog_end\0".as_ptr() as *const _);
-        gl::Uniform1f(fog_end_loc, self.state.fog_end);
-        let fog_mode_loc = gl::GetUniformLocation(program, b"u_fog_mode\0".as_ptr() as *const _);
-        gl::Uniform1i(fog_mode_loc, self.state.fog_mode as GLint);
-        let point_size_loc =
-            gl::GetUniformLocation(program, b"u_point_size\0".as_ptr() as *const _);
-        gl::Uniform1f(point_size_loc, self.state.point_size);
-        gl::Uniform1i(
-            gl::GetUniformLocation(
-                program,
-                b"u_point_size_array_enabled\0".as_ptr() as *const _,
-            ),
-            if self.state.point_size_array.enabled {
-                1
-            } else {
-                0
-            },
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_matrix_palette_enabled\0".as_ptr() as *const _),
-            if self.state.matrix_palette_enabled {
-                1
-            } else {
-                0
-            },
-        );
-        for (i, matrix) in self.state.palette_matrices.iter().enumerate() {
-            let name = format!("u_palette_matrices[{}]\0", i);
-            gl::UniformMatrix4fv(
-                gl::GetUniformLocation(program, name.as_ptr() as *const _),
-                1,
-                gl::FALSE,
-                matrix.current.as_ptr(),
-            );
-        }
-        for unit in 0..MAX_TEXTURE_UNITS {
-            let enabled_name = format!("u_tex_enabled{}\0", unit);
-            let mode_name = format!("u_tex_mode{}\0", unit);
-            let env_name = format!("u_env_color{}\0", unit);
-            let sampler_name = format!("u_tex{}\0", unit);
-            gl::ActiveTexture(gl::TEXTURE0 + unit as GLenum);
-            gl::BindTexture(gl::TEXTURE_2D, self.state.bound_textures[unit]);
-            let mode = match self.state.texture_env_mode[unit] as GLenum {
-                es1::REPLACE => 1,
-                es1::ADD => 3,
-                es1::DECAL => 4,
-                es1::BLEND => 5,
-                es1::COMBINE => 0,
-                _ => 2,
-            };
-            let combine_name = format!("u_combine_rgb{}\0", unit);
-            let combine_alpha_name = format!("u_combine_alpha{}\0", unit);
-            let src_rgb_name = format!("u_src_rgb{}\0", unit);
-            let src_alpha_name = format!("u_src_alpha{}\0", unit);
-            let operand_rgb_name = format!("u_operand_rgb{}\0", unit);
-            let operand_alpha_name = format!("u_operand_alpha{}\0", unit);
-            let rgb_scale_name = format!("u_rgb_scale{}\0", unit);
-            let alpha_scale_name = format!("u_alpha_scale{}\0", unit);
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, combine_name.as_ptr() as *const _),
-                self.state.texture_combine_rgb[unit] as GLint,
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, combine_alpha_name.as_ptr() as *const _),
-                self.state.texture_combine_alpha[unit] as GLint,
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, src_rgb_name.as_ptr() as *const _),
-                3,
-                self.state.texture_src_rgb[unit].as_ptr().cast(),
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, src_alpha_name.as_ptr() as *const _),
-                3,
-                self.state.texture_src_alpha[unit].as_ptr().cast(),
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, operand_rgb_name.as_ptr() as *const _),
-                3,
-                self.state.texture_operand_rgb[unit].as_ptr().cast(),
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, operand_alpha_name.as_ptr() as *const _),
-                3,
-                self.state.texture_operand_alpha[unit].as_ptr().cast(),
-            );
-            gl::Uniform1f(
-                gl::GetUniformLocation(program, rgb_scale_name.as_ptr() as *const _),
-                self.state.texture_rgb_scale[unit],
-            );
-            gl::Uniform1f(
-                gl::GetUniformLocation(program, alpha_scale_name.as_ptr() as *const _),
-                self.state.texture_alpha_scale[unit],
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, enabled_name.as_ptr() as *const _),
-                self.state.texture_enabled[unit] as GLint,
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, mode_name.as_ptr() as *const _),
-                mode,
-            );
-            gl::Uniform4fv(
-                gl::GetUniformLocation(program, env_name.as_ptr() as *const _),
-                1,
-                self.state.texture_env_color[unit].as_ptr(),
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, sampler_name.as_ptr() as *const _),
-                unit as GLint,
-            );
-        }
-        gl::ActiveTexture(gl::TEXTURE0 + self.state.active_texture as GLenum);
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_logic_op_enabled\0".as_ptr() as *const _),
-            self.state.logic_op_enabled as GLint,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_logic_op\0".as_ptr() as *const _),
-            self.state.logic_op as GLint,
-        );
+        self.upload_uniforms(program);
         let position = self.state.arrays[0];
         let color = self.state.arrays[1];
         let normal = self.state.arrays[2];
@@ -3643,296 +3442,15 @@ impl GLES for GLES1OnGLES2<'_> {
             Some(program) => program,
             None => return,
         };
-        gl::UseProgram(program);
-        let mvp = self.state.mvp();
-        let mvp_loc = gl::GetUniformLocation(program, b"u_mvp\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(mvp_loc, 1, gl::FALSE, mvp.as_ptr());
-        let modelview_loc = gl::GetUniformLocation(program, b"u_modelview\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(
-            modelview_loc,
-            1,
-            gl::FALSE,
-            self.state.modelview.current.as_ptr(),
-        );
-        let projection_loc =
-            gl::GetUniformLocation(program, b"u_projection\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(
-            projection_loc,
-            1,
-            gl::FALSE,
-            self.state.projection.current.as_ptr(),
-        );
-        let texture_matrix_loc =
-            gl::GetUniformLocation(program, b"u_texture_matrix0\0".as_ptr() as *const _);
-        gl::UniformMatrix4fv(
-            texture_matrix_loc,
-            1,
-            gl::FALSE,
-            self.state.texture[0].current.as_ptr(),
-        );
-        for unit in 1..MAX_TEXTURE_UNITS {
-            let name = format!("u_texture_matrix{}\0", unit);
-            gl::UniformMatrix4fv(
-                gl::GetUniformLocation(program, name.as_ptr() as *const _),
-                1,
-                gl::FALSE,
-                self.state.texture[unit].current.as_ptr(),
-            );
-        }
-        let color_loc = gl::GetUniformLocation(program, b"u_color\0".as_ptr() as *const _);
-        let color_uniform = if self.state.arrays[1].enabled {
-            [1.0; 4]
+        self.upload_uniforms(program);
+        // Only staged client arrays and converted FIXED arrays need a CPU
+        // vertex range. VBO-backed arrays go directly to the driver.
+        let array_range = if self.state.needs_indexed_vertex_range() {
+            self.indexed_vertex_range(type_, indices, count)
+                .unwrap_or((0, count))
         } else {
-            self.state.color
+            (0, count)
         };
-        gl::Uniform4fv(color_loc, 1, color_uniform.as_ptr());
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_lighting_enabled\0".as_ptr() as *const _),
-            self.state.lighting_enabled as GLint,
-        );
-        let mut light_enabled = [0; 8];
-        let mut light_ambient = [[0.0; 4]; 8];
-        let mut light_diffuse = [[0.0; 4]; 8];
-        let mut light_specular = [[0.0; 4]; 8];
-        let mut light_position = [[0.0; 4]; 8];
-        let mut light_spot_direction = [[0.0; 3]; 8];
-        let mut light_spot_cutoff = [0.0; 8];
-        let mut light_spot_exponent = [0.0; 8];
-        let mut light_constant_attenuation = [0.0; 8];
-        let mut light_linear_attenuation = [0.0; 8];
-        let mut light_quadratic_attenuation = [0.0; 8];
-        for index in 0..8 {
-            let light = self.state.lights[index];
-            light_enabled[index] = self.state.light_enabled[index] as GLint;
-            light_ambient[index] = light.ambient;
-            light_diffuse[index] = light.diffuse;
-            light_specular[index] = light.specular;
-            light_position[index] = light.position;
-            light_spot_direction[index] = light.spot_direction;
-            light_spot_cutoff[index] = light.spot_cutoff;
-            light_spot_exponent[index] = light.spot_exponent;
-            light_constant_attenuation[index] = light.constant_attenuation;
-            light_linear_attenuation[index] = light.linear_attenuation;
-            light_quadratic_attenuation[index] = light.quadratic_attenuation;
-        }
-        gl::Uniform1iv(
-            gl::GetUniformLocation(program, b"u_light_enabled\0".as_ptr() as *const _),
-            8,
-            light_enabled.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_ambient\0".as_ptr() as *const _),
-            8,
-            light_ambient.as_ptr().cast(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_diffuse\0".as_ptr() as *const _),
-            8,
-            light_diffuse.as_ptr().cast(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_specular\0".as_ptr() as *const _),
-            8,
-            light_specular.as_ptr().cast(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_light_position\0".as_ptr() as *const _),
-            8,
-            light_position.as_ptr().cast(),
-        );
-        gl::Uniform3fv(
-            gl::GetUniformLocation(program, b"u_light_spot_direction\0".as_ptr() as *const _),
-            8,
-            light_spot_direction.as_ptr().cast(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(program, b"u_light_spot_cutoff\0".as_ptr() as *const _),
-            8,
-            light_spot_cutoff.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(program, b"u_light_spot_exponent\0".as_ptr() as *const _),
-            8,
-            light_spot_exponent.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_constant_attenuation\0".as_ptr() as *const _,
-            ),
-            8,
-            light_constant_attenuation.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_linear_attenuation\0".as_ptr() as *const _,
-            ),
-            8,
-            light_linear_attenuation.as_ptr(),
-        );
-        gl::Uniform1fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_quadratic_attenuation\0".as_ptr() as *const _,
-            ),
-            8,
-            light_quadratic_attenuation.as_ptr(),
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_color_material_enabled\0".as_ptr() as *const _),
-            self.state.color_material_enabled as GLint,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_normalize_enabled\0".as_ptr() as *const _),
-            self.state.normalize_enabled as GLint,
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_ambient\0".as_ptr() as *const _),
-            1,
-            self.state.material_ambient.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_diffuse\0".as_ptr() as *const _),
-            1,
-            self.state.material_diffuse.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_specular\0".as_ptr() as *const _),
-            1,
-            self.state.material_specular.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_material_emission\0".as_ptr() as *const _),
-            1,
-            self.state.material_emission.as_ptr(),
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(
-                program,
-                b"u_light_model_local_viewer\0".as_ptr() as *const _,
-            ),
-            self.state.light_model_local_viewer as GLint,
-        );
-        gl::Uniform1i(
-            gl::GetUniformLocation(program, b"u_light_model_two_side\0".as_ptr() as *const _),
-            self.state.light_model_two_side as GLint,
-        );
-        gl::Uniform1f(
-            gl::GetUniformLocation(program, b"u_material_shininess\0".as_ptr() as *const _),
-            self.state.material_shininess,
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_model_ambient\0".as_ptr() as *const _),
-            1,
-            self.state.model_ambient.as_ptr(),
-        );
-        gl::Uniform4fv(
-            gl::GetUniformLocation(program, b"u_clip_planes\0".as_ptr() as *const _),
-            6,
-            self.state.clip_planes.as_ptr().cast(),
-        );
-        gl::Uniform1iv(
-            gl::GetUniformLocation(program, b"u_clip_enabled\0".as_ptr() as *const _),
-            6,
-            self.state.clip_plane_enabled.as_ptr().cast(),
-        );
-        gl::Uniform3fv(
-            gl::GetUniformLocation(
-                program,
-                b"u_point_distance_attenuation\0".as_ptr() as *const _,
-            ),
-            1,
-            self.state.point_distance_attenuation.as_ptr(),
-        );
-        gl::Uniform1f(
-            gl::GetUniformLocation(program, b"u_point_fade_threshold\0".as_ptr() as *const _),
-            self.state.point_fade_threshold,
-        );
-        let point_size_loc =
-            gl::GetUniformLocation(program, b"u_point_size\0".as_ptr() as *const _);
-        gl::Uniform1f(point_size_loc, self.state.point_size);
-        for unit in 0..MAX_TEXTURE_UNITS {
-            let enabled_name = format!("u_tex_enabled{}\0", unit);
-            let mode_name = format!("u_tex_mode{}\0", unit);
-            let env_name = format!("u_env_color{}\0", unit);
-            let sampler_name = format!("u_tex{}\0", unit);
-            gl::ActiveTexture(gl::TEXTURE0 + unit as GLenum);
-            gl::BindTexture(gl::TEXTURE_2D, self.state.bound_textures[unit]);
-            let mode = match self.state.texture_env_mode[unit] as GLenum {
-                es1::REPLACE => 1,
-                es1::ADD => 3,
-                es1::DECAL => 4,
-                es1::BLEND => 5,
-                es1::COMBINE => 0,
-                _ => 2,
-            };
-            let combine_name = format!("u_combine_rgb{}\0", unit);
-            let combine_alpha_name = format!("u_combine_alpha{}\0", unit);
-            let src_rgb_name = format!("u_src_rgb{}\0", unit);
-            let src_alpha_name = format!("u_src_alpha{}\0", unit);
-            let operand_rgb_name = format!("u_operand_rgb{}\0", unit);
-            let operand_alpha_name = format!("u_operand_alpha{}\0", unit);
-            let rgb_scale_name = format!("u_rgb_scale{}\0", unit);
-            let alpha_scale_name = format!("u_alpha_scale{}\0", unit);
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, combine_name.as_ptr() as *const _),
-                self.state.texture_combine_rgb[unit] as GLint,
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, combine_alpha_name.as_ptr() as *const _),
-                self.state.texture_combine_alpha[unit] as GLint,
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, src_rgb_name.as_ptr() as *const _),
-                3,
-                self.state.texture_src_rgb[unit].as_ptr().cast(),
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, src_alpha_name.as_ptr() as *const _),
-                3,
-                self.state.texture_src_alpha[unit].as_ptr().cast(),
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, operand_rgb_name.as_ptr() as *const _),
-                3,
-                self.state.texture_operand_rgb[unit].as_ptr().cast(),
-            );
-            gl::Uniform1iv(
-                gl::GetUniformLocation(program, operand_alpha_name.as_ptr() as *const _),
-                3,
-                self.state.texture_operand_alpha[unit].as_ptr().cast(),
-            );
-            gl::Uniform1f(
-                gl::GetUniformLocation(program, rgb_scale_name.as_ptr() as *const _),
-                self.state.texture_rgb_scale[unit],
-            );
-            gl::Uniform1f(
-                gl::GetUniformLocation(program, alpha_scale_name.as_ptr() as *const _),
-                self.state.texture_alpha_scale[unit],
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, enabled_name.as_ptr() as *const _),
-                self.state.texture_enabled[unit] as GLint,
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, mode_name.as_ptr() as *const _),
-                mode,
-            );
-            gl::Uniform4fv(
-                gl::GetUniformLocation(program, env_name.as_ptr() as *const _),
-                1,
-                self.state.texture_env_color[unit].as_ptr(),
-            );
-            gl::Uniform1i(
-                gl::GetUniformLocation(program, sampler_name.as_ptr() as *const _),
-                unit as GLint,
-            );
-        }
-        gl::ActiveTexture(gl::TEXTURE0 + self.state.active_texture as GLenum);
-        let array_range = self
-            .indexed_vertex_range(type_, indices, count)
-            .unwrap_or((0, count));
         let position = self.state.arrays[0];
         let color = self.state.arrays[1];
         let normal = self.state.arrays[2];
@@ -3977,6 +3495,274 @@ impl GLES for GLES1OnGLES2<'_> {
 }
 
 impl GLES1OnGLES2<'_> {
+    /// Keep indexed and non-indexed draws on the same fixed-function state.
+    unsafe fn upload_uniforms(&self, program: GLuint) {
+        let uniforms = &self.state.program.as_ref().unwrap().uniforms;
+        gl::UseProgram(program);
+        let mvp = self.state.mvp();
+        let mvp_loc = uniforms.mvp;
+        gl::UniformMatrix4fv(mvp_loc, 1, gl::FALSE, mvp.as_ptr());
+        let modelview_loc = uniforms.modelview;
+        gl::UniformMatrix4fv(
+            modelview_loc,
+            1,
+            gl::FALSE,
+            self.state.modelview.current.as_ptr(),
+        );
+        let projection_loc = uniforms.projection;
+        gl::UniformMatrix4fv(
+            projection_loc,
+            1,
+            gl::FALSE,
+            self.state.projection.current.as_ptr(),
+        );
+        let texture_matrix_loc = uniforms.texture_matrix[0];
+        gl::UniformMatrix4fv(
+            texture_matrix_loc,
+            1,
+            gl::FALSE,
+            self.state.texture[0].current.as_ptr(),
+        );
+        for unit in 1..MAX_TEXTURE_UNITS {
+            gl::UniformMatrix4fv(
+                uniforms.texture_matrix[unit],
+                1,
+                gl::FALSE,
+                self.state.texture[unit].current.as_ptr(),
+            );
+        }
+        let color_loc = uniforms.color;
+        let color_uniform = if self.state.arrays[1].enabled {
+            [1.0; 4]
+        } else {
+            self.state.color
+        };
+        gl::Uniform4fv(color_loc, 1, color_uniform.as_ptr());
+        gl::Uniform1i(
+            uniforms.lighting_enabled,
+            self.state.lighting_enabled as GLint,
+        );
+        let mut light_enabled = [0; 8];
+        let mut light_ambient = [[0.0; 4]; 8];
+        let mut light_diffuse = [[0.0; 4]; 8];
+        let mut light_specular = [[0.0; 4]; 8];
+        let mut light_position = [[0.0; 4]; 8];
+        let mut light_spot_direction = [[0.0; 3]; 8];
+        let mut light_spot_cutoff = [0.0; 8];
+        let mut light_spot_exponent = [0.0; 8];
+        let mut light_constant_attenuation = [0.0; 8];
+        let mut light_linear_attenuation = [0.0; 8];
+        let mut light_quadratic_attenuation = [0.0; 8];
+        for index in 0..8 {
+            let light = self.state.lights[index];
+            light_enabled[index] = self.state.light_enabled[index] as GLint;
+            light_ambient[index] = light.ambient;
+            light_diffuse[index] = light.diffuse;
+            light_specular[index] = light.specular;
+            light_position[index] = light.position;
+            light_spot_direction[index] = light.spot_direction;
+            light_spot_cutoff[index] = light.spot_cutoff;
+            light_spot_exponent[index] = light.spot_exponent;
+            light_constant_attenuation[index] = light.constant_attenuation;
+            light_linear_attenuation[index] = light.linear_attenuation;
+            light_quadratic_attenuation[index] = light.quadratic_attenuation;
+        }
+        gl::Uniform1iv(uniforms.light_enabled, 8, light_enabled.as_ptr());
+        gl::Uniform4fv(uniforms.light_ambient, 8, light_ambient.as_ptr().cast());
+        gl::Uniform4fv(uniforms.light_diffuse, 8, light_diffuse.as_ptr().cast());
+        gl::Uniform4fv(uniforms.light_specular, 8, light_specular.as_ptr().cast());
+        gl::Uniform4fv(uniforms.light_position, 8, light_position.as_ptr().cast());
+        gl::Uniform3fv(
+            uniforms.light_spot_direction,
+            8,
+            light_spot_direction.as_ptr().cast(),
+        );
+        gl::Uniform1fv(uniforms.light_spot_cutoff, 8, light_spot_cutoff.as_ptr());
+        gl::Uniform1fv(
+            uniforms.light_spot_exponent,
+            8,
+            light_spot_exponent.as_ptr(),
+        );
+        gl::Uniform1fv(
+            uniforms.light_constant_attenuation,
+            8,
+            light_constant_attenuation.as_ptr(),
+        );
+        gl::Uniform1fv(
+            uniforms.light_linear_attenuation,
+            8,
+            light_linear_attenuation.as_ptr(),
+        );
+        gl::Uniform1fv(
+            uniforms.light_quadratic_attenuation,
+            8,
+            light_quadratic_attenuation.as_ptr(),
+        );
+        gl::Uniform1i(
+            uniforms.color_material_enabled,
+            self.state.color_material_enabled as GLint,
+        );
+        gl::Uniform1i(
+            uniforms.normalize_enabled,
+            self.state.normalize_enabled as GLint,
+        );
+        gl::Uniform4fv(
+            uniforms.material_ambient,
+            1,
+            self.state.material_ambient.as_ptr(),
+        );
+        gl::Uniform4fv(
+            uniforms.material_diffuse,
+            1,
+            self.state.material_diffuse.as_ptr(),
+        );
+        gl::Uniform4fv(
+            uniforms.material_specular,
+            1,
+            self.state.material_specular.as_ptr(),
+        );
+        gl::Uniform4fv(
+            uniforms.material_emission,
+            1,
+            self.state.material_emission.as_ptr(),
+        );
+        gl::Uniform1i(
+            uniforms.light_model_local_viewer,
+            self.state.light_model_local_viewer as GLint,
+        );
+        gl::Uniform1i(
+            uniforms.light_model_two_side,
+            self.state.light_model_two_side as GLint,
+        );
+        gl::Uniform1f(uniforms.material_shininess, self.state.material_shininess);
+        gl::Uniform4fv(uniforms.model_ambient, 1, self.state.model_ambient.as_ptr());
+        gl::Uniform4fv(
+            uniforms.clip_planes,
+            6,
+            self.state.clip_planes.as_ptr().cast(),
+        );
+        let clip_enabled = self.state.clip_plane_enabled.map(GLint::from);
+        gl::Uniform1iv(uniforms.clip_enabled, 6, clip_enabled.as_ptr());
+        gl::Uniform3fv(
+            uniforms.point_distance_attenuation,
+            1,
+            self.state.point_distance_attenuation.as_ptr(),
+        );
+        gl::Uniform1f(
+            uniforms.point_fade_threshold,
+            self.state.point_fade_threshold,
+        );
+        let alpha_test_loc = uniforms.alpha_test_enabled;
+        gl::Uniform1i(
+            alpha_test_loc,
+            if self.state.alpha_test_enabled { 1 } else { 0 },
+        );
+        let alpha_func_loc = uniforms.alpha_func;
+        gl::Uniform1i(alpha_func_loc, self.state.alpha_func as GLint);
+        let alpha_ref_loc = uniforms.alpha_ref;
+        gl::Uniform1f(alpha_ref_loc, self.state.alpha_ref);
+        let fog_enabled_loc = uniforms.fog_enabled;
+        gl::Uniform1i(fog_enabled_loc, if self.state.fog_enabled { 1 } else { 0 });
+        let fog_color_loc = uniforms.fog_color;
+        gl::Uniform4fv(fog_color_loc, 1, self.state.fog_color.as_ptr());
+        let fog_density_loc = uniforms.fog_density;
+        gl::Uniform1f(fog_density_loc, self.state.fog_density);
+        let fog_start_loc = uniforms.fog_start;
+        gl::Uniform1f(fog_start_loc, self.state.fog_start);
+        let fog_end_loc = uniforms.fog_end;
+        gl::Uniform1f(fog_end_loc, self.state.fog_end);
+        let fog_mode_loc = uniforms.fog_mode;
+        gl::Uniform1i(fog_mode_loc, self.state.fog_mode as GLint);
+        let point_size_loc = uniforms.point_size;
+        gl::Uniform1f(point_size_loc, self.state.point_size);
+        gl::Uniform1i(
+            uniforms.point_size_array_enabled,
+            if self.state.point_size_array.enabled {
+                1
+            } else {
+                0
+            },
+        );
+        gl::Uniform1i(
+            uniforms.matrix_palette_enabled,
+            if self.state.matrix_palette_enabled {
+                1
+            } else {
+                0
+            },
+        );
+        for (i, matrix) in self.state.palette_matrices.iter().enumerate() {
+            gl::UniformMatrix4fv(
+                uniforms.palette_matrices[i],
+                1,
+                gl::FALSE,
+                matrix.current.as_ptr(),
+            );
+        }
+        for unit in 0..MAX_TEXTURE_UNITS {
+            gl::ActiveTexture(gl::TEXTURE0 + unit as GLenum);
+            gl::BindTexture(gl::TEXTURE_2D, self.state.bound_textures[unit]);
+            let mode = match self.state.texture_env_mode[unit] as GLenum {
+                es1::REPLACE => 1,
+                es1::ADD => 3,
+                es1::DECAL => 4,
+                es1::BLEND => 5,
+                es1::COMBINE => 0,
+                _ => 2,
+            };
+            gl::Uniform1i(
+                uniforms.combine_rgb[unit],
+                self.state.texture_combine_rgb[unit] as GLint,
+            );
+            gl::Uniform1i(
+                uniforms.combine_alpha[unit],
+                self.state.texture_combine_alpha[unit] as GLint,
+            );
+            gl::Uniform1iv(
+                uniforms.src_rgb[unit],
+                3,
+                self.state.texture_src_rgb[unit].as_ptr().cast(),
+            );
+            gl::Uniform1iv(
+                uniforms.src_alpha[unit],
+                3,
+                self.state.texture_src_alpha[unit].as_ptr().cast(),
+            );
+            gl::Uniform1iv(
+                uniforms.operand_rgb[unit],
+                3,
+                self.state.texture_operand_rgb[unit].as_ptr().cast(),
+            );
+            gl::Uniform1iv(
+                uniforms.operand_alpha[unit],
+                3,
+                self.state.texture_operand_alpha[unit].as_ptr().cast(),
+            );
+            gl::Uniform1f(uniforms.rgb_scale[unit], self.state.texture_rgb_scale[unit]);
+            gl::Uniform1f(
+                uniforms.alpha_scale[unit],
+                self.state.texture_alpha_scale[unit],
+            );
+            gl::Uniform1i(
+                uniforms.tex_enabled[unit],
+                self.state.texture_enabled[unit] as GLint,
+            );
+            gl::Uniform1i(uniforms.tex_mode[unit], mode);
+            gl::Uniform4fv(
+                uniforms.env_color[unit],
+                1,
+                self.state.texture_env_color[unit].as_ptr(),
+            );
+            gl::Uniform1i(uniforms.tex[unit], unit as GLint);
+        }
+        gl::ActiveTexture(gl::TEXTURE0 + self.state.active_texture as GLenum);
+        gl::Uniform1i(
+            uniforms.logic_op_enabled,
+            self.state.logic_op_enabled as GLint,
+        );
+        gl::Uniform1i(uniforms.logic_op, self.state.logic_op as GLint);
+    }
+
     fn transform_vec4(matrix: &[GLfloat; 16], value: [GLfloat; 4]) -> [GLfloat; 4] {
         [
             matrix[0] * value[0]
@@ -4005,12 +3791,18 @@ impl GLES1OnGLES2<'_> {
     }
 
     fn ensure_program(&mut self) -> Option<GLuint> {
-        if let Some(program) = self.state.program {
-            return Some(program);
+        if let Some(program) = self.state.program.as_ref() {
+            return Some(program.name);
         }
         match create_program(self.state.gles3) {
             Ok(program) => {
-                self.state.program = Some(program);
+                let uniforms = UniformLocations::load_with(|name| unsafe {
+                    gl::GetUniformLocation(program, name.as_ptr())
+                });
+                self.state.program = Some(TranslatorProgram {
+                    name: program,
+                    uniforms,
+                });
                 Some(program)
             }
             Err(error) => {
@@ -4048,64 +3840,44 @@ impl GLES1OnGLES2<'_> {
         indices: *const GLvoid,
         count: GLsizei,
     ) -> Option<(GLint, GLsizei)> {
-        if count <= 0 || indices.is_null() {
+        if count <= 0 || (self.state.element_array_buffer_binding == 0 && indices.is_null()) {
             return None;
         }
-        let max_index = if self.state.element_array_buffer_binding != 0 {
-            let index_size = match type_ {
-                gl::UNSIGNED_BYTE => 1usize,
-                gl::UNSIGNED_SHORT => 2,
-                gl::UNSIGNED_INT => 4,
-                _ => return None,
-            };
+        let index_size = match type_ {
+            gl::UNSIGNED_BYTE => 1usize,
+            gl::UNSIGNED_SHORT => 2,
+            gl::UNSIGNED_INT => 4,
+            _ => return None,
+        };
+        let source = if self.state.element_array_buffer_binding != 0 {
             let bytes = self
                 .state
                 .element_array_buffer_data
                 .get(&self.state.element_array_buffer_binding)?;
+            // NULL is the valid offset zero when an element buffer is bound.
             let offset = indices as usize;
-            let byte_count = (count as usize).checked_mul(index_size)?;
-            let end = offset.checked_add(byte_count)?;
+            let end = offset.checked_add((count as usize).checked_mul(index_size)?)?;
             if end > bytes.len() {
                 return None;
             }
-            (0..count as usize)
-                .map(|i| {
-                    let at = offset + i * index_size;
-                    match type_ {
-                        gl::UNSIGNED_BYTE => Some(bytes[at] as usize),
-                        gl::UNSIGNED_SHORT => {
-                            Some(u16::from_ne_bytes([bytes[at], bytes[at + 1]]) as usize)
-                        }
-                        gl::UNSIGNED_INT => Some(u32::from_ne_bytes([
-                            bytes[at],
-                            bytes[at + 1],
-                            bytes[at + 2],
-                            bytes[at + 3],
-                        ]) as usize),
-                        _ => None,
-                    }
-                })
-                .collect::<Option<Vec<_>>>()?
-                .into_iter()
-                .max()?
+            bytes.as_ptr().add(offset)
         } else {
-            (0..count as usize)
-                .map(|i| match type_ {
-                    gl::UNSIGNED_BYTE => {
-                        Some((indices.cast::<u8>().add(i)).read_unaligned() as usize)
-                    }
-                    gl::UNSIGNED_SHORT => {
-                        Some((indices.cast::<u16>().add(i)).read_unaligned() as usize)
-                    }
-                    gl::UNSIGNED_INT => {
-                        Some((indices.cast::<u32>().add(i)).read_unaligned() as usize)
-                    }
-                    _ => None,
-                })
-                .collect::<Option<Vec<_>>>()?
-                .into_iter()
-                .max()?
+            indices.cast::<u8>()
         };
+        // Find the maximum in one pass without allocating a copy of all
+        // indices. Reads must be unaligned: client data and VBO offsets can
+        // be byte-aligned even for 16/32-bit index formats.
+        let max_index = (0..count as usize)
+            .map(|i| {
+                let at = source.add(i * index_size);
+                match type_ {
+                    gl::UNSIGNED_BYTE => at.read() as usize,
+                    gl::UNSIGNED_SHORT => at.cast::<u16>().read_unaligned() as usize,
+                    gl::UNSIGNED_INT => at.cast::<u32>().read_unaligned() as usize,
+                    _ => unreachable!(),
+                }
+            })
+            .max()?;
         Some((0, max_index.checked_add(1)?.try_into().ok()?))
     }
 
@@ -4196,7 +3968,7 @@ impl GLES1OnGLES2<'_> {
                 return;
             }
             let bytes = match self.state.array_buffer_data.get(&array.buffer_binding) {
-                Some(bytes) => bytes.clone(),
+                Some(bytes) => bytes,
                 None => {
                     gl::DisableVertexAttribArray(index);
                     return;
@@ -4345,5 +4117,257 @@ impl GLES1OnGLES2<'_> {
         if index == ATTR_POSITION {
             log_once!("GLES1-on-GLES2: uploaded client-side vertex arrays to a host VBO for GLES2 compatibility");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct MockGl {
+        locations: HashMap<String, GLint>,
+        lookups: usize,
+        integer_uploads: HashMap<GLint, Vec<GLint>>,
+    }
+    static MOCK_GL: Mutex<Option<MockGl>> = Mutex::new(None);
+
+    unsafe extern "system" fn get_uniform_location(_program: GLuint, name: *const GLchar) -> GLint {
+        let mut mock = MOCK_GL.lock().unwrap();
+        let mock = mock.as_mut().unwrap();
+        mock.lookups += 1;
+        let next = mock.locations.len() as GLint;
+        *mock
+            .locations
+            .entry(CStr::from_ptr(name).to_string_lossy().into_owned())
+            .or_insert(next)
+    }
+    unsafe extern "system" fn uniform1i(location: GLint, value: GLint) {
+        MOCK_GL
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .integer_uploads
+            .insert(location, vec![value]);
+    }
+    unsafe extern "system" fn uniform1iv(location: GLint, count: GLsizei, values: *const GLint) {
+        MOCK_GL
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .integer_uploads
+            .insert(
+                location,
+                std::slice::from_raw_parts(values, count as usize).to_vec(),
+            );
+    }
+    unsafe extern "system" fn uniform1f(_location: GLint, _value: GLfloat) {}
+    unsafe extern "system" fn uniformfv(
+        _location: GLint,
+        _count: GLsizei,
+        _values: *const GLfloat,
+    ) {
+    }
+    unsafe extern "system" fn uniform_matrix(
+        _location: GLint,
+        _count: GLsizei,
+        _transpose: GLboolean,
+        _values: *const GLfloat,
+    ) {
+    }
+    unsafe extern "system" fn use_program(_program: GLuint) {}
+    unsafe extern "system" fn one_enum(_target: GLenum) {}
+    unsafe extern "system" fn bind(_target: GLenum, _object: GLuint) {}
+    unsafe extern "system" fn vertex_attrib(_index: GLuint, _values: *const GLfloat) {}
+    unsafe extern "system" fn draw_arrays(_mode: GLenum, _first: GLint, _count: GLsizei) {}
+    unsafe extern "system" fn draw_elements(
+        _mode: GLenum,
+        _count: GLsizei,
+        _type: GLenum,
+        _indices: *const GLvoid,
+    ) {
+    }
+
+    #[test]
+    fn cached_draws_upload_the_same_state_without_driver_lookups() {
+        // No window/driver is needed: exercise the actual draw entry points
+        // against a GL recorder, including the integer clip-plane payload.
+        *MOCK_GL.lock().unwrap() = Some(MockGl::default());
+        gl::load_with(|name| {
+            match name {
+                "glGetUniformLocation" => get_uniform_location as *const (),
+                "glUniform1i" => uniform1i as *const (),
+                "glUniform1iv" => uniform1iv as *const (),
+                "glUniform1f" => uniform1f as *const (),
+                "glUniform1fv" | "glUniform3fv" | "glUniform4fv" => uniformfv as *const (),
+                "glUniformMatrix4fv" => uniform_matrix as *const (),
+                "glUseProgram" => use_program as *const (),
+                "glActiveTexture" | "glDisableVertexAttribArray" => one_enum as *const (),
+                "glBindTexture" | "glBindBuffer" => bind as *const (),
+                "glVertexAttrib4fv" => vertex_attrib as *const (),
+                "glDrawArrays" => draw_arrays as *const (),
+                "glDrawElements" => draw_elements as *const (),
+                _ => std::ptr::null(),
+            }
+            .cast()
+        });
+        let uniforms = UniformLocations::load_with(|name| unsafe {
+            gl::GetUniformLocation(42, name.as_ptr())
+        });
+        let mut state = TranslatorState::new();
+        state.program = Some(TranslatorProgram { name: 42, uniforms });
+        state.element_array_buffer_binding = 1;
+        state.clip_plane_enabled = [true, false, true, false, false, true];
+        state.alpha_test_enabled = true;
+        state.alpha_func = es1::GREATER;
+        state.fog_enabled = true;
+        state.matrix_palette_enabled = true;
+        state.logic_op_enabled = true;
+        state.point_size_array.enabled = false;
+        let mut gles = GLES1OnGLES2 {
+            state: &mut state,
+            _gl_lifetime: PhantomData,
+        };
+        unsafe {
+            gles.DrawArrays(gl::TRIANGLES, 0, 3);
+        }
+        let array_uploads = MOCK_GL
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .integer_uploads
+            .clone();
+        MOCK_GL
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .integer_uploads
+            .clear();
+        unsafe {
+            gles.DrawElements(gl::TRIANGLES, 3, gl::UNSIGNED_SHORT, std::ptr::null());
+        }
+        let mock = MOCK_GL.lock().unwrap();
+        let mock = mock.as_ref().unwrap();
+        assert_eq!(
+            mock.lookups, 105,
+            "all queries must happen only at program creation"
+        );
+        assert_eq!(mock.integer_uploads, array_uploads);
+        assert_eq!(
+            mock.integer_uploads[&mock.locations["u_clip_enabled"]],
+            [1, 0, 1, 0, 0, 1]
+        );
+        for name in [
+            "u_alpha_test_enabled",
+            "u_fog_enabled",
+            "u_matrix_palette_enabled",
+            "u_logic_op_enabled",
+        ] {
+            assert_eq!(
+                mock.integer_uploads[&mock.locations[name]],
+                [1],
+                "{name} must apply to indexed draws"
+            );
+        }
+    }
+
+    #[test]
+    fn uniform_cache_preserves_inactive_locations_and_array_names() {
+        let mut names = Vec::new();
+        let uniforms = UniformLocations::load_with(|name| {
+            names.push(name.to_string_lossy().into_owned());
+            -1
+        });
+        assert_eq!(uniforms.mvp, -1);
+        assert_eq!(uniforms.texture_matrix, [-1; MAX_TEXTURE_UNITS]);
+        assert_eq!(uniforms.palette_matrices, [-1; MAX_PALETTE_MATRICES]);
+        assert!(names.contains(&"u_texture_matrix3".to_owned()));
+        assert!(names.contains(&"u_palette_matrices[8]".to_owned()));
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "each location is queried once");
+    }
+
+    #[test]
+    fn indexed_range_accepts_vbo_offset_zero_and_checks_bounds() {
+        let mut state = TranslatorState::new();
+        state.element_array_buffer_binding = 7;
+        let indices = [9u16, 300, 2];
+        state.element_array_buffer_data.insert(
+            7,
+            indices
+                .iter()
+                .flat_map(|value| value.to_ne_bytes())
+                .collect(),
+        );
+        let gles = GLES1OnGLES2 {
+            state: &mut state,
+            _gl_lifetime: PhantomData,
+        };
+        unsafe {
+            assert_eq!(
+                gles.indexed_vertex_range(gl::UNSIGNED_SHORT, std::ptr::null(), 3),
+                Some((0, 301))
+            );
+            assert_eq!(
+                gles.indexed_vertex_range(gl::UNSIGNED_SHORT, 2usize as *const _, 2),
+                Some((0, 301))
+            );
+            assert_eq!(
+                gles.indexed_vertex_range(gl::UNSIGNED_SHORT, 2usize as *const _, 3),
+                None
+            );
+            assert_eq!(
+                gles.indexed_vertex_range(gl::FLOAT, std::ptr::null(), 3),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn indexed_range_reads_unaligned_client_indices() {
+        let mut state = TranslatorState::new();
+        let gles = GLES1OnGLES2 {
+            state: &mut state,
+            _gl_lifetime: PhantomData,
+        };
+        let mut data = vec![0u8];
+        for value in [7u32, 1200, 30] {
+            data.extend_from_slice(&value.to_ne_bytes());
+        }
+        unsafe {
+            assert_eq!(
+                gles.indexed_vertex_range(gl::UNSIGNED_INT, data.as_ptr().add(1).cast(), 3),
+                Some((0, 1201))
+            );
+            assert_eq!(
+                gles.indexed_vertex_range(gl::UNSIGNED_INT, std::ptr::null(), 3),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn only_staged_arrays_require_index_scans() {
+        let mut state = TranslatorState::new();
+        assert!(!state.needs_indexed_vertex_range());
+        state.arrays[0].enabled = true;
+        state.arrays[0].buffer_binding = 3;
+        assert!(!state.needs_indexed_vertex_range());
+        state.arrays[0].type_ = gl::FIXED;
+        assert!(state.needs_indexed_vertex_range());
+        state.arrays[0].type_ = gl::FLOAT;
+        state.texcoord_arrays[2].enabled = true;
+        assert!(state.needs_indexed_vertex_range());
+        state.texcoord_arrays[2].enabled = false;
+        state.palette_weight_array.enabled = true;
+        state.palette_weight_array.buffer_binding = 8;
+        assert!(!state.needs_indexed_vertex_range());
+        state.point_size_array.enabled = true;
+        assert!(state.needs_indexed_vertex_range());
     }
 }
