@@ -364,6 +364,30 @@ fn CTFontDescriptorCreateWithAttributes(
     alloc_descriptor(env, attrs)
 }
 
+/// `CTFontDescriptorRef CTFontDescriptorCreateWithNameAndSize(
+///     CFStringRef name, CGFloat size)`
+///
+/// Convenience constructor for a descriptor carrying the two most common
+/// attributes: the PostScript/family name and the point size.
+/// <https://developer.apple.com/documentation/coretext/1511145-ctfontdescriptorcreatewithnamea>
+fn CTFontDescriptorCreateWithNameAndSize(
+    env: &mut Environment,
+    name: CFStringRef,
+    size: CGFloat,
+) -> CTFontDescriptorRef {
+    if name.is_null() {
+        return nil;
+    }
+    let attributes: id = msg_class![env; NSMutableDictionary dictionary];
+    let name_key = get_static_str(env, "NSFontNameAttribute");
+    let size_key = get_static_str(env, "NSFontSizeAttribute");
+    let size_f = size as f64;
+    let size_number: id = msg_class![env; NSNumber numberWithDouble:size_f];
+    () = msg![env; attributes setObject:name forKey:name_key];
+    () = msg![env; attributes setObject:size_number forKey:size_key];
+    CTFontDescriptorCreateWithAttributes(env, attributes)
+}
+
 /// `CTFontDescriptorCreateMatchingFontDescriptors` — returns descriptors
 /// matching the given one under `attributes` (a set of mandatory keys).
 /// touchHLE's font stack only exposes the built-in system fonts, so no
@@ -1622,6 +1646,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CTFontCreateWithFontDescriptor(_, _, _)),
     export_c_func!(CTFontCreateCopyWithAttributes(_, _, _, _)),
     export_c_func!(CTFontDescriptorCreateWithAttributes(_)),
+    export_c_func!(CTFontDescriptorCreateWithNameAndSize(_, _)),
     export_c_func!(CTFontDescriptorCreateMatchingFontDescriptors(_, _)),
     export_c_func!(CTFontDescriptorCreateMatchingFontDescriptor(_, _)),
     export_c_func!(CTFontDescriptorCopyAttribute(_, _)),
