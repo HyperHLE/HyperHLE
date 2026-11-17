@@ -13,7 +13,7 @@ use crate::frameworks::core_foundation::{CFRelease, CFRetain, CFTypeRef};
 use crate::frameworks::foundation::ns_string;
 use crate::fs::GuestPath;
 use crate::mem::{ConstPtr, MutPtr, MutVoidPtr, Ptr};
-use crate::objc::{msg, nil, objc_classes, ClassExports, HostObject};
+use crate::objc::{id, msg, nil, objc_classes, ClassExports, HostObject};
 use crate::Environment;
 
 pub type CFReadStreamRef = CFTypeRef;
