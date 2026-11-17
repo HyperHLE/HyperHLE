@@ -78,6 +78,8 @@ pub struct UITableViewHostObject {
     /// load happens then, after the owning view controller's `-viewDidLoad`
     /// has prepared the data, so the table is reloaded again at that point.
     laid_out: bool,
+    /// `UITableView.allowsSelectionDuringEditing` (default: false).
+    allows_selection_during_editing: bool,
 }
 impl Default for UITableViewHostObject {
     fn default() -> Self {
@@ -96,6 +98,7 @@ impl Default for UITableViewHostObject {
             table_footer_view: nil,
             auto_reloaded: false,
             laid_out: false,
+            allows_selection_during_editing: false,
         }
     }
 }
@@ -743,6 +746,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)isEditing { false }
 - (())setAllowsSelection:(bool)_allows {}
 - (bool)allowsSelection { true }
+- (())setAllowsSelectionDuringEditing:(bool)allows {
+    env.objc
+        .borrow_mut::<UITableViewHostObject>(this)
+        .allows_selection_during_editing = allows;
+}
+- (bool)allowsSelectionDuringEditing {
+    env.objc
+        .borrow::<UITableViewHostObject>(this)
+        .allows_selection_during_editing
+}
 - (())setAllowsMultipleSelection:(bool)_allows {}
 - (())setRowHeight:(f32)height {
     env.objc.borrow_mut::<UITableViewHostObject>(this).row_height = height;

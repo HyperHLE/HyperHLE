@@ -56,6 +56,10 @@ pub(super) struct UIGestureRecognizerHostObject {
     previous_tap: Option<(Instant, CGPoint)>,
     press_started: Option<Instant>,
     active_touches: HashMap<id, (CGPoint, CGPoint)>,
+    /// Recognizers that must fail before this one may recognize, in the
+    /// order `-requireGestureRecognizerToFail:` was called. UIKit does not
+    /// retain them (same as targets and the delegate).
+    required_to_fail: Vec<id>,
 }
 impl HostObject for UIGestureRecognizerHostObject {}
 
@@ -85,6 +89,7 @@ impl UIGestureRecognizerHostObject {
             previous_tap: None,
             press_started: None,
             active_touches: HashMap::new(),
+            required_to_fail: Vec::new(),
         }
     }
 }
@@ -157,6 +162,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (UIGestureRecognizerState)state {
     env.objc.borrow::<UIGestureRecognizerHostObject>(this).state
+}
+// Apple: "Creates a dependency relationship between the receiver and
+// another gesture recognizer ... the receiver will not recognize until the
+// other recognizer fails." Recognition is driven per recognizer here, so we
+// record the dependency and consult it when the receiver would recognize.
+// <https://developer.apple.com/documentation/uikit/uigesturerecognizer/1624410-requiregesturerecognizertofail>
+- (())requireGestureRecognizerToFail:(id)other {
+    if other == nil || other == this { return; }
+    let mut host = env.objc.borrow_mut::<UIGestureRecognizerHostObject>(this);
+    if !host.required_to_fail.contains(&other) {
+        host.required_to_fail.push(other);
+    }
 }
 - (bool)isEnabled { env.objc.borrow::<UIGestureRecognizerHostObject>(this).enabled }
 - (())setEnabled:(bool)enabled {
@@ -472,7 +489,24 @@ pub(super) fn touches_ended(env: &mut Environment, view: id, touches: id) {
             }
         };
 
-        if recognized && delegate_allows_begin(env, recognizer) {
+        // A recognizer gated by `-requireGestureRecognizerToFail:` may only
+        // recognize while none of its dependencies has begun or recognized.
+        let superseded = {
+            let required = env
+                .objc
+                .borrow::<UIGestureRecognizerHostObject>(recognizer)
+                .required_to_fail
+                .clone();
+            required.iter().any(|&other| {
+                env.objc
+                    .get_host_object(other)
+                    .and_then(|host| host.as_any().downcast_ref::<UIGestureRecognizerHostObject>())
+                    .map(|host| matches!(host.state, 1 | 2 | 3))
+                    .unwrap_or(false)
+            })
+        };
+
+        if recognized && !superseded && delegate_allows_begin(env, recognizer) {
             env.objc
                 .borrow_mut::<UIGestureRecognizerHostObject>(recognizer)
                 .state = UIGestureRecognizerStateRecognized;

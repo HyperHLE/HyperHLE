@@ -988,6 +988,8 @@ pub const CONSTANTS: ConstantExports = &[
     ("_kSecAttrProtocolPOP3S", HostConstant::NSString("pops")),
     ("_kSecAttrProtocolSMTP", HostConstant::NSString("smtp")),
     ("_kSecAttrProtocolIMAP", HostConstant::NSString("imap")),
+    ("_kSecAttrProtocolIMAPS", HostConstant::NSString("imps")),
+    ("_kSecAttrProtocolIPP", HostConstant::NSString("ipp ")),
     ("_kSecAttrProtocolLDAP", HostConstant::NSString("ldap")),
     ("_kSecAttrProtocolLDAPS", HostConstant::NSString("ldps")),
     ("_kSecAttrProtocolTelnet", HostConstant::NSString("teln")),

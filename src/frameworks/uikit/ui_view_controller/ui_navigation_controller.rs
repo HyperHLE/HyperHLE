@@ -5,13 +5,16 @@
  */
 //! `UINavigationController`.
 
+use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::{ns_array, NSUInteger};
+use crate::mem::{ConstVoidPtr, MutPtr};
 use crate::objc::{
     autorelease, id, impl_HostObject_with_superclass, msg, msg_class, msg_super, nil, objc_classes,
     release, retain, ClassExports, NSZonePtr,
 };
+use crate::Environment;
 
 #[derive(Default)]
 struct UINavigationControllerHostObject {
@@ -520,3 +523,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+// =========================================================================
+// MARK: - Constants
+// =========================================================================
+
+/// `UINavigationControllerHideShowBarDuration` — the animation duration UIKit
+/// uses when `-setNavigationBarHidden:animated:` slides the navigation bar in
+/// or out. Declared in `<UIKit/UINavigationController.h>` as
+/// `UIKIT_EXTERN const CGFloat`; UIKit's value is 0.2 seconds.
+/// <https://developer.apple.com/documentation/uikit/1624442-uinavigationcontrollerhideshowbar>
+fn navigation_controller_hide_show_bar_duration(env: &mut Environment) -> ConstVoidPtr {
+    let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
+    env.mem.write(ptr, 0.2f32.to_bits());
+    ptr.cast().cast_const()
+}
+
+pub const CONSTANTS: ConstantExports = &[(
+    "_UINavigationControllerHideShowBarDuration",
+    HostConstant::Custom(navigation_controller_hide_show_bar_duration),
+)];

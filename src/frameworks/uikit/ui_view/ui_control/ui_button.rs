@@ -476,6 +476,29 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+// Not a UIKit selector: apps that ship a `UIButton` convenience category
+// (Dolphin's iPhone port is one) call this right after setting a localized
+// title, expecting the button box to shrink/grow to exactly fit the text.
+// Sizing it the way UIKit's own `-sizeThatFits:` would keeps the label
+// centred and the content insets intact.
+- (())buttonSizeFitText {
+    let title: id = msg![env; this titleForState:UIControlStateNormal];
+    if title == nil || to_rust_string(env, title).is_empty() {
+        return;
+    }
+    let label: id = env.objc.borrow::<UIButtonHostObject>(this).title_label;
+    if label == nil {
+        return;
+    }
+    let unbounded = CGSize { width: CGFloat::MAX, height: CGFloat::MAX };
+    let title_size: CGSize = msg![env; label sizeThatFits:unbounded];
+    let insets = env.objc.borrow::<UIButtonHostObject>(this).content_edge_insets;
+    let mut frame: CGRect = msg![env; this frame];
+    frame.size.width = title_size.width + insets.left + insets.right;
+    frame.size.height = title_size.height + insets.top + insets.bottom;
+    () = msg![env; this setFrame:frame];
+}
+
 - (CGRect)titleRectForContentRect:(CGRect)content_rect {
     content_rect
 }

@@ -238,6 +238,90 @@ fn CFAttributedStringGetTypeID(env: &mut Environment) -> CFTypeID {
     class.to_bits() as CFTypeID
 }
 
+// MARK: - Mutable attributed strings
+
+/// `CFMutableAttributedStringRef CFAttributedStringCreateMutable(
+///     CFAllocatorRef alloc, CFIndex maxLength)`
+///
+/// `maxLength` is only a capacity hint (-1 means no limit). The result is
+/// toll-free bridged to an empty `NSMutableAttributedString`.
+/// <https://developer.apple.com/documentation/corefoundation/1463402-cfattributedstringcreatemutable>
+fn CFAttributedStringCreateMutable(
+    env: &mut Environment,
+    allocator: CFAllocatorRef,
+    _max_length: CFIndex,
+) -> CFAttributedStringRef {
+    if !validate_allocator(env, allocator) {
+        return nil;
+    }
+    let empty: id = msg_class![env; NSString string];
+    let string: id = msg_class![env; NSMutableAttributedString alloc];
+    msg![env; string initWithString:empty]
+}
+
+/// `void CFAttributedStringReplaceString(
+///     CFMutableAttributedStringRef str, CFRange range, CFStringRef replacement)`
+/// <https://developer.apple.com/documentation/corefoundation/1463485-cfattributedstringreplacestring>
+fn CFAttributedStringReplaceString(
+    env: &mut Environment,
+    string: CFAttributedStringRef,
+    range: CFRange,
+    replacement: CFStringRef,
+) {
+    if string.is_null() || replacement.is_null() {
+        return;
+    }
+    let length = CFAttributedStringGetLength(env, string);
+    let Some(range) = ns_range_from_cf_range(range, length.max(0) as NSUInteger) else {
+        return;
+    };
+    () = msg![env; string replaceCharactersInRange:range withString:replacement];
+}
+
+/// `void CFAttributedStringSetAttribute(
+///     CFMutableAttributedStringRef str, CFRange range,
+///     CFStringRef attr_name, CFTypeRef value)`
+///
+/// Per Apple, a `NULL` value removes the attribute from the range.
+/// <https://developer.apple.com/documentation/corefoundation/1463420-cfattributedstringsetattribute>
+fn CFAttributedStringSetAttribute(
+    env: &mut Environment,
+    string: CFAttributedStringRef,
+    range: CFRange,
+    attribute: CFStringRef,
+    value: CFTypeRef,
+) {
+    if string.is_null() || attribute.is_null() {
+        return;
+    }
+    let length = CFAttributedStringGetLength(env, string);
+    let Some(range) = ns_range_from_cf_range(range, length.max(0) as NSUInteger) else {
+        return;
+    };
+    if range.length == 0 {
+        return;
+    }
+    if value.is_null() {
+        () = msg![env; string removeAttribute:attribute range:range];
+    } else {
+        () = msg![env; string addAttribute:attribute value:value range:range];
+    }
+}
+
+/// `void CFAttributedStringBeginEditing(CFMutableAttributedStringRef str)`
+///
+/// Editing is only an optimisation in Core Foundation (it batches mutations
+/// and defers change notifications), so an unbiased attributed string needs
+/// no host-side bookkeeping for it.
+/// <https://developer.apple.com/documentation/corefoundation/1463532-cfattributedstringbeginediting>
+fn CFAttributedStringBeginEditing(_env: &mut Environment, _string: CFAttributedStringRef) {}
+
+/// `void CFAttributedStringEndEditing(CFMutableAttributedStringRef str)`
+///
+/// See [CFAttributedStringBeginEditing].
+/// <https://developer.apple.com/documentation/corefoundation/1463515-cfattributedstringendediting>
+fn CFAttributedStringEndEditing(_env: &mut Environment, _string: CFAttributedStringRef) {}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFAttributedStringCreate(_, _, _)),
     export_c_func!(CFAttributedStringCreateCopy(_, _)),
@@ -248,5 +332,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFAttributedStringGetAttributes(_, _, _)),
     export_c_func!(CFAttributedStringGetAttributeAndLongestEffectiveRange(_, _, _, _, _)),
     export_c_func!(CFAttributedStringGetAttributesAndLongestEffectiveRange(_, _, _, _)),
+    export_c_func!(CFAttributedStringCreateMutable(_, _)),
+    export_c_func!(CFAttributedStringReplaceString(_, _, _)),
+    export_c_func!(CFAttributedStringSetAttribute(_, _, _, _)),
+    export_c_func!(CFAttributedStringBeginEditing(_)),
+    export_c_func!(CFAttributedStringEndEditing(_)),
     export_c_func!(CFAttributedStringGetTypeID()),
 ];

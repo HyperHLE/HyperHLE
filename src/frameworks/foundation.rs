@@ -48,6 +48,7 @@ pub mod ns_file_manager;
 pub mod ns_garbage_collector;
 pub mod ns_hash_table;
 pub mod ns_host;
+pub mod ns_http_cookie;
 pub mod ns_http_cookie_storage;
 pub mod ns_index_path;
 pub mod ns_index_set;
@@ -1530,6 +1531,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_file_manager::CLASSES,
         ns_garbage_collector::CLASSES,
         ns_host::CLASSES,
+        ns_http_cookie::CLASSES,
         ns_http_cookie_storage::CLASSES,
         ns_index_path::CLASSES,
         ns_index_set::CLASSES,
