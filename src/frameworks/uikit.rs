@@ -60,6 +60,7 @@ pub mod ui_keyboard;
 pub mod ui_launch_delegate;
 pub mod ui_layout_placeholders;
 pub mod ui_local_notification;
+pub mod ui_menu;
 pub mod ui_navigation_bar;
 pub mod ui_nib;
 pub mod ui_page_view_controller;
@@ -949,6 +950,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_keyboard::CLASSES,
         ui_launch_delegate::CLASSES,
         ui_local_notification::CLASSES,
+        ui_menu::CLASSES,
         ui_navigation_bar::CLASSES,
         ui_nib::CLASSES,
         ui_pasteboard::CLASSES,
@@ -1028,6 +1030,7 @@ pub struct State {
     ui_image: ui_image::State,
     ui_keyboard: ui_keyboard::State,
     ui_launch_delegate: ui_launch_delegate::State,
+    ui_menu: ui_menu::State,
     ui_screen: ui_screen::State,
     ui_touch: ui_touch::State,
     pub ui_view: ui_view::State,

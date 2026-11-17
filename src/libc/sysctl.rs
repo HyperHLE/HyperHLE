@@ -101,6 +101,17 @@ enum SysInfoType {
     Bytes(&'static [u8]),
 }
 
+/// `struct loadavg` (`<sys/resource.h>`): three `fixpt_t` averages followed
+/// by the fixed-point scale. On 32-bit iOS this is 16 bytes with
+/// `FSHIFT` = 16, i.e. a scale of 65536. All averages are zero: the emulated
+/// device is idle from the guest's point of view.
+const VM_LOADAVG: [u8; 16] = [
+    0, 0, 0, 0, // ldavg[0]
+    0, 0, 0, 0, // ldavg[1]
+    0, 0, 0, 0, // ldavg[2]
+    0x00, 0x00, 0x01, 0x00, // fscale = 65536, little-endian
+];
+
 fn sysctl(
     env: &mut Environment,
     name: MutPtr<i32>,
@@ -196,6 +207,12 @@ fn sysctl(
                 }
                 _ => {}
             }
+            // CTL_VM/VM_LOADAVG: getloadavg() and anything else reading the
+            // run-queue averages. The value is a `struct loadavg`, not a
+            // string or integer.
+            if (name0, name1) == (2, 2) {
+                return Some(("vm.loadavg", SysInfoType::Bytes(&VM_LOADAVG[..])));
+            }
             // Используем INT_MAP для поиска по числовым идентификаторам (name0,
             // name1)
             let Some((name_str, val)) = INT_MAP.get(&(name0, name1)) else {
@@ -260,6 +277,12 @@ fn sysctlbyname(
             }
             if name_str == "machdep.cpu.vendor" {
                 return Some(("machdep.cpu.vendor", String(b"Apple")));
+            }
+            // CPU topology. Every device HyperHLE models has a single
+            // processor package containing one logical CPU, matching
+            // hw.ncpu/hw.logicalcpu above.
+            if name_str == "hw.packages" || name_str == "machdep.cpu.logical_per_package" {
+                return Some(("hw.packages", SysInfoType::Int32(1)));
             }
             // hw.physmem / hw.memsize / hw.usermem must reflect the emulated
             // device's real RAM (see the numeric sysctl() path above for why).

@@ -280,12 +280,146 @@ pub fn uregex_end(_env: &mut Environment, regexp: u32, group_num: i32, status: M
     -1
 }
 
+/// `int32_t uregex_reset(URegularExpression *regexp, int32_t index,
+///     UErrorCode *status)`
+///
+/// Rewinds the matcher so the next `uregex_findNext` starts at `index`
+/// (UTF-16 code units), and returns that index. Clears the groups of the
+/// previous match.
+/// <https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uregex_8h.html>
+#[allow(non_snake_case)]
+pub fn uregex_reset(
+    env: &mut Environment,
+    regexp: u32,
+    index: i32,
+    status: MutPtr<i32>,
+) -> i32 {
+    if !status.is_null() {
+        env.mem.write(status, U_ZERO_ERROR);
+    }
+    let mut text_map = UREGEX_TEXT_MAP.lock().unwrap();
+    let Some(txt_state) = text_map.get_mut(&regexp) else {
+        if !status.is_null() {
+            env.mem.write(status, 1); // U_ILLEGAL_ARGUMENT_ERROR
+        }
+        return -1;
+    };
+    let text_len = txt_state.text.encode_utf16().count() as i32;
+    if index < 0 || index > text_len {
+        if !status.is_null() {
+            env.mem.write(status, 8); // U_INDEX_OUTOFBOUNDS_ERROR
+        }
+        return -1;
+    }
+    txt_state.last_match_end_utf16 = index as usize;
+    txt_state.groups.clear();
+    index
+}
+
+/// `UBool uregex_findNext(URegularExpression *regexp, UErrorCode *status)`
+///
+/// Finds the next match after the end of the previous one.
+/// <https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uregex_8h.html>
+#[allow(non_snake_case)]
+pub fn uregex_findNext(env: &mut Environment, regexp: u32, status: MutPtr<i32>) -> u32 {
+    uregex_find(env, regexp, -1, status)
+}
+
+/// `int32_t uregex_appendTail(URegularExpression *regexp, UChar **destBuf,
+///     int32_t *destCapacity, UErrorCode *status)`
+///
+/// Appends the input text that follows the last match to `*destBuf` and
+/// returns the number of UTF-16 code units appended (excluding the NUL).
+/// As in ICU, a NULL `*destBuf` asks us to allocate a big-enough buffer, and
+/// a caller-supplied buffer that is too small gets a truncated copy plus
+/// `U_BUFFER_OVERFLOW_ERROR`.
+/// <https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/uregex_8h.html>
+#[allow(non_snake_case)]
+pub fn uregex_appendTail(
+    env: &mut Environment,
+    regexp: u32,
+    dest_buf: MutPtr<MutPtr<u16>>,
+    dest_capacity: MutPtr<i32>,
+    status: MutPtr<i32>,
+) -> i32 {
+    if !status.is_null() {
+        env.mem.write(status, U_ZERO_ERROR);
+    }
+    let Some((tail, required)) = ({
+        let text_map = UREGEX_TEXT_MAP.lock().unwrap();
+        text_map.get(&regexp).map(|txt_state| {
+            let start_utf8 = utf16_to_utf8_index(&txt_state.text, txt_state.last_match_end_utf16);
+            let tail: Vec<u16> = txt_state.text[start_utf8..].encode_utf16().collect();
+            let required = tail.len() as i32;
+            (tail, required)
+        })
+    }) else {
+        if !status.is_null() {
+            env.mem.write(status, 1); // U_ILLEGAL_ARGUMENT_ERROR
+        }
+        return 0;
+    };
+    if dest_buf.is_null() {
+        if !status.is_null() {
+            env.mem.write(status, 1); // U_ILLEGAL_ARGUMENT_ERROR
+        }
+        return required;
+    }
+
+    let existing = env.mem.read(dest_buf);
+    let capacity = if dest_capacity.is_null() {
+        0
+    } else {
+        env.mem.read(dest_capacity)
+    };
+    let buffer_capacity = if existing.is_null() {
+        required + 1
+    } else {
+        capacity
+    };
+    // Keep one slot for the NUL terminator when the caller's buffer is too
+    // small.
+    let writable = if buffer_capacity >= required + 1 {
+        required
+    } else {
+        (buffer_capacity - 1).max(0)
+    };
+    let buffer = if existing.is_null() {
+        let buffer: MutPtr<u16> = env.mem.alloc((buffer_capacity as u32) * 2).cast();
+        if !dest_capacity.is_null() {
+            env.mem.write(dest_capacity, buffer_capacity);
+        }
+        buffer
+    } else {
+        existing
+    };
+    env.mem.write(dest_buf, buffer);
+
+    // A zero-capacity caller buffer gets nothing written, not even the NUL.
+    if buffer_capacity > 0 {
+        let units = env.mem.bytes_at_mut(buffer.cast(), (writable as u32 + 1) * 2);
+        for (i, unit) in tail.iter().take(writable as usize).enumerate() {
+            units[i * 2..i * 2 + 2].copy_from_slice(&unit.to_le_bytes());
+        }
+        let nul_at = (writable as usize) * 2;
+        units[nul_at..nul_at + 2].copy_from_slice(&0u16.to_le_bytes());
+    }
+
+    if writable < required && !status.is_null() {
+        env.mem.write(status, 15); // U_BUFFER_OVERFLOW_ERROR
+    }
+    required
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(uregex_open(_, _, _, _, _)),
     export_c_func!(uregex_close(_)),
     export_c_func!(uregex_groupCount(_, _)),
     export_c_func!(uregex_setText(_, _, _, _)),
     export_c_func!(uregex_find(_, _, _)),
+    export_c_func!(uregex_findNext(_, _)),
+    export_c_func!(uregex_reset(_, _, _)),
+    export_c_func!(uregex_appendTail(_, _, _, _)),
     export_c_func!(uregex_start(_, _, _)),
     export_c_func!(uregex_end(_, _, _)),
 ];

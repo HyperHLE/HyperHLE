@@ -140,6 +140,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+// `UIWebView` conforms to `NSCoding` (unlike `UIView`), so archiving a view
+// hierarchy that contains one messages this selector. Its state is the loaded
+// page and history, which cannot be restored here, so encoding succeeds
+// without writing anything.
+- (())encodeWithCoder:(id)_coder {}
+
 // =========================================================================
 // MARK: - Dealloc
 // =========================================================================

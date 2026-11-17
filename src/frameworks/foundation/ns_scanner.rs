@@ -382,6 +382,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)scanInteger:(MutPtr<NSInteger>)result {
     msg![env; this scanInt:result]
 }
+- (bool)scanLongLong:(MutPtr<i64>)result {
+    scan_long_long(env, this, result)
+}
+
+- (bool)scanUnsignedLongLong:(MutPtr<u64>)result {
+    scan_unsigned_long_long(env, this, result)
+}
 
 - (bool)scanFloat:(MutPtr<f32>)result {
     skip_characters(env, this);
@@ -495,4 +502,75 @@ fn skip_characters(env: &mut Environment, scanner: id) {
         }
     }
     env.objc.borrow_mut::<NSScannerHostObject>(scanner).pos = pos;
+}
+
+/// Scans an optionally signed run of decimal digits at the scanner's current
+/// location, advancing past it on success and returning the matched text.
+fn scan_digit_text(env: &mut Environment, scanner: id) -> Option<String> {
+    skip_characters(env, scanner);
+
+    let NSScannerHostObject { to_be_skipped, string, len, pos } =
+        std::mem::take(env.objc.borrow_mut::<NSScannerHostObject>(scanner));
+    let restore = |env: &mut Environment, next_pos: NSUInteger| {
+        *env.objc.borrow_mut::<NSScannerHostObject>(scanner) =
+            NSScannerHostObject { to_be_skipped, string, len, pos: next_pos };
+    };
+    let left: id = msg![env; string substringFromIndex:pos];
+    if left == nil {
+        restore(env, pos);
+        return None;
+    }
+
+    let text = to_rust_string(env, left);
+    let mut cutoff = 0;
+    let mut saw_digit = false;
+    for (i, c) in text.char_indices() {
+        if c.is_ascii_digit() {
+            saw_digit = true;
+            cutoff = i + c.len_utf8();
+        } else if (c == '+' || c == '-') && i == 0 {
+            cutoff = c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if !saw_digit {
+        restore(env, pos);
+        return None;
+    }
+
+    let matched = text[..cutoff].to_string();
+    restore(env, pos + cutoff as NSUInteger);
+    Some(matched)
+}
+
+fn scan_long_long(env: &mut Environment, scanner: id, result: MutPtr<i64>) -> bool {
+    let Some(text) = scan_digit_text(env, scanner) else {
+        return false;
+    };
+    if !result.is_null() {
+        // Values that don't fit saturate, like `strtoll` does.
+        let parsed = text
+            .parse::<i64>()
+            .unwrap_or_else(|_| if text.starts_with('-') { i64::MIN } else { i64::MAX });
+        env.mem.write(result, parsed);
+    }
+    true
+}
+
+fn scan_unsigned_long_long(env: &mut Environment, scanner: id, result: MutPtr<u64>) -> bool {
+    let Some(text) = scan_digit_text(env, scanner) else {
+        return false;
+    };
+    if !result.is_null() {
+        let parsed = if text.starts_with('-') {
+            0
+        } else {
+            text.trim_start_matches('+')
+                .parse::<u64>()
+                .unwrap_or(u64::MAX)
+        };
+        env.mem.write(result, parsed);
+    }
+    true
 }
