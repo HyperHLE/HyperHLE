@@ -2364,6 +2364,36 @@ pub const CLASSES: ClassExports = objc_classes! {
     *env.objc.borrow_mut(this) = StringHostObject::Utf16(code_units);
     this
 }
+- (id)initWithCharactersNoCopy:(ConstPtr<unichar>)characters length:(NSUInteger)len freeWhenDone:(bool)free_when_done {
+    if characters.is_null() && len != 0 {
+        release(env, this);
+        return nil;
+    }
+    let code_units: Vec<u16> = if len == 0 {
+        Vec::new()
+    } else {
+        env.mem
+            .bytes_at(characters.cast(), len * 2)
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect()
+    };
+    *env.objc.borrow_mut(this) = StringHostObject::Utf16(code_units);
+    // The buffer belongs to the receiver when freeWhenDone is YES; we copied
+    // it into `StringHostObject`, so it can be released immediately.
+    if free_when_done {
+        env.mem.free(characters.cast_mut().cast());
+    }
+    this
+}
+
+// Not a Foundation selector: some apps (Dolphin's phone port among them) send
+// `-count` to a string, which real Foundation would reject. Answer it the only
+// sensible way for the compatibility path.
+- (NSUInteger)count {
+    msg![env; this length]
+}
+
 
 - (id)initWithContentsOfFile:(id)path {
     if path == nil {

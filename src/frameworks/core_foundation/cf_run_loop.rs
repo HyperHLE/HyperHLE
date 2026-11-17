@@ -18,7 +18,9 @@ use crate::frameworks::core_foundation::{CFIndex, CFRelease, CFRetain, CFTypeRef
 use crate::frameworks::foundation::ns_run_loop::run_run_loop_single_iteration;
 use crate::frameworks::foundation::ns_string;
 use crate::mem::{MutPtr, MutVoidPtr, SafeRead};
-use crate::objc::{id, msg, msg_class, nil, objc_classes, ClassExports, HostObject};
+use crate::objc::{
+    id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
+};
 use crate::Environment;
 
 pub type CFRunLoopRef = CFTypeRef;
@@ -62,6 +64,29 @@ pub struct CFRunLoopSourceHostObject {
 }
 impl HostObject for CFRunLoopSourceHostObject {}
 
+/// `CFRunLoopObserverContext` (version 0), from `<CoreFoundation/CFRunLoop.h>`.
+#[repr(C, packed)]
+pub struct CFRunLoopObserverContext {
+    pub version: CFIndex,
+    pub info: MutVoidPtr,
+    pub retain: GuestFunction,
+    pub release: GuestFunction,
+    pub copyDescription: GuestFunction,
+}
+unsafe impl SafeRead for CFRunLoopObserverContext {}
+
+#[derive(Default)]
+pub struct CFRunLoopObserverHostObject {
+    pub activities: CFRunLoopActivity,
+    pub repeats: bool,
+    pub order: i32,
+    pub callout: GuestFunction,
+    pub release: GuestFunction,
+    pub info: MutVoidPtr,
+    pub valid: bool,
+}
+impl HostObject for CFRunLoopObserverHostObject {}
+
 // CFRunLoopRunResult
 const kCFRunLoopRunFinished: i32 = 1;
 const kCFRunLoopRunStopped: i32 = 2;
@@ -69,14 +94,13 @@ const kCFRunLoopRunTimedOut: i32 = 3;
 const kCFRunLoopRunHandledSource: i32 = 4;
 
 // CFRunLoopActivity flags
-type CFRunLoopActivity = u32;
-const kCFRunLoopEntry: CFRunLoopActivity = 1 << 0;
-const kCFRunLoopBeforeTimers: CFRunLoopActivity = 1 << 1;
-const kCFRunLoopBeforeSources: CFRunLoopActivity = 1 << 2;
-const kCFRunLoopBeforeWaiting: CFRunLoopActivity = 1 << 5;
-const kCFRunLoopAfterWaiting: CFRunLoopActivity = 1 << 6;
-const kCFRunLoopExit: CFRunLoopActivity = 1 << 7;
-const kCFRunLoopAllActivities: CFRunLoopActivity = 0x0FFFFFFF;
+pub(crate) type CFRunLoopActivity = u32;
+pub(crate) const kCFRunLoopEntry: CFRunLoopActivity = 1 << 0;
+pub(crate) const kCFRunLoopBeforeTimers: CFRunLoopActivity = 1 << 1;
+pub(crate) const kCFRunLoopBeforeSources: CFRunLoopActivity = 1 << 2;
+pub(crate) const kCFRunLoopBeforeWaiting: CFRunLoopActivity = 1 << 5;
+pub(crate) const kCFRunLoopAfterWaiting: CFRunLoopActivity = 1 << 6;
+pub(crate) const kCFRunLoopExit: CFRunLoopActivity = 1 << 7;
 
 pub const kCFRunLoopCommonModes: &str = "kCFRunLoopCommonModes";
 pub const kCFRunLoopDefaultMode: &str = "kCFRunLoopDefaultMode";
@@ -157,12 +181,18 @@ fn CFRunLoopContainsSource(
 }
 
 fn CFRunLoopContainsObserver(
-    _env: &mut Environment,
-    _rl: CFRunLoopRef,
-    _observer: CFRunLoopObserverRef,
+    env: &mut Environment,
+    rl: CFRunLoopRef,
+    observer: CFRunLoopObserverRef,
     _mode: CFRunLoopMode,
 ) -> bool {
-    false
+    if rl.is_null() || observer.is_null() {
+        return false;
+    }
+    env.objc
+        .borrow::<crate::frameworks::foundation::ns_run_loop::NSRunLoopHostObject>(rl)
+        .observers
+        .contains(&observer)
 }
 
 /// `Boolean CFRunLoopContainsTimer(CFRunLoopRef rl, CFRunLoopTimerRef timer,
@@ -431,34 +461,148 @@ fn CFRunLoopSourceGetContext(
 // MARK: - Observers
 
 fn CFRunLoopAddObserver(
-    _env: &mut Environment,
-    _rl: CFRunLoopRef,
-    _observer: CFRunLoopObserverRef,
-    _mode: CFRunLoopMode,
+    env: &mut Environment,
+    rl: CFRunLoopRef,
+    observer: CFRunLoopObserverRef,
+    mode: CFRunLoopMode,
 ) {
-    log!("CFRunLoopAddObserver: stubbed");
+    if rl.is_null() || observer.is_null() {
+        return;
+    }
+    if !is_known_mode(env, mode) {
+        log_dbg!("CFRunLoopAddObserver: ignoring unknown mode");
+        return;
+    }
+    let already_contains = env
+        .objc
+        .borrow::<crate::frameworks::foundation::ns_run_loop::NSRunLoopHostObject>(rl)
+        .observers
+        .contains(&observer);
+    if already_contains {
+        return;
+    }
+    CFRetain(env, observer);
+    env.objc
+        .borrow_mut::<crate::frameworks::foundation::ns_run_loop::NSRunLoopHostObject>(rl)
+        .observers
+        .push(observer);
 }
 
 fn CFRunLoopRemoveObserver(
-    _env: &mut Environment,
-    _rl: CFRunLoopRef,
-    _observer: CFRunLoopObserverRef,
+    env: &mut Environment,
+    rl: CFRunLoopRef,
+    observer: CFRunLoopObserverRef,
     _mode: CFRunLoopMode,
 ) {
-    log!("CFRunLoopRemoveObserver: stubbed");
+    if rl.is_null() || observer.is_null() {
+        return;
+    }
+    let pos = env
+        .objc
+        .borrow::<crate::frameworks::foundation::ns_run_loop::NSRunLoopHostObject>(rl)
+        .observers
+        .iter()
+        .position(|&o| o == observer);
+    let Some(pos) = pos else { return };
+    env.objc
+        .borrow_mut::<crate::frameworks::foundation::ns_run_loop::NSRunLoopHostObject>(rl)
+        .observers
+        .remove(pos);
+    CFRelease(env, observer);
 }
 
 fn CFRunLoopObserverCreate(
-    _env: &mut Environment,
-    _allocator: CFTypeRef,
-    _activities: CFRunLoopActivity,
-    _repeats: bool,
-    _order: i32,
-    _callout: MutVoidPtr, // CFRunLoopObserverCallBack
-    _context: MutVoidPtr, // CFRunLoopObserverContext*
+    env: &mut Environment,
+    allocator: CFAllocatorRef,
+    activities: CFRunLoopActivity,
+    repeats: bool,
+    order: i32,
+    callout: MutVoidPtr, // CFRunLoopObserverCallBack
+    context: MutPtr<CFRunLoopObserverContext>,
 ) -> CFRunLoopObserverRef {
-    log!("CFRunLoopObserverCreate: stubbed, returning null");
-    nil
+    if !(allocator == kCFAllocatorDefault
+        || (!allocator.is_null() && env.mem.read(allocator).is_system_default()))
+    {
+        log!("CFRunLoopObserverCreate: non-default allocator unsupported, returning null");
+        return nil;
+    }
+    if callout.is_null() {
+        log!("CFRunLoopObserverCreate: NULL callout, returning null");
+        return nil;
+    }
+    let (info, retain_cb, release_cb) = if context.is_null() {
+        (
+            MutVoidPtr::null(),
+            GuestFunction::null_ptr(),
+            GuestFunction::null_ptr(),
+        )
+    } else {
+        let context = env.mem.read(context);
+        if context.version != 0 {
+            log!(
+                "CFRunLoopObserverCreate: unsupported context version {}, returning null",
+                context.version
+            );
+            return nil;
+        }
+        (context.info, context.retain, context.release)
+    };
+    let class = env
+        .objc
+        .get_known_class("_touchHLE_CFRunLoopObserver", &mut env.mem);
+    let observer = env.objc.alloc_object(
+        class,
+        Box::new(CFRunLoopObserverHostObject {
+            activities,
+            repeats,
+            order,
+            callout: GuestFunction::from_addr_with_thumb_bit(callout.to_bits()),
+            release: release_cb,
+            info,
+            valid: true,
+        }),
+        &mut env.mem,
+    );
+    if !retain_cb.to_ptr().is_null() {
+        let _: MutVoidPtr = retain_cb.call_from_host(env, (info,));
+    }
+    observer
+}
+
+/// Invokes the observers attached to `run_loop` for one run-loop activity, in
+/// the order Apple describes (registration order is a close enough stand-in
+/// for `order`). Non-repeating observers are invalidated after their first
+/// call.
+pub(crate) fn fire_observers(env: &mut Environment, run_loop: id, activity: CFRunLoopActivity) {
+    let observers = env
+        .objc
+        .borrow::<crate::frameworks::foundation::ns_run_loop::NSRunLoopHostObject>(run_loop)
+        .observers
+        .clone();
+    for observer in observers {
+        retain(env, observer);
+        let (valid, activities, repeats, callout, info) = {
+            let host = env
+                .objc
+                .borrow::<CFRunLoopObserverHostObject>(observer);
+            (
+                host.valid,
+                host.activities,
+                host.repeats,
+                host.callout,
+                host.info,
+            )
+        };
+        if valid && activities & activity != 0 && !callout.to_ptr().is_null() {
+            let _: () = callout.call_from_host(env, (observer, activity, info));
+            if !repeats {
+                env.objc
+                    .borrow_mut::<CFRunLoopObserverHostObject>(observer)
+                    .valid = false;
+            }
+        }
+        release(env, observer);
+    }
 }
 
 fn CFRunLoopObserverRetain(
@@ -478,27 +622,52 @@ fn CFRunLoopObserverRelease(env: &mut Environment, observer: CFRunLoopObserverRe
     }
 }
 
-fn CFRunLoopObserverIsValid(_env: &mut Environment, observer: CFRunLoopObserverRef) -> bool {
-    !observer.is_null()
+fn CFRunLoopObserverIsValid(env: &mut Environment, observer: CFRunLoopObserverRef) -> bool {
+    if observer.is_null() {
+        return false;
+    }
+    env.objc
+        .borrow::<CFRunLoopObserverHostObject>(observer)
+        .valid
 }
 
-fn CFRunLoopObserverInvalidate(_env: &mut Environment, _observer: CFRunLoopObserverRef) {
-    log_dbg!("CFRunLoopObserverInvalidate: stubbed");
+fn CFRunLoopObserverInvalidate(env: &mut Environment, observer: CFRunLoopObserverRef) {
+    if observer.is_null() {
+        return;
+    }
+    env.objc
+        .borrow_mut::<CFRunLoopObserverHostObject>(observer)
+        .valid = false;
 }
 
 fn CFRunLoopObserverGetActivities(
-    _env: &mut Environment,
-    _observer: CFRunLoopObserverRef,
+    env: &mut Environment,
+    observer: CFRunLoopObserverRef,
 ) -> CFRunLoopActivity {
-    kCFRunLoopAllActivities
+    if observer.is_null() {
+        return 0;
+    }
+    env.objc
+        .borrow::<CFRunLoopObserverHostObject>(observer)
+        .activities
 }
 
-fn CFRunLoopObserverDoesRepeat(_env: &mut Environment, _observer: CFRunLoopObserverRef) -> bool {
-    false
+fn CFRunLoopObserverDoesRepeat(env: &mut Environment, observer: CFRunLoopObserverRef) -> bool {
+    if observer.is_null() {
+        return false;
+    }
+    env.objc
+        .borrow::<CFRunLoopObserverHostObject>(observer)
+        .repeats
 }
 
-fn CFRunLoopObserverGetOrder(_env: &mut Environment, _observer: CFRunLoopObserverRef) -> i32 {
-    0
+fn CFRunLoopObserverGetOrder(env: &mut Environment, observer: CFRunLoopObserverRef) -> i32 {
+    if observer.is_null() {
+        return 0;
+    }
+    env.objc
+        .borrow::<CFRunLoopObserverHostObject>(observer)
+        .order
 }
 
 // MARK: - Timers
@@ -658,6 +827,22 @@ pub const FUNCTIONS: FunctionExports = &[
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
+
+@implementation _touchHLE_CFRunLoopObserver: NSObject
+
+- (())dealloc {
+    let release_cb = env
+        .objc
+        .borrow::<CFRunLoopObserverHostObject>(this)
+        .release;
+    let info = env.objc.borrow::<CFRunLoopObserverHostObject>(this).info;
+    if !release_cb.to_ptr().is_null() {
+        let _: () = release_cb.call_from_host(env, (info,));
+    }
+    env.objc.dealloc_object(this, &mut env.mem);
+}
+
+@end
 
 @implementation _touchHLE_CFRunLoopSource: NSObject
 

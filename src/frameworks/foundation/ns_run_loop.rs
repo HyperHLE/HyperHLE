@@ -19,7 +19,7 @@ use crate::frameworks::core_foundation::cf_run_loop::{
     kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoopRef,
 };
 use crate::frameworks::{core_animation, media_player, uikit};
-use crate::objc::{id, msg, nil, objc_classes, release, retain, Class, ClassExports, HostObject};
+use crate::objc::{id, msg, nil, objc_classes, release, retain, Class, ClassExports, HostObject, SEL};
 use crate::Environment;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -58,6 +58,9 @@ pub(crate) struct NSRunLoopHostObject {
     /// via `_touchHLE_CFRunLoopSource`) currently registered in this run
     /// loop, per Apple's CFRunLoopAddSource semantics.
     pub(crate) sources: Vec<id>,
+    /// Strong references to `CFRunLoopObserverRef` objects registered with
+    /// this run loop (per CFRunLoopAddObserver semantics).
+    pub(crate) observers: Vec<id>,
     /// Strong references to `NSPort*` objects registered via
     /// `-[NSRunLoop addPort:forMode:]`. The run loop owns its scheduled ports
     /// (per Apple's docs), so we retain them here and release on removal.
@@ -207,6 +210,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     host_object.timers.push(timer);
     ns_timer::set_run_loop(env, timer, this);
 }
+
+// `-cancelPerformSelector:target:argument:` removes one request queued by
+// `-performSelector:target:argument:order:modes:`. touchHLE does not queue
+// such requests (they are dispatched immediately via NSTimer based scheduling
+// in NSObject), so there is nothing to cancel here.
+- (())cancelPerformSelector:(SEL)_selector target:(id)_target argument:(id)_argument {}
 
 - (())cancelPerformSelectorsWithTarget:(id)target {
         if target == nil {
@@ -383,8 +392,23 @@ pub fn run_run_loop(
         log_once!("Main run loop: now dispatching events, timers and composition");
     }
 
+    let mut first_iteration = true;
     loop {
         let mut sleep_until = None;
+
+        if first_iteration {
+            crate::frameworks::core_foundation::cf_run_loop::fire_observers(
+                env,
+                run_loop,
+                crate::frameworks::core_foundation::cf_run_loop::kCFRunLoopEntry,
+            );
+            first_iteration = false;
+        }
+        crate::frameworks::core_foundation::cf_run_loop::fire_observers(
+            env,
+            run_loop,
+            crate::frameworks::core_foundation::cf_run_loop::kCFRunLoopBeforeTimers,
+        );
 
         // Commit implicit CATransactions
         // From the CATransaction docs:
@@ -470,14 +494,29 @@ pub fn run_run_loop(
         // apps can't do more than 60fps so this should be fine.
         let limit = Duration::from_millis(1000 / 60);
         env.sleep(sleep_until.map_or(limit, |i| i.duration_since(Instant::now()).min(limit)));
+        crate::frameworks::core_foundation::cf_run_loop::fire_observers(
+            env,
+            run_loop,
+            crate::frameworks::core_foundation::cf_run_loop::kCFRunLoopAfterWaiting,
+        );
 
         if single_iteration {
+            crate::frameworks::core_foundation::cf_run_loop::fire_observers(
+                env,
+                run_loop,
+                crate::frameworks::core_foundation::cf_run_loop::kCFRunLoopExit,
+            );
             break;
         }
 
         // CFRunLoopStop sets this flag to break out of the loop.
         if env.objc.borrow::<NSRunLoopHostObject>(run_loop).stopped {
             env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop).stopped = false;
+            crate::frameworks::core_foundation::cf_run_loop::fire_observers(
+                env,
+                run_loop,
+                crate::frameworks::core_foundation::cf_run_loop::kCFRunLoopExit,
+            );
             break;
         }
 
@@ -493,6 +532,11 @@ pub fn run_run_loop(
                 .unwrap_or_default()
                 .as_secs_f64();
             if now_secs >= limit {
+                crate::frameworks::core_foundation::cf_run_loop::fire_observers(
+                    env,
+                    run_loop,
+                    crate::frameworks::core_foundation::cf_run_loop::kCFRunLoopExit,
+                );
                 break;
             }
         }
@@ -513,6 +557,7 @@ pub(crate) fn run_loop_for_thread(env: &mut Environment, this: Class, thread_id:
             audio_queues: Vec::new(),
             timers: Vec::new(),
             sources: Vec::new(),
+            observers: Vec::new(),
             ports: Vec::new(),
             stopped: false,
         });

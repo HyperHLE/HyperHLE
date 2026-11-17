@@ -634,6 +634,17 @@ fn CTFontGetLeading(env: &mut Environment, font: CTFontRef) -> CGFloat {
     msg![env; ui_font leading]
 }
 
+/// `uint32_t CTGetCoreTextVersion(void)`
+///
+/// Encodes the CoreText feature level using the `kCTVersionNumber*`
+/// constants from `CTBase.h`. iOS 4.3's CoreText corresponds to the
+/// 10.6-level API (0x00030000), which is what apps compare against when
+/// deciding whether e.g. framesetter APIs are present.
+/// <https://developer.apple.com/documentation/coretext/1499498-ctgetcoretextversion>
+fn CTGetCoreTextVersion(_env: &mut Environment) -> u32 {
+    0x0003_0000 // kCTVersionNumber10_6
+}
+
 fn CTTypesetterCreateWithAttributedString(
     env: &mut Environment,
     string: CFAttributedStringRef,
@@ -1605,6 +1616,7 @@ fn CTParagraphStyleGetValueForSpecifier(
 }
 
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(CTGetCoreTextVersion()),
     export_c_func!(CTFontCreateWithGraphicsFont(_, _, _, _)),
     export_c_func!(CTFontCreateWithName(_, _, _)),
     export_c_func!(CTFontCreateWithFontDescriptor(_, _, _)),

@@ -448,6 +448,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, array)
 }
 
+// Not an NSSet selector on iOS: the app treats a set as an indexed
+// collection. Returning the members in `-allObjects` order is the least
+// surprising compatibility answer, and nil past the end (NSArray semantics)
+// instead of raising.
+- (id)objectAtIndex:(NSUInteger)index {
+    let objects: id = msg![env; this allObjects];
+    let count: NSUInteger = msg![env; objects count];
+    if index >= count {
+        nil
+    } else {
+        msg![env; objects objectAtIndex:index]
+    }
+}
+
 // Apple: "Returns the object in the set that is equal to a given object, or
 // nil if no such object exists."
 // https://developer.apple.com/documentation/foundation/nsset/1414703-member
@@ -618,6 +632,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let array = ns_array::from_vec(env, objects);
     autorelease(env, array)
+}
+
+// Not an NSSet selector on iOS: the app treats a set as an indexed
+// collection. Returning the members in `-allObjects` order is the least
+// surprising compatibility answer, and nil past the end (NSArray semantics)
+// instead of raising.
+- (id)objectAtIndex:(NSUInteger)index {
+    let objects: id = msg![env; this allObjects];
+    let count: NSUInteger = msg![env; objects count];
+    if index >= count {
+        nil
+    } else {
+        msg![env; objects objectAtIndex:index]
+    }
 }
 
 - (id)member:(id)object {

@@ -576,6 +576,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     0.0
 }
 
+// UITouch conforms to NSCoding. A touch is only meaningful for the live event
+// stream it belongs to, so archiving it stores no restorable state.
+- (())encodeWithCoder:(id)_coder {}
+
 @end
 
 };

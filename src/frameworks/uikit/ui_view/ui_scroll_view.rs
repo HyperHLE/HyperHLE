@@ -37,6 +37,10 @@ pub struct UIScrollViewHostObject {
     always_bounce_vertical: bool,
     always_bounce_horizontal: bool,
     bounces: bool,
+    /// `UIScrollView.bouncesZoom` (default: true).
+    bounces_zoom: bool,
+    /// `UIScrollView.delaysContentTouches` (default: true).
+    delays_content_touches: bool,
     paging_enabled: bool,
     directional_lock_enabled: bool,
     minimum_zoom_scale: CGFloat,
@@ -70,6 +74,8 @@ impl Default for UIScrollViewHostObject {
             always_bounce_vertical: false,
             always_bounce_horizontal: false,
             bounces: true,
+            bounces_zoom: true,
+            delays_content_touches: true,
             paging_enabled: false,
             directional_lock_enabled: false,
             minimum_zoom_scale: 1.0,
@@ -153,6 +159,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)scrollEnabled {
     env.objc.borrow::<UIScrollViewHostObject>(this).scroll_enabled
 }
+// UIKit's property getter is `-isScrollEnabled`; `-scrollEnabled` is the
+// older spelling. Apps use both, so answer both from the same flag.
+- (bool)isScrollEnabled {
+    env.objc.borrow::<UIScrollViewHostObject>(this).scroll_enabled
+}
 - (())setScrollEnabled:(bool)enabled {
     env.objc.borrow_mut::<UIScrollViewHostObject>(this).scroll_enabled = enabled;
 }
@@ -184,6 +195,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIScrollViewHostObject>(this).bounces = bounces;
 }
 
+- (bool)bouncesZoom {
+    env.objc.borrow::<UIScrollViewHostObject>(this).bounces_zoom
+}
+- (())setBouncesZoom:(bool)bounces {
+    env.objc.borrow_mut::<UIScrollViewHostObject>(this).bounces_zoom = bounces;
+}
+
 - (bool)alwaysBounceVertical {
     env.objc.borrow::<UIScrollViewHostObject>(this).always_bounce_vertical
 }
@@ -198,8 +216,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIScrollViewHostObject>(this).always_bounce_horizontal = value;
 }
 
-- (())setDelaysContentTouches:(bool)_value {
-    // TODO
+- (bool)delaysContentTouches {
+    env.objc.borrow::<UIScrollViewHostObject>(this).delays_content_touches
+}
+- (())setDelaysContentTouches:(bool)value {
+    env.objc.borrow_mut::<UIScrollViewHostObject>(this).delays_content_touches = value;
 }
 
 // MARK: - Scroll indicators

@@ -504,6 +504,37 @@ pub fn object_getIvar(env: &mut Environment, object: id, ivar: MutVoidPtr) -> id
     value
 }
 
+/// `Ivar object_getInstanceVariable(id obj, const char *name, void **outValue)`
+///
+/// Classic runtime lookup: finds the named ivar, stores the pointer-sized
+/// value at its offset in `*outValue`, and returns the ivar metadata (or NULL
+/// if the class does not declare it). Used by code that reads outlets through
+/// runtime metadata instead of a compile-time ivar reference.
+/// <https://developer.apple.com/documentation/objectivec/1418639-object_getinstancevariable>
+pub fn object_getInstanceVariable(
+    env: &mut Environment,
+    object: id,
+    name: ConstPtr<u8>,
+    out_value: MutPtr<MutVoidPtr>,
+) -> MutVoidPtr {
+    if !out_value.is_null() {
+        env.mem.write(out_value, MutVoidPtr::null());
+    }
+    if object == nil || name.is_null() {
+        return MutVoidPtr::null();
+    }
+    let class = ObjC::read_isa(object, &env.mem);
+    let ivar = class_getInstanceVariable(env, class, name);
+    if ivar.is_null() {
+        return ivar;
+    }
+    let value = object_ivar_value(&env.objc, &env.mem, object, ivar.cast_const()).unwrap_or(nil);
+    if !out_value.is_null() {
+        env.mem.write(out_value, value.cast());
+    }
+    ivar
+}
+
 /// `void object_setIvar(id obj, Ivar ivar, id value)`
 ///
 /// Classic/ARC runtime primitive that stores an object pointer directly into

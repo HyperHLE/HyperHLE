@@ -41,6 +41,7 @@ pub mod math;
 pub mod mmap;
 pub mod net;
 pub mod netdb;
+pub mod notify;
 pub mod posix_io;
 pub mod pthread;
 pub mod pwd;
@@ -128,6 +129,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         mmap::FUNCTIONS,
         net::if_::FUNCTIONS,
         netdb::FUNCTIONS,
+        notify::FUNCTIONS,
         posix_io::FUNCTIONS,
         posix_io::stat::FUNCTIONS,
         posix_io::statvfs::FUNCTIONS,

@@ -24,6 +24,7 @@ pub mod cf_bundle;
 pub mod cf_data;
 pub mod cf_dictionary;
 pub mod cf_error;
+pub mod cf_file_descriptor;
 pub mod cf_host;
 pub mod cf_net_service;
 pub mod cf_locale;
@@ -46,6 +47,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     aliases: &[],
     class_exports: &[
         cf_run_loop_timer::CLASSES, // Special internal classes.
+        cf_file_descriptor::CLASSES,
         cf_run_loop::CLASSES,
         cf_host::CLASSES,
         cf_net_service::CLASSES,
@@ -74,6 +76,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         cf_array::FUNCTIONS,
         cf_dictionary::FUNCTIONS,
         cf_error::FUNCTIONS,
+        cf_file_descriptor::FUNCTIONS,
         cf_bundle::FUNCTIONS,
         cf_socket::FUNCTIONS,
         cf_data::FUNCTIONS,
