@@ -538,14 +538,20 @@ fn CFRunLoopObserverCreate(
         )
     } else {
         let context = env.mem.read(context);
-        if context.version != 0 {
+        // The context is `#[repr(C, packed)]`; copy each field before using
+        // it so no unaligned reference is formed (e.g. by the log macro).
+        let version = context.version;
+        let info = context.info;
+        let retain_cb = context.retain;
+        let release_cb = context.release;
+        if version != 0 {
             log!(
                 "CFRunLoopObserverCreate: unsupported context version {}, returning null",
-                context.version
+                version
             );
             return nil;
         }
-        (context.info, context.retain, context.release)
+        (info, retain_cb, release_cb)
     };
     let class = env
         .objc

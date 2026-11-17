@@ -77,10 +77,15 @@ fn CFFileDescriptorCreate(
         )
     } else {
         let context = env.mem.read(context);
-        if context.version != 0 {
+        // `CFFileDescriptorContext` is packed; copy fields out before use.
+        let version = context.version;
+        if version != 0 {
             return nil;
         }
-        (context.info, context.retain, context.release)
+        let info = context.info;
+        let retain_cb = context.retain;
+        let release_cb = context.release;
+        (info, retain_cb, release_cb)
     };
     let class = env
         .objc
