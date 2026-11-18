@@ -2278,7 +2278,18 @@ fn unqueue_buffers<F: FnMut(ALuint)>(al_source: ALuint, context: &OpenAL<'_>, mu
                 al::AL_BUFFERS_PROCESSED,
                 &mut al_buffers_processed,
             );
-            assert!(context.GetError() == 0);
+            let err = context.GetError();
+            if err != 0 {
+                // The source can go away while a queue is being torn down
+                // (or the host audio device closes). OpenAL reports that as a
+                // regular error; there is nothing left to unqueue, and a
+                // panic here would take the whole emulator down.
+                log_dbg!(
+                    "unqueue_buffers: GetSourcei({}) failed with AL error {:#x}; stopping",
+                    al_source, err
+                );
+                break;
+            }
         }
         if al_buffers_processed == 0 {
             break;
@@ -2288,7 +2299,14 @@ fn unqueue_buffers<F: FnMut(ALuint)>(al_source: ALuint, context: &OpenAL<'_>, mu
 
         unsafe {
             context.SourceUnqueueBuffers(al_source, 1, &mut al_buffer);
-            assert!(context.GetError() == 0);
+            let err = context.GetError();
+            if err != 0 {
+                log_dbg!(
+                    "unqueue_buffers: SourceUnqueueBuffers({}) failed with AL error {:#x}; stopping",
+                    al_source, err
+                );
+                break;
+            }
         }
 
         callback(al_buffer);
@@ -2717,8 +2735,13 @@ pub fn handle_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
             let mut al_source_state = 0;
 
             context.GetSourcei(al_source, al::AL_SOURCE_STATE, &mut al_source_state);
-            assert!(context.GetError() == 0);
-            if al_source_state == al::AL_STOPPED {
+            let err = context.GetError();
+            if err != 0 {
+                log_dbg!(
+                    "audio queue source {} is no longer valid ({:#x}); skipping restart",
+                    al_source, err
+                );
+            } else if al_source_state == al::AL_STOPPED {
                 context.SourcePlay(al_source);
                 log_dbg!("Restarted OpenAL source for queue {:?}", in_aq);
             }
@@ -2730,7 +2753,15 @@ pub fn handle_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
 
         unsafe {
             context.GetSourcei(al_source, al::AL_SOURCE_STATE, &mut al_source_state);
-            assert!(context.GetError() == 0);
+            let err = context.GetError();
+            if err != 0 {
+                log_dbg!(
+                    "audio queue source {} is no longer valid ({:#x}); completing stop",
+                    al_source, err
+                );
+                finish_stopping_audio_queue(env, in_aq);
+                return;
+            }
         }
 
         if al_source_state == al::AL_STOPPED {
@@ -2881,7 +2912,13 @@ pub fn AudioQueueStart(
         };
         host_object.is_running = AudioQueueIsRunning::Running;
         unsafe { context.SourcePlay(al_source) };
-        assert!(unsafe { context.GetError() } == 0);
+        let err = unsafe { context.GetError() };
+        if err != 0 {
+            log_dbg!(
+                "AudioQueueStart: SourcePlay({}) failed with AL error {:#x}; audio stays silent",
+                al_source, err
+            );
+        }
     } else {
         log!(
             "AudioQueueStart: Unsupported format {:?}, not starting",
@@ -2909,7 +2946,13 @@ pub fn AudioQueuePause(env: &mut Environment, in_aq: AudioQueueRef) -> OSStatus 
 
     if let Some(al_source) = host_object.al_source {
         unsafe { context.SourcePause(al_source) };
-        assert!(unsafe { context.GetError() } == 0);
+        let err = unsafe { context.GetError() };
+        if err != 0 {
+            log_dbg!(
+                "AudioQueuePause: SourcePause({}) failed with AL error {:#x}",
+                al_source, err
+            );
+        }
     }
 
     0 // success
@@ -2994,7 +3037,13 @@ pub fn AudioQueueStop(env: &mut Environment, in_aq: AudioQueueRef, in_immediate:
         };
         if let Some(al_source) = host_object.al_source {
             unsafe { context.SourceStop(al_source) };
-            assert!(unsafe { context.GetError() } == 0);
+            let err = unsafe { context.GetError() };
+            if err != 0 {
+                log_dbg!(
+                    "AudioQueueStop: SourceStop({}) failed with AL error {:#x}",
+                    al_source, err
+                );
+            }
         };
 
         finish_stopping_audio_queue(env, in_aq);
@@ -3036,10 +3085,10 @@ fn AudioQueueReset(env: &mut Environment, in_aq: AudioQueueRef) -> OSStatus {
             let mut al_source_state = 0;
 
             context.GetSourcei(al_source, al::AL_SOURCE_STATE, &mut al_source_state);
-            assert!(context.GetError() == 0);
-            if al_source_state != al::AL_STOPPED {
+            let err = context.GetError();
+            if err == 0 && al_source_state != al::AL_STOPPED {
                 context.SourceStop(al_source);
-                assert!(context.GetError() == 0);
+                let _ = context.GetError();
             }
         }
 
@@ -3144,7 +3193,7 @@ pub fn AudioQueueDispose(
     if let Some(al_source) = host_object.al_source {
         unsafe {
             context.SourceStop(al_source);
-            assert!(context.GetError() == 0);
+            let _ = context.GetError();
         }
 
         unqueue_buffers(al_source, &context, |al_buffer| {
@@ -3156,7 +3205,7 @@ pub fn AudioQueueDispose(
                 host_object.al_unused_buffers.len().try_into().unwrap(),
                 host_object.al_unused_buffers.as_ptr(),
             );
-            assert!(context.GetError() == 0);
+            let _ = context.GetError();
         }
 
         // Free the OpenAL source back to the (finite) source pool. OpenAL Soft
@@ -3175,7 +3224,7 @@ pub fn AudioQueueDispose(
         // so releasing the source here matches the documented behaviour.
         unsafe {
             context.DeleteSources(1, &al_source);
-            assert!(context.GetError() == 0);
+            let _ = context.GetError();
         }
         host_object.al_source = None;
     }

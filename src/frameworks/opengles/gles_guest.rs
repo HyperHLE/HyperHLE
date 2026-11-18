@@ -1788,6 +1788,12 @@ fn glDiscardFramebufferEXT(
     // guest attachment enums (GL_COLOR_EXT / GL_DEPTH_EXT / GL_STENCIL_EXT)
     // share their values with the host extension, so forward them unchanged.
     with_ctx_and_mem(env, |gles, mem| unsafe {
+        // Discarding is only a bandwidth hint; on backends without
+        // GL_EXT_discard_framebuffer there is nothing to forward, and asking
+        // anyway would log an "unimplemented GLES API" warning per frame.
+        if !gles.discard_ext_supported() {
+            return;
+        }
         let n = numAttachments.max(0) as GuestUSize;
         let ptr = if n == 0 || attachments.is_null() {
             std::ptr::null()
