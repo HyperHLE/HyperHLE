@@ -444,5 +444,11 @@ fn test_app() -> Result<(), Box<dyn Error>> {
         "TestApp",
         &extra_compile_args,
         &["--game-center-authenticated"],
+    )?;
+    run_test_app(
+        &tests_dir,
+        "AudioUnitThread",
+        &extra_compile_args,
+        &["--audio-unit-render-thread"],
     )
 }

@@ -262,6 +262,9 @@ pub struct Options {
     /// command line. Apps that legitimately rely on the ES 1.1 fixed-function
     /// pipeline should NOT enable this flag.
     pub prefer_gles2_context: bool,
+    /// Drive Audio Unit rendering on a guest worker thread, independently of
+    /// the main run loop. Opt in for apps that block that loop during startup.
+    pub audio_unit_render_thread: bool,
     /// Break an otherwise-infinite `semaphore_wait()` by returning
     /// KERN_SUCCESS spuriously after this many milliseconds.
     ///
@@ -435,6 +438,7 @@ impl Default for Options {
                 .map(|value| value != "0")
                 .unwrap_or(true),
             prefer_gles2_context: false,
+            audio_unit_render_thread: false,
             mach_semaphore_spurious_wake_ms: None,
             present_rotate: None,
             rotation_fix: false,
@@ -771,6 +775,10 @@ impl Options {
             self.mach_semaphore_spurious_wake_ms = (ms != 0).then_some(ms);
         } else if arg == "--prefer-gles2-context" {
             self.prefer_gles2_context = true;
+        } else if arg == "--audio-unit-render-thread" {
+            self.audio_unit_render_thread = true;
+        } else if arg == "--no-audio-unit-render-thread" {
+            self.audio_unit_render_thread = false;
         } else if arg == "--force-gles1-context" {
             self.force_gles1_context = true;
             // GLES-native backend selection and EAGL both read this env var

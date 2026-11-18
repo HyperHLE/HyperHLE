@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: minecraft-diagnostic-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   linux-arm64:
@@ -45,6 +45,8 @@ jobs:
         run: cargo test --lib --locked
       - name: Build emulator
         run: cargo build --locked
+      - name: Remove debug sections from the downloadable diagnostic
+        run: strip --strip-debug target/debug/touchHLE
       - name: Bundle emulator
         run: cd dev-scripts && ./make-linux-bundle.sh ../target/debug/touchHLE && mv touchHLE_linux_bundle/ ..
       - uses: actions/upload-artifact@v4
@@ -53,45 +55,53 @@ jobs:
           path: touchHLE_linux_bundle/
 
   test-app:
-    runs-on: macos-15-intel
+    runs-on: ubuntu-24.04
+    env:
+      CFLAGS: -std=gnu17
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libasound2-dev libpulse-dev libsndio-dev libdbus-1-dev libudev-dev libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev libxxf86vm-dev libxkbcommon-dev libwayland-dev wayland-protocols libgl1-mesa-dev libegl1-mesa-dev
       - uses: Swatinem/rust-cache@v2
       - uses: actions/cache@v4
-        id: cache-boost
+        id: boost
         with:
           path: vendor/boost
-          key: boost_1_81_0_macos
+          key: boost_1_81_0_linux
       - name: Download Boost
-        if: steps.cache-boost.outputs.cache-hit != 'true'
+        if: steps.boost.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.gz | tar xz -C vendor
           mv vendor/boost_1_81_0 vendor/boost
       - uses: lukka/get-cmake@latest
         with:
           cmakeVersion: "~3.29.0"
-      - name: Try to get cached copy of LLVM
-        id: cache-llvm
-        uses: actions/cache@main
+      - uses: actions/cache@v4
+        id: llvm
         with:
           path: tests/llvm
-          key: llvm_12_0_0_macOS_x64
-
-      - name: Download LLVM
-        if: steps.cache-llvm.outputs.cache-hit != 'true'
-        run: curl -L -O "https://github.com/llvm/llvm-project/releases/download/llvmorg-12.0.0/clang+llvm-12.0.0-x86_64-apple-darwin.tar.xz"
-
-      - name: Extract LLVM
-        if: steps.cache-llvm.outputs.cache-hit != 'true'
-        run: tar -xf clang+llvm-12.0.0-x86_64-apple-darwin.tar.xz && mkdir tests/llvm && mv clang+llvm-12.0.0-x86_64-apple-darwin/* tests/llvm
-
-      - name: Get copy of common-3.0-sdk
-        run: cd tests && curl -L https://github.com/touchHLE/common-3.0-sdk/releases/latest/download/common-3.0.sdk-macOS-universal.tar.gz | tar xzv
-
-      - name: Test
+          key: llvm_12_0_0_linux_x64
+      - name: Install LLVM 12
+        if: steps.llvm.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tests/llvm
+          curl -fsSL https://github.com/llvm/llvm-project/releases/download/llvmorg-12.0.0/clang+llvm-12.0.0-x86_64-linux-gnu-ubuntu-20.04.tar.xz | tar xJ --strip-components=1 -C tests/llvm
+      - name: Install common-3.0 SDK
+        run: curl -fsSL https://github.com/touchHLE/common-3.0-sdk/releases/latest/download/common-3.0.sdk-linux-x86_64.tar.gz | tar xz -C tests
+      - name: Full test suite including TestApp
+        env:
+          ALSOFT_DRIVERS: "null"
         run: cargo test --locked
-        
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: TestApp_diagnostics
+          path: |
+            tests/TestApp.app
+            tests/AudioUnitThread.app

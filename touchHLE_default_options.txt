@@ -344,7 +344,7 @@ com.gamehivecorp.superbattleracers: --landscape-right --gles1=gles1_on_gl2
 com.blackstoneaudio.enhancedaudioplayer.bsa-Animal-Farm: --device-family=ipad --landscape-right --force-composition
 
 # Minecraft: Story Mode
-com.telltalegames.MC100: --device-family=ipad --landscape-left --prefer-gles2-context --landscape-uiscreen-bounds --present-rotate=0 --mach-semaphore-spurious-wake=100
+com.telltalegames.MC100: --device-family=ipad --landscape-left --prefer-gles2-context --landscape-uiscreen-bounds --present-rotate=0 --audio-unit-render-thread
 
 # Deus Ex: The Fall (Unity 4.2 + Mono + Wwise). The spurious-wake breaker (now
 # main-thread-only) times the main thread out of the Wwise/FMOD audio calls that

@@ -119,6 +119,8 @@ impl State {
 #[derive(Clone)]
 pub struct AudioComponentInstanceHostObject {
     pub started: bool,
+    pub initialized: bool,
+    pub render_thread: Option<crate::environment::ThreadId>,
     pub maximum_frames_per_slice: u32,
     pub global_stream_format: AudioStreamBasicDescription,
     pub input_stream_format: Option<AudioStreamBasicDescription>,
@@ -174,6 +176,8 @@ impl Default for AudioComponentInstanceHostObject {
     fn default() -> Self {
         AudioComponentInstanceHostObject {
             started: false,
+            initialized: false,
+            render_thread: None,
             maximum_frames_per_slice: 1024,
             global_stream_format: AudioStreamBasicDescription {
                 sample_rate: 44100.0,

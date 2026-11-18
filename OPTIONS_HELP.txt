@@ -293,6 +293,13 @@ Debugging options:
         file will get truncated (deleted) if it already exists!
 
 Other options:
+    --audio-unit-render-thread / --no-audio-unit-render-thread
+        Drive Audio Unit render callbacks on a guest audio thread so they keep
+        running while the main event loop is blocked. Enabled for Minecraft:
+        Story Mode, whose synchronous FMOD bank load needs audio processing
+        during startup. Disabled globally while the legacy audio path remains
+        in use for other apps.
+
     --preferred-languages=...
         Specifies a list of preferred languages to be reported to the app.
 

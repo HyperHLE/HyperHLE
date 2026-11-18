@@ -464,7 +464,9 @@ pub fn run_run_loop(
             .extend_from_slice(&env.objc.borrow::<NSRunLoopHostObject>(run_loop).audio_units);
 
         for audio_unit in audio_units_tmp.drain(..) {
-            render_audio_unit(env, audio_unit);
+            if !env.options.audio_unit_render_thread {
+                render_audio_unit(env, audio_unit);
+            }
         }
 
         // Process Audio Services completion callbacks. Apple's
