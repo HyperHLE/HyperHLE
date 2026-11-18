@@ -1645,6 +1645,36 @@ int test_sem() {
   return 0;
 }
 
+// https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/man/semaphore_destroy.html
+// Both arguments are ports: destroying the task port instead of the semaphore
+// port used to leave FMOD's semaphore alive and free an invalid guest address.
+extern mach_port_t mach_task_self_;
+extern kern_return_t semaphore_create(mach_port_t task, mach_port_t *semaphore,
+                                     int policy, int value);
+extern kern_return_t semaphore_destroy(mach_port_t task, mach_port_t semaphore);
+extern kern_return_t semaphore_signal(mach_port_t semaphore);
+extern kern_return_t semaphore_wait(mach_port_t semaphore);
+
+int test_mach_semaphore_destroy() {
+  mach_port_t first, second;
+  if (semaphore_create(mach_task_self_, &first, 0, 0) != KERN_SUCCESS ||
+      semaphore_create(mach_task_self_, &second, 0, 1) != KERN_SUCCESS)
+    return 1;
+  if (semaphore_destroy(0, first) != KERN_INVALID_ARGUMENT ||
+      semaphore_destroy(mach_task_self_, 0) != KERN_INVALID_ARGUMENT)
+    return 2;
+  if (semaphore_signal(first) != KERN_SUCCESS ||
+      semaphore_wait(first) != KERN_SUCCESS)
+    return 3;
+  if (semaphore_destroy(mach_task_self_, first) != KERN_SUCCESS)
+    return 4;
+  // Cleanup of the first semaphore must leave the second usable.
+  if (semaphore_wait(second) != KERN_SUCCESS ||
+      semaphore_destroy(mach_task_self_, second) != KERN_SUCCESS)
+    return 5;
+  return 0;
+}
+
 sem_t *mt_semaphore;
 
 void mtsem_thread() {
@@ -6516,6 +6546,7 @@ struct {
     FUNC_DEF(test_atof),
     FUNC_DEF(test_strtof),
     FUNC_DEF(test_sem),
+    FUNC_DEF(test_mach_semaphore_destroy),
     FUNC_DEF(test_mtsem),
     FUNC_DEF(test_thread_suspend_resume),
     FUNC_DEF(test_CGAffineTransform),

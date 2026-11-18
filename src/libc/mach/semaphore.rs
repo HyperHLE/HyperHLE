@@ -272,7 +272,14 @@ fn semaphore_wait(env: &mut Environment, semaphore: semaphore_t) -> kern_return_
     if crate::env_flag_cached!("TOUCHHLE_TRACE_MACHSEM") {
         let ret_lr = env.cpu.regs()[14];
         let ret_pc = env.cpu.regs()[15];
-        log!("MACHSEM t={} wait-exit sem={:?} result={:?} returning-to-lr={:#x} pc={:#x}", env.current_thread, semaphore, result, ret_lr, ret_pc);
+        log!(
+            "MACHSEM t={} wait-exit sem={:?} result={:?} returning-to-lr={:#x} pc={:#x}",
+            env.current_thread,
+            semaphore,
+            result,
+            ret_lr,
+            ret_pc
+        );
     }
     log_dbg!("semaphore_wait({:?}) -> {:?}", semaphore, result);
     result
@@ -352,11 +359,7 @@ fn semaphore_timedwait(
             return KERN_INVALID_ARGUMENT;
         }
         if env.sem_decrement(semaphore, false) {
-            log_dbg!(
-                "semaphore_timedwait({:?}) -> {:?}",
-                semaphore,
-                KERN_SUCCESS
-            );
+            log_dbg!("semaphore_timedwait({:?}) -> {:?}", semaphore, KERN_SUCCESS);
             return KERN_SUCCESS;
         }
         let now = env.guest_clock.now();
@@ -426,11 +429,23 @@ fn semaphore_timedwait_signal(
     result
 }
 
-fn semaphore_destroy(env: &mut Environment, semaphore: semaphore_t) -> kern_return_t {
-    sem_destroy(env, semaphore);
+// https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/man/semaphore_destroy.html
+// The task port comes before the semaphore port. Treating r0 as the semaphore
+// freed the task port instead of the FMOD semaphore passed in r1.
+fn semaphore_destroy(env: &mut Environment, task: task_t, semaphore: semaphore_t) -> kern_return_t {
+    if task != MACH_TASK_SELF || !is_known_semaphore(env, semaphore) {
+        return KERN_INVALID_ARGUMENT;
+    }
+    let result = sem_destroy(env, semaphore);
+    debug_assert_eq!(result, 0);
     env.mem.free(semaphore.cast());
     let result = KERN_SUCCESS;
-    log_dbg!("semaphore_destroy({:?}) -> {:?}", semaphore, result);
+    log_dbg!(
+        "semaphore_destroy({:?}, {:?}) -> {:?}",
+        task,
+        semaphore,
+        result
+    );
     result
 }
 
@@ -444,5 +459,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(semaphore_timedwait(_, _, _)),
     export_c_func!(semaphore_wait_signal(_, _)),
     export_c_func!(semaphore_timedwait_signal(_, _, _, _)),
-    export_c_func!(semaphore_destroy(_)),
+    export_c_func!(semaphore_destroy(_, _)),
 ];
