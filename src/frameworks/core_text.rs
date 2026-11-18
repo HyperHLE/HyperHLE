@@ -38,6 +38,7 @@ use crate::font::{Font, TextAlignment, WrapMode};
 use rusttype::GlyphId;
 use crate::frameworks::core_foundation::{cf_array::CFArrayRef, cf_type::CFTypeRef, CFIndex, CFRange};
 use crate::frameworks::core_foundation::cf_attributed_string::CFAttributedStringRef;
+use crate::frameworks::core_foundation::cf_string::CFStringRef;
 use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
 use crate::frameworks::core_graphics::cg_bitmap_context::{
     CGBitmapContextDrawer, CGBitmapContextGetHeight,
