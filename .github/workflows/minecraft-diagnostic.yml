@@ -1,0 +1,53 @@
+name: Minecraft startup diagnostics
+
+on:
+  push:
+    branches: ["fix/minecraft-story-mode-startup"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minecraft-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    env:
+      CFLAGS: -std=gnu17
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libasound2-dev libpulse-dev libsndio-dev libdbus-1-dev libudev-dev libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev libxxf86vm-dev libxkbcommon-dev libwayland-dev wayland-protocols libgl1-mesa-dev libegl1-mesa-dev
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        id: boost
+        with:
+          path: vendor/boost
+          key: boost_1_81_0_linux_arm64
+      - name: Download Boost
+        if: steps.boost.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.gz | tar xz -C vendor
+          mv vendor/boost_1_81_0 vendor/boost
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "~3.29.0"
+      - name: Run Rust unit tests
+        run: cargo test --lib --locked
+      - name: Build emulator
+        run: cargo build --release --locked
+      - name: Bundle emulator
+        run: cd dev-scripts && ./make-linux-bundle.sh ../target/release/touchHLE && mv touchHLE_linux_bundle/ ..
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HyperHLE_Linux_ARM64_diagnostic
+          path: touchHLE_linux_bundle/
