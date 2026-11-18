@@ -44,11 +44,11 @@ jobs:
       - name: Run Rust unit tests
         run: cargo test --lib --locked
       - name: Build emulator
-        run: cargo build --locked
+        run: cargo build --release --locked
       - name: Remove debug sections from the downloadable diagnostic
-        run: strip --strip-debug target/debug/touchHLE
+        run: strip --strip-debug target/release/touchHLE
       - name: Bundle emulator
-        run: cd dev-scripts && ./make-linux-bundle.sh ../target/debug/touchHLE && mv touchHLE_linux_bundle/ ..
+        run: cd dev-scripts && ./make-linux-bundle.sh ../target/release/touchHLE && mv touchHLE_linux_bundle/ ..
       - uses: actions/upload-artifact@v4
         with:
           name: HyperHLE_Linux_ARM64_diagnostic
