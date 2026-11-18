@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: minecraft-diagnostic-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   linux-arm64:
@@ -44,10 +44,54 @@ jobs:
       - name: Run Rust unit tests
         run: cargo test --lib --locked
       - name: Build emulator
-        run: cargo build --release --locked
+        run: cargo build --locked
       - name: Bundle emulator
-        run: cd dev-scripts && ./make-linux-bundle.sh ../target/release/touchHLE && mv touchHLE_linux_bundle/ ..
+        run: cd dev-scripts && ./make-linux-bundle.sh ../target/debug/touchHLE && mv touchHLE_linux_bundle/ ..
       - uses: actions/upload-artifact@v4
         with:
           name: HyperHLE_Linux_ARM64_diagnostic
           path: touchHLE_linux_bundle/
+
+  test-app:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        id: cache-boost
+        with:
+          path: vendor/boost
+          key: boost_1_81_0_macos
+      - name: Download Boost
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.gz | tar xz -C vendor
+          mv vendor/boost_1_81_0 vendor/boost
+      - uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: "~3.29.0"
+      - name: Try to get cached copy of LLVM
+        id: cache-llvm
+        uses: actions/cache@main
+        with:
+          path: tests/llvm
+          key: llvm_12_0_0_macOS_x64
+
+      - name: Download LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: curl -L -O "https://github.com/llvm/llvm-project/releases/download/llvmorg-12.0.0/clang+llvm-12.0.0-x86_64-apple-darwin.tar.xz"
+
+      - name: Extract LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: tar -xf clang+llvm-12.0.0-x86_64-apple-darwin.tar.xz && mkdir tests/llvm && mv clang+llvm-12.0.0-x86_64-apple-darwin/* tests/llvm
+
+      - name: Get copy of common-3.0-sdk
+        run: cd tests && curl -L https://github.com/touchHLE/common-3.0-sdk/releases/latest/download/common-3.0.sdk-macOS-universal.tar.gz | tar xzv
+
+      - name: Test
+        run: cargo test --locked
+        
